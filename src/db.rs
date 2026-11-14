@@ -27,6 +27,9 @@ CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken_at);
 CREATE INDEX IF NOT EXISTS photos_geo   ON photos(lat, lon);
 ";
 
+/// Версия формата данных (PRAGMA user_version).
+const SCHEMA_VERSION: i32 = 2;
+
 const PHOTO_COLS: &str = "id, path, taken_at, lat, lon, thumb_path";
 
 /// Фото для отображения в UI.
@@ -116,6 +119,13 @@ impl Db {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < SCHEMA_VERSION {
+            // v2: миниатюры стали квадратными — сбрасываем mtime, чтобы сканер их пересоздал.
+            conn.execute_batch(&format!(
+                "UPDATE photos SET mtime = -1; PRAGMA user_version = {SCHEMA_VERSION};"
+            ))?;
+        }
         Ok(Self { conn })
     }
 

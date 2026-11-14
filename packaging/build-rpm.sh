@@ -18,5 +18,11 @@ trap 'rm -rf "$VENDOR_TMP"' EXIT
 cargo vendor --locked --versioned-dirs "$VENDOR_TMP/vendor" > /dev/null
 tar -C "$VENDOR_TMP" -cJf "$TOP/SOURCES/$NAME-$VERSION-vendor.tar.xz" vendor
 
-rpmbuild -bb --define "_topdir $TOP" "$SPEC"
+# Rust из rustup не виден rpm как пакет cargo/rust — тогда не проверяем BuildRequires.
+NODEPS=()
+if ! rpm -q cargo rust > /dev/null 2>&1 && command -v cargo > /dev/null; then
+    echo "cargo/rust установлены не через dnf (rustup?) — rpmbuild --nodeps"
+    NODEPS=(--nodeps)
+fi
+rpmbuild -bb "${NODEPS[@]}" --define "_topdir $TOP" "$SPEC"
 find "$TOP/RPMS" -name "$NAME-*.rpm" -newer "$SPEC"

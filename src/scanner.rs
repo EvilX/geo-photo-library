@@ -51,6 +51,9 @@ pub fn scan(
     if !root.is_dir() {
         bail!("папка {} недоступна", root.display());
     }
+    // Абсолютный канонический путь: иначе `--scan ./lib` и GUI с полным путём
+    // видели бы одну библиотеку как разные файлы и пересканировали её целиком.
+    let root = &root.canonicalize()?;
     std::fs::create_dir_all(thumbs_dir)?;
     let mut db = Db::open(db_path)?;
     let known = db.known_files()?;
