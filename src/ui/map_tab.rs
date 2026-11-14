@@ -1,6 +1,9 @@
 //! Вкладка «Карта»: OSM-карта с превью-маркерами (кластеризация) и список фото
 //! в видимой области, отсортированный по дате.
-use super::{photo_grid::PhotoGrid, textures::TextureCache};
+use super::{
+    photo_grid::PhotoGrid,
+    textures::{set_thumbnail, TextureCache},
+};
 use crate::{
     db::{Db, Photo},
     geo, trace,
@@ -55,7 +58,7 @@ impl MapTab {
         let layer = shumate::MarkerLayer::new(&viewport);
         simple_map.add_overlay_layer(&layer);
 
-        let grid = PhotoGrid::new(cache.clone(), 100);
+        let grid = PhotoGrid::new(cache.clone(), 100, 4);
         let info = gtk::Label::new(None);
         info.set_xalign(0.0);
         info.add_css_class("pane-title");
@@ -226,8 +229,12 @@ impl MapTab {
             let _t = trace::span(format!("  список: {} фото", ids.len()));
             let selected = self.grid.selected_photo().map(|p| p.id);
             self.suppress_center.set(true);
-            self.grid.set_photos(&visible);
+            {
+                let _t = trace::span("    set_photos");
+                self.grid.set_photos(&visible);
+            }
             if let Some(id) = selected {
+                let _t = trace::span("    select_id");
                 self.grid.select_id(id);
             }
             self.suppress_center.set(false);
@@ -245,10 +252,7 @@ impl MapTab {
         let cover = members[0];
         let image = gtk::Image::new();
         image.set_pixel_size(MARKER_SIZE);
-        match cover.thumb_path.as_deref().and_then(|p| self.cache.square(p, MARKER_SIZE * 2)) {
-            Some(t) => image.set_paintable(Some(&t)),
-            None => image.set_icon_name(Some("image-x-generic-symbolic")),
-        }
+        set_thumbnail(&self.cache, &image, cover.thumb_path.as_deref(), || true);
         image.add_css_class("map-thumb");
         image.set_overflow(gtk::Overflow::Hidden);
         // Место под бейдж в правом верхнем углу.

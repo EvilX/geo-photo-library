@@ -148,7 +148,7 @@ impl DatesTab {
             .vexpand(true)
             .build();
 
-        let grid = PhotoGrid::new(cache, 160);
+        let grid = PhotoGrid::new(cache, 160, 12);
         let title = gtk::Label::new(None);
         title.set_xalign(0.0);
         title.add_css_class("pane-title");
