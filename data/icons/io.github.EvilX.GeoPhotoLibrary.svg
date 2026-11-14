@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a9be0"/>
+      <stop offset="1" stop-color="#1d5fa6"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffcf73"/>
+      <stop offset="1" stop-color="#ff9f5a"/>
+    </linearGradient>
+    <clipPath id="globe"><rect x="8" y="12" width="112" height="104" rx="22"/></clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Карта мира -->
+  <rect x="8" y="12" width="112" height="104" rx="22" fill="url(#ocean)"/>
+  <g clip-path="url(#globe)">
+    <g stroke="#fff" stroke-opacity="0.18" stroke-width="1" fill="none">
+      <path d="M8 38H120M8 64H120M8 90H120"/>
+      <path d="M36 12V116M64 12V116M92 12V116"/>
+    </g>
+    <g fill="#a8d98f" stroke="#7fb86a" stroke-width="1" stroke-linejoin="round">
+      <!-- Северная Америка -->
+      <path d="M16 32C24 24 40 21 52 25L56 31L50 37L47 46L40 50L36 45L28 43L22 38Z"/>
+      <!-- Гренландия -->
+      <path d="M56 19L66 18L67 24L60 28L55 24Z"/>
+      <!-- Южная Америка -->
+      <path d="M40 54L50 56L55 63L50 76L46 90L42 82L40 68Z"/>
+      <!-- Европа -->
+      <path d="M64 27L74 24L79 29L74 34L67 35L63 32Z"/>
+      <!-- Африка -->
+      <path d="M62 39L76 38L82 46L79 57L73 70L68 66L65 53L60 46Z"/>
+      <!-- Азия -->
+      <path d="M78 24C90 19 106 20 114 27L112 37L104 42L97 49L89 45L82 37L78 31Z"/>
+      <!-- Австралия -->
+      <path d="M98 66L108 64L113 70L107 77L98 75Z"/>
+    </g>
+  </g>
+
+  <!-- Фотография сверху -->
+  <g transform="rotate(-8 82 82)" filter="url(#shadow)">
+    <rect x="52" y="56" width="62" height="52" rx="5" fill="#fff"/>
+    <rect x="57" y="61" width="52" height="38" rx="2" fill="url(#sky)"/>
+    <circle cx="97" cy="70" r="5" fill="#fff4c9"/>
+    <path d="M57 99L72 78L82 90L89 82L109 99Z" fill="#3e7d4f"/>
+    <path d="M72 78L76 84L72 83L68 84Z" fill="#fff" fill-opacity="0.8"/>
+  </g>
+
+  <!-- Метка геопозиции -->
+  <g filter="url(#shadow)">
+    <path d="M104 34C97 34 92 39 92 45.5C92 54 104 64 104 64S116 54 116 45.5C116 39 111 34 104 34Z" fill="#e5363b"/>
+    <circle cx="104" cy="45.5" r="4.5" fill="#fff"/>
+  </g>
+</svg>

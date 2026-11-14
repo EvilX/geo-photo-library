@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Geo photo library
+GenericName=Photo Catalog
+GenericName[ru]=Каталог фотографий
+Comment=Browse photos by date and on a world map
+Comment[ru]=Просмотр фотографий по датам и на карте мира
+Exec=geo-photo-library
+Icon=io.github.EvilX.GeoPhotoLibrary
+Terminal=false
+Categories=Graphics;Photography;GTK;
+Keywords=photo;map;gps;exif;catalog;фото;карта;
+StartupNotify=true

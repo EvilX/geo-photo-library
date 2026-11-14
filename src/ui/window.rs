@@ -31,6 +31,13 @@ pub fn build(app: &gtk::Application) {
         return;
     }
     load_css();
+    gtk::Window::set_default_icon_name(crate::APP_ID);
+    // При запуске через cargo иконка ещё не установлена в систему.
+    #[cfg(debug_assertions)]
+    if let Some(display) = gdk::Display::default() {
+        gtk::IconTheme::for_display(&display)
+            .add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
+    }
     let started = std::time::Instant::now();
     let build_span = trace::span("window.build");
 
