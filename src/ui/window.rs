@@ -1,0 +1,268 @@
+//! Главное окно: две вкладки, настройки, фоновое сканирование.
+use super::{dates_tab::DatesTab, map_tab::MapTab, settings, textures::TextureCache, CSS};
+use crate::{config::Config, db::Db, paths, scanner, trace};
+use gtk::{gdk, glib, prelude::*};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+enum ScanEvent {
+    Progress(usize, usize),
+    Finished(Result<scanner::ScanStats, String>),
+}
+
+struct App {
+    window: gtk::ApplicationWindow,
+    config: RefCell<Config>,
+    db: Rc<Db>,
+    cache: Rc<TextureCache>,
+    dates: Rc<DatesTab>,
+    map: Rc<MapTab>,
+    progress: gtk::ProgressBar,
+    status: gtk::Label,
+    rescan: gtk::Button,
+    scanning: Cell<bool>,
+}
+
+pub fn build(app: &gtk::Application) {
+    if let Some(w) = app.active_window() {
+        w.present();
+        return;
+    }
+    load_css();
+    let started = std::time::Instant::now();
+    let build_span = trace::span("window.build");
+
+    let db = match Db::open(&paths::db_path()) {
+        Ok(db) => Rc::new(db),
+        Err(e) => {
+            eprintln!("Не удалось открыть БД {}: {e:#}", paths::db_path().display());
+            return;
+        }
+    };
+    let cache = Rc::new(TextureCache::default());
+    let dates = DatesTab::new(db.clone(), cache.clone());
+    let map = MapTab::new(db.clone(), cache.clone());
+
+    let stack = gtk::Stack::new();
+    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    stack.add_titled(&dates.root, Some("dates"), "По датам");
+    stack.add_titled(&map.root, Some("map"), "Карта");
+    let switcher = gtk::StackSwitcher::new();
+    switcher.set_stack(Some(&stack));
+
+    let settings_btn = gtk::Button::from_icon_name("emblem-system-symbolic");
+    settings_btn.set_tooltip_text(Some("Настройки"));
+    let rescan = gtk::Button::from_icon_name("view-refresh-symbolic");
+    rescan.set_tooltip_text(Some("Пересканировать библиотеку"));
+    let progress = gtk::ProgressBar::new();
+    progress.set_valign(gtk::Align::Center);
+    progress.set_size_request(120, -1);
+    progress.set_visible(false);
+    let status = gtk::Label::new(None);
+    status.add_css_class("dim-label");
+
+    let header = gtk::HeaderBar::new();
+    header.set_title_widget(Some(&switcher));
+    header.pack_end(&settings_btn);
+    header.pack_end(&rescan);
+    header.pack_start(&progress);
+    header.pack_start(&status);
+
+    let window = gtk::ApplicationWindow::builder()
+        .application(app)
+        .title("Geo photo library")
+        .default_width(1280)
+        .default_height(820)
+        .child(&stack)
+        .build();
+    window.set_titlebar(Some(&header));
+
+    let state = Rc::new(App {
+        window,
+        config: RefCell::new(Config::load()),
+        db,
+        cache,
+        dates,
+        map,
+        progress,
+        status,
+        rescan: rescan.clone(),
+        scanning: Cell::new(false),
+    });
+
+    let s = state.clone();
+    settings_btn.connect_clicked(move |_| open_settings(&s));
+    let s = state.clone();
+    rescan.connect_clicked(move |_| start_scan(&s));
+
+    state.window.present();
+    reload(&state);
+    drop(build_span);
+    let first = Cell::new(true);
+    state.window.add_tick_callback(move |_, _| {
+        if first.replace(false) && trace::enabled() {
+            eprintln!("[trace] первый кадр через {:.1} мс", started.elapsed().as_secs_f64() * 1000.0);
+        }
+        glib::ControlFlow::Break
+    });
+    if state.config.borrow().library_path.is_some() {
+        start_scan(&state);
+    } else {
+        open_settings(&state);
+    }
+    debug_screenshot(&state.window, &stack);
+    debug_bench(&state, &stack);
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_BENCH=1` — прогон зумов карты 2…18 вокруг первого фото и выход.
+fn debug_bench(state: &Rc<App>, stack: &gtk::Stack) {
+    if std::env::var_os("GEO_PHOTO_LIBRARY_BENCH").is_none() {
+        return;
+    }
+    stack.set_visible_child_name("map");
+    let steps: Rc<RefCell<Vec<f64>>> = Rc::new(RefCell::new(vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0]));
+    let state = state.clone();
+    glib::timeout_add_local(std::time::Duration::from_millis(1500), move || {
+        let next = steps.borrow_mut().pop();
+        match (next, state.map.first_photo_coords()) {
+            (Some(z), Some((lat, lon))) => {
+                eprintln!("[bench] зум {z}");
+                state.map.jump_to(lat, lon, z);
+                glib::ControlFlow::Continue
+            }
+            _ => {
+                if let Some(app) = state.window.application() {
+                    app.quit();
+                }
+                glib::ControlFlow::Break
+            }
+        }
+    });
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_SCREENSHOT=out.png [GEO_PHOTO_LIBRARY_TAB=map]` — через несколько
+/// секунд отрисовать окно в PNG и выйти.
+fn debug_screenshot(window: &gtk::ApplicationWindow, stack: &gtk::Stack) {
+    let Ok(path) = std::env::var("GEO_PHOTO_LIBRARY_SCREENSHOT") else { return };
+    if let Ok(tab) = std::env::var("GEO_PHOTO_LIBRARY_TAB") {
+        stack.set_visible_child_name(&tab);
+    }
+    let delay = std::env::var("GEO_PHOTO_LIBRARY_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(6);
+    let w = window.clone();
+    glib::timeout_add_seconds_local_once(delay, move || {
+        let paintable = gtk::WidgetPaintable::new(Some(&w));
+        let snapshot = gtk::Snapshot::new();
+        paintable.snapshot(&snapshot, w.width() as f64, w.height() as f64);
+        if let (Some(node), Some(renderer)) = (snapshot.to_node(), w.renderer()) {
+            if let Err(e) = renderer.render_texture(&node, None).save_to_png(&path) {
+                eprintln!("скриншот: {e}");
+            }
+        }
+        if let Some(app) = w.application() {
+            app.quit();
+        }
+    });
+}
+
+fn load_css() {
+    let provider = gtk::CssProvider::new();
+    provider.load_from_string(CSS);
+    if let Some(display) = gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+fn reload(state: &Rc<App>) {
+    state.dates.reload();
+    state.map.reload();
+    if !state.scanning.get() {
+        let n = state.db.count().unwrap_or(0);
+        state.status.set_text(&format!("{n} фото"));
+    }
+}
+
+fn open_settings(state: &Rc<App>) {
+    let current = state.config.borrow().library_path.clone();
+    let s = state.clone();
+    settings::show(&state.window, current.as_deref(), move |path| {
+        let changed = s.config.borrow().library_path.as_ref() != Some(&path);
+        s.config.borrow_mut().library_path = Some(path);
+        if let Err(e) = s.config.borrow().save() {
+            eprintln!("Не удалось сохранить настройки: {e:#}");
+        }
+        if changed {
+            start_scan(&s);
+        }
+    });
+}
+
+fn start_scan(state: &Rc<App>) {
+    if state.scanning.get() {
+        return;
+    }
+    let Some(root) = state.config.borrow().library_path.clone() else {
+        open_settings(state);
+        return;
+    };
+    state.scanning.set(true);
+    state.rescan.set_sensitive(false);
+    state.progress.set_fraction(0.0);
+    state.progress.set_visible(true);
+    state.status.set_text("Поиск фотографий…");
+
+    let (tx, rx) = async_channel::unbounded::<ScanEvent>();
+    std::thread::spawn(move || {
+        let progress_tx = tx.clone();
+        let progress = move |done: usize, total: usize| {
+            let _ = progress_tx.send_blocking(ScanEvent::Progress(done, total));
+        };
+        let res = scanner::scan(&paths::db_path(), &root, &paths::thumbs_dir(), &progress)
+            .map_err(|e| format!("{e:#}"));
+        let _ = tx.send_blocking(ScanEvent::Finished(res));
+    });
+
+    let state = state.clone();
+    glib::spawn_future_local(async move {
+        while let Ok(ev) = rx.recv().await {
+            match ev {
+                ScanEvent::Progress(done, total) => {
+                    if total > 0 {
+                        state.progress.set_fraction(done as f64 / total as f64);
+                        state.status.set_text(&format!("Обработка {done} / {total}"));
+                    }
+                }
+                ScanEvent::Finished(res) => {
+                    state.scanning.set(false);
+                    state.rescan.set_sensitive(true);
+                    state.progress.set_visible(false);
+                    match res {
+                        Ok(s) => {
+                            if s.added + s.updated > 0 {
+                                // Миниатюры обновлённых файлов перезаписаны по тем же путям.
+                                state.cache.clear();
+                            }
+                            reload(&state);
+                            if s.added + s.updated + s.removed > 0 {
+                                state.status.set_text(&format!(
+                                    "{} фото (новых {}, изменено {}, удалено {})",
+                                    s.found, s.added, s.updated, s.removed
+                                ));
+                            }
+                        }
+                        Err(e) => {
+                            reload(&state);
+                            state.status.set_text(&format!("Ошибка сканирования: {e}"));
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}

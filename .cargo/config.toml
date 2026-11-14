@@ -1,0 +1,3 @@
+# Homebrew pkg-config не видит системные .pc файлы Fedora — используем системный.
+[env]
+PKG_CONFIG = "/usr/bin/pkg-config"
