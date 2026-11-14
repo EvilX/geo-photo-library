@@ -5,7 +5,11 @@ use crate::{
     trace,
 };
 use gtk::{gio, glib, prelude::*};
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashSet,
+    rc::Rc,
+};
 
 const MONTHS: [&str; 12] = [
     "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -24,7 +28,18 @@ struct DateNode {
     count: u32,
 }
 
+/// Идентификатор узла дерева: (год, месяц, день).
+type NodeKey = (i32, Option<u32>, Option<u32>);
+
 impl DateNode {
+    fn key(&self) -> NodeKey {
+        (self.year, self.month, self.day)
+    }
+
+    fn of_row(row: &gtk::TreeListRow) -> Option<Self> {
+        Some(*row.item().and_downcast::<glib::BoxedAnyObject>()?.borrow::<DateNode>())
+    }
+
     fn label(&self) -> String {
         match (self.month, self.day) {
             (Some(m), Some(d)) => format!("{d} {}", MONTHS_GEN[m as usize - 1]),
@@ -90,9 +105,14 @@ pub struct DatesTab {
     db: Rc<Db>,
     counts: Rc<RefCell<Vec<DateCount>>>,
     years: gio::ListStore,
+    tree: gtk::TreeListModel,
     tree_selection: gtk::SingleSelection,
     title: gtk::Label,
     grid: PhotoGrid,
+    /// Не реагировать на смену выбора, пока дерево перестраивается.
+    rebuilding: Cell<bool>,
+    /// Что сейчас показано в сетке: узел и число фото — чтобы не перезагружать то же самое.
+    shown: Cell<Option<(NodeKey, u32)>>,
 }
 
 impl DatesTab {
@@ -104,7 +124,7 @@ impl DatesTab {
             let node = *obj.downcast_ref::<glib::BoxedAnyObject>()?.borrow::<DateNode>();
             children(&c.borrow(), node)
         });
-        let tree_selection = gtk::SingleSelection::new(Some(tree));
+        let tree_selection = gtk::SingleSelection::new(Some(tree.clone()));
 
         let factory = gtk::SignalListItemFactory::new();
         factory.connect_setup(|_, item| {
@@ -164,18 +184,33 @@ impl DatesTab {
         root.set_shrink_start_child(false);
         root.set_position(240);
 
-        let this = Rc::new(Self { root, db, counts, years, tree_selection, title, grid });
+        let this = Rc::new(Self {
+            root,
+            db,
+            counts,
+            years,
+            tree,
+            tree_selection,
+            title,
+            grid,
+            rebuilding: Cell::new(false),
+            shown: Cell::new(None),
+        });
         let weak = Rc::downgrade(&this);
         this.tree_selection.connect_selected_item_notify(move |_| {
             if let Some(t) = weak.upgrade() {
-                t.load_selected();
+                if !t.rebuilding.get() {
+                    t.load_selected(false);
+                }
             }
         });
         this
     }
 
-    /// Перечитать дерево дат из БД (после сканирования).
-    pub fn reload(&self) {
+    /// Перечитать дерево дат из БД. Раскрытые узлы и выбранная дата сохраняются;
+    /// сетка перезагружается, только если у выбранной даты изменилось число фото
+    /// или `force` (после сканирования — миниатюры могли пересоздаться).
+    pub fn reload(&self, force: bool) {
         let _t = trace::span("dates.reload");
         let counts = self.db.date_counts().unwrap_or_else(|e| {
             eprintln!("БД: {e:#}");
@@ -189,25 +224,53 @@ impl DatesTab {
             count: 0,
         });
         years.reverse();
+
+        let expanded: HashSet<NodeKey> = (0..self.tree.n_items())
+            .filter_map(|i| self.tree.row(i))
+            .filter(|r| r.is_expanded())
+            .filter_map(|r| DateNode::of_row(&r).map(|n| n.key()))
+            .collect();
+        let selected = self.selected_node().map(|n| n.key());
+
+        self.rebuilding.set(true);
         *self.counts.borrow_mut() = counts;
         let objs: Vec<glib::BoxedAnyObject> = years.into_iter().map(glib::BoxedAnyObject::new).collect();
         self.years.splice(0, self.years.n_items(), &objs);
-        self.load_selected();
+        // Раскрытие узла вставляет детей сразу после него — они тоже будут обойдены.
+        let mut i = 0;
+        while i < self.tree.n_items() {
+            if let Some(node) = self.tree.row(i).and_then(|r| {
+                let n = DateNode::of_row(&r)?;
+                if expanded.contains(&n.key()) {
+                    r.set_expanded(true);
+                }
+                Some(n)
+            }) {
+                if Some(node.key()) == selected {
+                    self.tree_selection.set_selected(i);
+                }
+            }
+            i += 1;
+        }
+        self.rebuilding.set(false);
+        self.load_selected(force);
     }
 
-    fn load_selected(&self) {
-        let node = self
-            .tree_selection
-            .selected_item()
-            .and_downcast::<gtk::TreeListRow>()
-            .and_then(|r| r.item())
-            .and_downcast::<glib::BoxedAnyObject>()
-            .map(|o| *o.borrow::<DateNode>());
-        let Some(node) = node else {
+    fn selected_node(&self) -> Option<DateNode> {
+        DateNode::of_row(&self.tree_selection.selected_item().and_downcast::<gtk::TreeListRow>()?)
+    }
+
+    fn load_selected(&self, force: bool) {
+        let Some(node) = self.selected_node() else {
+            self.shown.set(None);
             self.title.set_text("Нет фотографий");
             self.grid.set_photos(&[]);
             return;
         };
+        if !force && self.shown.get() == Some((node.key(), node.count)) {
+            return;
+        }
+        self.shown.set(Some((node.key(), node.count)));
         let _t = trace::span(format!("dates.load {}", node.title()));
         let photos = self.db.photos_by_date(node.year, node.month, node.day).unwrap_or_default();
         self.title.set_text(&format!("{} — {} фото", node.title(), photos.len()));

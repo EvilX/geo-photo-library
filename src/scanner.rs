@@ -8,12 +8,25 @@ use rayon::prelude::*;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
     time::UNIX_EPOCH,
 };
 use walkdir::{DirEntry, WalkDir};
 
 pub const EXTENSIONS: &[&str] = &["jpg", "jpeg", "heic", "heif", "png", "webp", "tif", "tiff", "dng"];
 const CHUNK: usize = 64;
+
+/// Сканирование отменено (см. флаг `cancel` в [`scan`]).
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("сканирование отменено")
+    }
+}
+
+impl std::error::Error for Cancelled {}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScanStats {
@@ -39,13 +52,17 @@ struct Todo {
     mtime: i64,
 }
 
-/// `progress(done, total)` вызывается из рабочего потока.
+/// `progress(done, total)` вызывается из рабочего потока. Если выставить `cancel`,
+/// сканирование остановится между пачками файлов с ошибкой [`Cancelled`]; уже
+/// обработанные файлы остаются в БД.
 pub fn scan(
     db_path: &Path,
     root: &Path,
     thumbs_dir: &Path,
     progress: &(dyn Fn(usize, usize) + Sync),
+    cancel: &AtomicBool,
 ) -> Result<ScanStats> {
+    let check = || if cancel.load(Ordering::Relaxed) { Err(Cancelled) } else { Ok(()) };
     // Если папка недоступна (например, не подключён диск), не трогаем БД —
     // иначе все записи были бы удалены как «пропавшие».
     if !root.is_dir() {
@@ -67,6 +84,7 @@ pub fn scan(
         .filter_entry(|e| !is_hidden(e))
         .filter_map(Result::ok)
     {
+        check()?;
         if !entry.file_type().is_file() || !is_supported(entry.path()) {
             continue;
         }
@@ -98,6 +116,7 @@ pub fn scan(
     progress(0, total);
     let mut done = 0;
     for chunk in todo.chunks(CHUNK) {
+        check()?;
         let records: Vec<NewPhoto> = chunk.par_iter().map(|t| process(t, thumbs_dir)).collect();
         db.upsert(&records)?;
         done += chunk.len();
@@ -163,6 +182,8 @@ mod tests {
         let db = base.join("db.sqlite");
         let th = base.join("thumbs");
         let noop = |_: usize, _: usize| {};
+        let go = AtomicBool::new(false);
+        let scan = |db: &Path, lib: &Path, th: &Path, p: &(dyn Fn(usize, usize) + Sync)| super::scan(db, lib, th, p, &go);
 
         let s = scan(&db, &lib, &th, &noop).unwrap();
         assert_eq!((s.found, s.added, s.updated, s.removed), (2, 2, 0, 0));
@@ -175,6 +196,10 @@ mod tests {
         assert_eq!(std::fs::read_dir(&th).unwrap().count(), 1);
 
         assert!(scan(&db, &base.join("missing"), &th, &noop).is_err());
+
+        let stop = AtomicBool::new(true);
+        let err = super::scan(&db, &lib, &th, &noop, &stop).unwrap_err();
+        assert!(err.is::<Cancelled>());
         std::fs::remove_dir_all(&base).ok();
     }
 }

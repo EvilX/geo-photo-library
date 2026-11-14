@@ -140,15 +140,19 @@ impl MapTab {
         self.photos.borrow().iter().find_map(Photo::coords)
     }
 
-    pub fn reload(self: &Rc<Self>) {
+    /// Перечитать фото с координатами. Без `force` маркеры и список перестраиваются,
+    /// только если изменился их состав.
+    pub fn reload(self: &Rc<Self>, force: bool) {
         let _t = trace::span("map.reload");
         let photos = self.db.geotagged().unwrap_or_else(|e| {
             eprintln!("БД: {e:#}");
             Vec::new()
         });
         *self.photos.borrow_mut() = photos;
-        self.cluster_sig.borrow_mut().clear();
-        self.visible_ids.borrow_mut().clear();
+        if force {
+            self.cluster_sig.borrow_mut().clear();
+            self.visible_ids.borrow_mut().clear();
+        }
         if !self.fitted.get() {
             self.fit_all();
         }

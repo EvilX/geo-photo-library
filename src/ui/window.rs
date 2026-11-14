@@ -5,11 +5,20 @@ use gtk::{gdk, glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
 };
+
+/// Как часто подгружать в интерфейс уже обработанные фото во время сканирования.
+const PARTIAL_RELOAD: Duration = Duration::from_secs(3);
 
 enum ScanEvent {
     Progress(usize, usize),
     Finished(Result<scanner::ScanStats, String>),
+    Cancelled,
 }
 
 struct App {
@@ -23,6 +32,11 @@ struct App {
     status: gtk::Label,
     rescan: gtk::Button,
     scanning: Cell<bool>,
+    /// Флаг отмены текущего сканирования.
+    cancel: RefCell<Option<Arc<AtomicBool>>>,
+    /// Запустить сканирование заново после окончания текущего (сменилась папка).
+    rescan_pending: Cell<bool>,
+    last_partial_reload: Cell<Instant>,
 }
 
 pub fn build(app: &gtk::Application) {
@@ -97,6 +111,9 @@ pub fn build(app: &gtk::Application) {
         status,
         rescan: rescan.clone(),
         scanning: Cell::new(false),
+        cancel: RefCell::default(),
+        rescan_pending: Cell::new(false),
+        last_partial_reload: Cell::new(Instant::now()),
     });
 
     let s = state.clone();
@@ -105,7 +122,7 @@ pub fn build(app: &gtk::Application) {
     rescan.connect_clicked(move |_| start_scan(&s));
 
     state.window.present();
-    reload(&state);
+    reload(&state, true);
     drop(build_span);
     let first = Cell::new(true);
     state.window.add_tick_callback(move |_, _| {
@@ -121,6 +138,18 @@ pub fn build(app: &gtk::Application) {
     }
     debug_screenshot(&state.window, &stack);
     debug_bench(&state, &stack);
+    debug_switch(&state);
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_DEBUG_SWITCH=<папка>` — через 3 с сменить папку
+/// библиотеки, как из настроек (проверка смены папки во время сканирования).
+fn debug_switch(state: &Rc<App>) {
+    let Some(path) = std::env::var_os("GEO_PHOTO_LIBRARY_DEBUG_SWITCH") else { return };
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(3, move || {
+        eprintln!("[debug] смена папки, сканирование идёт: {}", state.scanning.get());
+        set_library(&state, path.into());
+    });
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_BENCH=1` — прогон зумов карты 2…18 вокруг первого фото и выход.
@@ -185,9 +214,12 @@ fn load_css() {
     }
 }
 
-fn reload(state: &Rc<App>) {
-    state.dates.reload();
-    state.map.reload();
+/// Перечитать данные из БД. `force` — перерисовать всё (после сканирования, когда
+/// миниатюры могли пересоздаться); иначе сохраняются раскрытые узлы, выбор и
+/// не перестраивается то, что не изменилось.
+fn reload(state: &Rc<App>, force: bool) {
+    state.dates.reload(force);
+    state.map.reload(force);
     if !state.scanning.get() {
         let n = state.db.count().unwrap_or(0);
         state.status.set_text(&format!("{n} фото"));
@@ -197,20 +229,31 @@ fn reload(state: &Rc<App>) {
 fn open_settings(state: &Rc<App>) {
     let current = state.config.borrow().library_path.clone();
     let s = state.clone();
-    settings::show(&state.window, current.as_deref(), move |path| {
-        let changed = s.config.borrow().library_path.as_ref() != Some(&path);
-        s.config.borrow_mut().library_path = Some(path);
-        if let Err(e) = s.config.borrow().save() {
-            eprintln!("Не удалось сохранить настройки: {e:#}");
-        }
-        if changed {
-            start_scan(&s);
-        }
-    });
+    settings::show(&state.window, current.as_deref(), move |path| set_library(&s, path));
+}
+
+/// Сменить папку библиотеки: сохранить настройки и пересканировать
+/// (текущее сканирование, если идёт, отменяется).
+fn set_library(state: &Rc<App>, path: std::path::PathBuf) {
+    let changed = state.config.borrow().library_path.as_ref() != Some(&path);
+    state.config.borrow_mut().library_path = Some(path);
+    if let Err(e) = state.config.borrow().save() {
+        eprintln!("Не удалось сохранить настройки: {e:#}");
+    }
+    if changed {
+        start_scan(state);
+    }
 }
 
 fn start_scan(state: &Rc<App>) {
     if state.scanning.get() {
+        // Например, во время стартового сканирования сменили папку: останавливаем
+        // текущее и запускаем заново, когда оно завершится.
+        state.rescan_pending.set(true);
+        if let Some(cancel) = state.cancel.borrow().as_ref() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        state.status.set_text("Остановка текущего сканирования…");
         return;
     }
     let Some(root) = state.config.borrow().library_path.clone() else {
@@ -222,6 +265,9 @@ fn start_scan(state: &Rc<App>) {
     state.progress.set_fraction(0.0);
     state.progress.set_visible(true);
     state.status.set_text("Поиск фотографий…");
+    state.last_partial_reload.set(Instant::now());
+    let cancel = Arc::new(AtomicBool::new(false));
+    *state.cancel.borrow_mut() = Some(cancel.clone());
 
     let (tx, rx) = async_channel::unbounded::<ScanEvent>();
     std::thread::spawn(move || {
@@ -229,9 +275,11 @@ fn start_scan(state: &Rc<App>) {
         let progress = move |done: usize, total: usize| {
             let _ = progress_tx.send_blocking(ScanEvent::Progress(done, total));
         };
-        let res = scanner::scan(&paths::db_path(), &root, &paths::thumbs_dir(), &progress)
-            .map_err(|e| format!("{e:#}"));
-        let _ = tx.send_blocking(ScanEvent::Finished(res));
+        let ev = match scanner::scan(&paths::db_path(), &root, &paths::thumbs_dir(), &progress, &cancel) {
+            Err(e) if e.is::<scanner::Cancelled>() => ScanEvent::Cancelled,
+            res => ScanEvent::Finished(res.map_err(|e| format!("{e:#}"))),
+        };
+        let _ = tx.send_blocking(ev);
     });
 
     let state = state.clone();
@@ -239,22 +287,33 @@ fn start_scan(state: &Rc<App>) {
         while let Ok(ev) = rx.recv().await {
             match ev {
                 ScanEvent::Progress(done, total) => {
-                    if total > 0 {
+                    if total > 0 && !state.rescan_pending.get() {
                         state.progress.set_fraction(done as f64 / total as f64);
                         state.status.set_text(&format!("Обработка {done} / {total}"));
                     }
+                    // Длинное сканирование: показываем уже обработанные фото.
+                    if state.last_partial_reload.get().elapsed() >= PARTIAL_RELOAD {
+                        state.last_partial_reload.set(Instant::now());
+                        reload(&state, false);
+                    }
+                }
+                ScanEvent::Cancelled => {
+                    finish_scan(&state);
+                    break;
                 }
                 ScanEvent::Finished(res) => {
-                    state.scanning.set(false);
-                    state.rescan.set_sensitive(true);
-                    state.progress.set_visible(false);
+                    finish_scan(&state);
+                    if state.scanning.get() {
+                        // Уже запущено новое сканирование (сменилась папка).
+                        break;
+                    }
                     match res {
                         Ok(s) => {
                             if s.added + s.updated > 0 {
                                 // Миниатюры обновлённых файлов перезаписаны по тем же путям.
                                 state.cache.clear();
                             }
-                            reload(&state);
+                            reload(&state, true);
                             if s.added + s.updated + s.removed > 0 {
                                 state.status.set_text(&format!(
                                     "{} фото (новых {}, изменено {}, удалено {})",
@@ -263,7 +322,7 @@ fn start_scan(state: &Rc<App>) {
                             }
                         }
                         Err(e) => {
-                            reload(&state);
+                            reload(&state, true);
                             state.status.set_text(&format!("Ошибка сканирования: {e}"));
                         }
                     }
@@ -272,4 +331,15 @@ fn start_scan(state: &Rc<App>) {
             }
         }
     });
+}
+
+/// Общая часть завершения/отмены; перезапускает сканирование, если оно было запрошено.
+fn finish_scan(state: &Rc<App>) {
+    state.scanning.set(false);
+    state.cancel.borrow_mut().take();
+    state.rescan.set_sensitive(true);
+    state.progress.set_visible(false);
+    if state.rescan_pending.replace(false) {
+        start_scan(state);
+    }
 }

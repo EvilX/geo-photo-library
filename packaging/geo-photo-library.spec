@@ -4,7 +4,7 @@
 
 Name:           geo-photo-library
 Version:        0.1
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
 License:        LicenseRef-Unspecified
@@ -61,5 +61,10 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Sat Nov 14 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.1-2
+- Смена папки во время сканирования отменяет его и запускает заново
+- Дерево дат и карта обновляются по ходу длинного сканирования
+- Миниатюры для DNG (iPhone ProRAW)
+
 * Sat Nov 14 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.1-1
 - Первый выпуск

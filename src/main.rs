@@ -37,7 +37,8 @@ fn cli_scan(dir: Option<PathBuf>) -> glib::ExitCode {
             eprintln!("{done}/{total}");
         }
     };
-    match scanner::scan(&paths::db_path(), &root, &paths::thumbs_dir(), &progress) {
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    match scanner::scan(&paths::db_path(), &root, &paths::thumbs_dir(), &progress, &cancel) {
         Ok(s) => {
             println!(
                 "Найдено: {}, добавлено: {}, обновлено: {}, удалено: {}",
