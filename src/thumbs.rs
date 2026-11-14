@@ -3,7 +3,9 @@
 //! Быстрые пути:
 //! - JPEG декодируется сразу в уменьшенном виде (IDCT-масштабирование libjpeg-turbo, 1/8…1/1);
 //! - HEIC: используется встроенная миниатюра (у iPhone/Samsung — 320×240 и больше),
-//!   полное декодирование — только если подходящей нет.
+//!   полное декодирование — только если подходящей нет;
+//! - DNG: встроенное JPEG-превью (RAW не декодируется).
+use crate::dng;
 use anyhow::{anyhow, Context, Result};
 use image::{codecs::jpeg::JpegEncoder, DynamicImage, RgbImage};
 use std::{
@@ -70,8 +72,11 @@ fn decode(src: &Path) -> Result<Decoded> {
     if has_ext(src, &["heic", "heif"]) {
         return decode_heif(src);
     }
+    if has_ext(src, &["dng"]) {
+        return decode_dng(src);
+    }
     if has_ext(src, &["jpg", "jpeg"]) {
-        match decode_jpeg_scaled(src, THUMB_SIZE) {
+        match std::fs::read(src).map_err(anyhow::Error::from).and_then(|b| decode_jpeg_scaled(&b, THUMB_SIZE)) {
             Ok(d) => return Ok(d),
             // CMYK, повреждённые файлы и т.п. — пробуем универсальный декодер.
             Err(e) => eprintln!("{}: {e:#}, полное декодирование", src.display()),
@@ -87,11 +92,19 @@ fn jpeg_scale(w: u32, h: u32, target: u32) -> u8 {
     (target * 8).div_ceil(w.min(h).max(1)).clamp(1, 8) as u8
 }
 
+/// DNG: встроенное JPEG-превью; ориентация берётся из EXIF (IFD0), как у JPEG.
+fn decode_dng(src: &Path) -> Result<Decoded> {
+    let previews = dng::previews(src).context("разбор DNG")?;
+    let p = dng::best_preview(&previews, THUMB_SIZE).context("в DNG нет JPEG-превью")?;
+    let bytes = dng::read_preview(src, &p)?;
+    decode_jpeg_scaled(&bytes, THUMB_SIZE)
+}
+
 /// JPEG с масштабированием при декодировании: для 12 Мп и target=320 — 1/8 (504×378).
-fn decode_jpeg_scaled(src: &Path, target: u32) -> Result<Decoded> {
+fn decode_jpeg_scaled(jpeg: &[u8], target: u32) -> Result<Decoded> {
     // mozjpeg сообщает об ошибках libjpeg паникой.
     let res = std::panic::catch_unwind(|| -> std::io::Result<Decoded> {
-        let mut d = mozjpeg::Decompress::new_path(src)?;
+        let mut d = mozjpeg::Decompress::new_mem(jpeg)?;
         let dims = (d.width() as u32, d.height() as u32);
         d.scale(jpeg_scale(dims.0, dims.1, target));
         let mut started = d.rgb()?;
@@ -234,7 +247,7 @@ mod tests {
         let img = RgbImage::from_fn(2000, 1500, |_, y| if y < 750 { Rgb([255, 0, 0]) } else { Rgb([0, 0, 255]) });
         img.save(&src).unwrap();
 
-        let d = decode_jpeg_scaled(&src, THUMB_SIZE).unwrap();
+        let d = decode_jpeg_scaled(&std::fs::read(&src).unwrap(), THUMB_SIZE).unwrap();
         assert_eq!(d.dims, (2000, 1500));
         assert_eq!(d.img.dimensions(), (500, 375));
 
@@ -244,6 +257,19 @@ mod tests {
         assert_eq!(t.dimensions(), (320, 320));
         // После поворота на 90° по часовой красная (верхняя) половина оказывается справа.
         assert!(t.get_pixel(300, 160).0[0] > 200 && t.get_pixel(20, 160).0[2] > 200);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dng_preview_thumbnail() {
+        let dir = tmpdir("thumb-dng");
+        let jpg = dir.join("preview.jpg");
+        RgbImage::from_fn(1200, 900, |x, _| Rgb([(x % 256) as u8, 80, 160])).save(&jpg).unwrap();
+        let src = dir.join("IMG_0001.DNG");
+        std::fs::write(&src, crate::dng::tests::fake_dng(&std::fs::read(&jpg).unwrap(), 1200, 900)).unwrap();
+        let out = thumb_path(&dir, &src);
+        assert_eq!(generate(&src, 1, &out).unwrap(), (1200, 900));
+        assert_eq!(image::open(&out).unwrap().dimensions(), (320, 320));
         std::fs::remove_dir_all(&dir).ok();
     }
 

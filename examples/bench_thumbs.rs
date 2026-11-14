@@ -3,11 +3,14 @@
 #[path = "../src/metadata.rs"]
 #[allow(dead_code)]
 mod metadata;
+#[path = "../src/dng.rs"]
+#[allow(dead_code)]
+mod dng;
 #[path = "../src/thumbs.rs"]
 #[allow(dead_code)]
 mod thumbs;
 
-use image::{codecs::jpeg::JpegEncoder, DynamicImage};
+use image::codecs::jpeg::JpegEncoder;
 use std::{path::PathBuf, time::Instant};
 
 fn files(dir: &str, ext: &str, n: usize) -> Vec<PathBuf> {
@@ -56,15 +59,6 @@ fn main() {
         thumbs::generate(p, 1, &std::env::temp_dir().join("bench_thumb.jpg")).unwrap()
     });
 
-    bench("JPEG: jpeg-decoder scale 1/8 + resize", &jpg, |p| {
-        let f = std::io::BufReader::new(std::fs::File::open(p).unwrap());
-        let mut d = jpeg_decoder::Decoder::new(f);
-        d.scale(320, 320).unwrap();
-        let px = d.decode().unwrap();
-        let info = d.info().unwrap();
-        let im = image::RgbImage::from_raw(info.width as u32, info.height as u32, px).unwrap();
-        DynamicImage::ImageRgb8(im).thumbnail(320, 320)
-    });
     bench("JPEG: gdk-pixbuf from_file_at_scale 320", &jpg, |p| {
         gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(p, 320, 320, true).unwrap()
     });

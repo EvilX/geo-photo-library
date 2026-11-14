@@ -1,5 +1,6 @@
 mod config;
 mod db;
+mod dng;
 mod geo;
 mod metadata;
 mod paths;
