@@ -28,7 +28,7 @@ CREATE INDEX IF NOT EXISTS photos_geo   ON photos(lat, lon);
 ";
 
 /// Версия формата данных (PRAGMA user_version).
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 const PHOTO_COLS: &str = "id, path, taken_at, lat, lon, thumb_path";
 
@@ -120,11 +120,16 @@ impl Db {
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
         let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        // Сброс mtime заставляет сканер обработать файл заново.
+        if version < 2 {
+            // v2: миниатюры стали квадратными — пересоздать все.
+            conn.execute_batch("UPDATE photos SET mtime = -1")?;
+        } else if version < 3 {
+            // v3: появилась поддержка DNG — повторить файлы без миниатюр.
+            conn.execute_batch("UPDATE photos SET mtime = -1 WHERE thumb_path IS NULL")?;
+        }
         if version < SCHEMA_VERSION {
-            // v2: миниатюры стали квадратными — сбрасываем mtime, чтобы сканер их пересоздал.
-            conn.execute_batch(&format!(
-                "UPDATE photos SET mtime = -1; PRAGMA user_version = {SCHEMA_VERSION};"
-            ))?;
+            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         }
         Ok(Self { conn })
     }
@@ -284,6 +289,21 @@ mod tests {
         let thumbs = db.delete(&["/a.jpg".into(), "/missing.jpg".into()]).unwrap();
         assert_eq!(thumbs, ["/a.jpg.thumb"]);
         assert_eq!(db.known_files().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn migration_v2_to_v3_retries_missing_thumbs() {
+        let mut db = Db::open_in_memory().unwrap();
+        let mut no_thumb = np("/raw.dng", "2023-01-01 00:00:00", None);
+        no_thumb.thumb_path = None;
+        db.upsert(&[np("/ok.jpg", "2023-01-01 00:00:00", None), no_thumb]).unwrap();
+        db.conn.execute_batch("PRAGMA user_version = 2").unwrap();
+        let db = Db::init(db.conn).unwrap();
+        let known = db.known_files().unwrap();
+        assert_eq!(known["/ok.jpg"].1, 1);
+        assert_eq!(known["/raw.dng"].1, -1);
+        let v: i32 = db.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 3);
     }
 
     #[test]
