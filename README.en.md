@@ -23,7 +23,7 @@ map using GPS coordinates from EXIF.
   where the photo was taken; warns if EXIF has no coordinates), move to trash.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen
   in Settings (by default, the app for the file type and a detected image editor).
-- A slider under the photo grids scales thumbnails from 50 to 200%.
+- A slider under the photo grids scales thumbnails from 50 to 200%, with −/+ buttons (10% steps).
 - On startup the library is rescanned incrementally (new, changed and deleted files).
 - Formats: JPEG, HEIC/HEIF (iPhone, Samsung), PNG, WebP, TIFF, DNG (metadata only).
 - Interface languages: English, Russian, Greek — from the system locale (`LANG`, `LC_MESSAGES`,

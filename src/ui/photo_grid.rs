@@ -24,6 +24,9 @@ struct Handlers {
     show_on_map: Rc<RefCell<Option<PhotoHandler>>>,
 }
 
+/// Шаг кнопок «−»/«+» у слайдера масштаба миниатюр, %.
+const ZOOM_BUTTON_STEP: f64 = 10.0;
+
 /// Верхний предел колонок при уменьшенных миниатюрах (см. `set_scale`).
 const MAX_COLUMNS_LIMIT: u32 = 16;
 
@@ -291,14 +294,48 @@ pub fn zoom_scale() -> gtk::Scale {
     scale
 }
 
-/// Нижняя строка панели: слайдер масштаба справа.
+/// Нижняя строка панели: справа слайдер масштаба между кнопками «−» и «+».
 pub fn pane_footer(zoom: &gtk::Scale) -> gtk::Box {
-    let footer = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let smaller = zoom_button(zoom, "zoom-out-symbolic", i18n::thumbs_smaller(), -ZOOM_BUTTON_STEP);
+    let larger = zoom_button(zoom, "zoom-in-symbolic", i18n::thumbs_larger(), ZOOM_BUTTON_STEP);
+    // На краях диапазона соответствующая кнопка неактивна. Слайдер получает общую
+    // для вкладок настройку позже (`set_adjustment`), поэтому следим и за её сменой.
+    let update = {
+        let (smaller, larger) = (smaller.clone(), larger.clone());
+        move |scale: &gtk::Scale| {
+            let adj = scale.adjustment();
+            smaller.set_sensitive(adj.value() > adj.lower());
+            larger.set_sensitive(adj.value() < adj.upper());
+        }
+    };
+    update(zoom);
+    zoom.connect_value_changed(update.clone());
+    zoom.connect_adjustment_notify(update);
+
+    let footer = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     footer.set_halign(gtk::Align::End);
-    footer.set_margin_start(10);
-    footer.set_margin_end(10);
+    footer.set_margin_start(6);
+    footer.set_margin_end(6);
+    footer.append(&smaller);
     footer.append(zoom);
+    footer.append(&larger);
     footer
+}
+
+/// Кнопка шага масштаба; значение округляется к сетке слайдера и не выходит за пределы.
+fn zoom_button(zoom: &gtk::Scale, icon: &str, tooltip: &str, step: f64) -> gtk::Button {
+    let button = gtk::Button::from_icon_name(icon);
+    button.add_css_class("flat");
+    button.set_valign(gtk::Align::Center);
+    button.set_tooltip_text(Some(tooltip));
+    let zoom = zoom.downgrade();
+    button.connect_clicked(move |_| {
+        if let Some(zoom) = zoom.upgrade() {
+            let adj = zoom.adjustment();
+            adj.set_value(config::snap_thumb_scale(adj.value() + step) as f64);
+        }
+    });
+    button
 }
 
 /// Пункты контекстного меню по разделам: (подпись, действие, иконка).

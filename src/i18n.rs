@@ -145,6 +145,14 @@ pub fn thumb_size_tooltip() -> &'static str {
     tr("Thumbnail size", "Размер миниатюр", "Μέγεθος μικρογραφιών")
 }
 
+pub fn thumbs_smaller() -> &'static str {
+    tr("Smaller thumbnails", "Уменьшить миниатюры", "Μικρότερες μικρογραφίες")
+}
+
+pub fn thumbs_larger() -> &'static str {
+    tr("Larger thumbnails", "Увеличить миниатюры", "Μεγαλύτερες μικρογραφίες")
+}
+
 pub fn sort_tooltip() -> &'static str {
     tr("Sort order", "Сортировка", "Ταξινόμηση")
 }
