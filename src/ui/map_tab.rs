@@ -7,20 +7,28 @@ use super::{
 use crate::{
     config::SortOrder,
     db::{Db, Photo},
-    geo, i18n, trace,
+    geo,
+    geocode::{self, Place},
+    i18n, trace,
 };
 use gtk::{glib, prelude::*};
 use shumate::prelude::*;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MARKER_SIZE: i32 = 56;
 /// Размер ячейки кластеризации в пикселях.
 const CELL: f64 = 72.0;
 const DEBOUNCE: Duration = Duration::from_millis(150);
+/// Nominatim разрешает не больше одного запроса в секунду.
+const SEARCH_INTERVAL: Duration = Duration::from_secs(1);
+/// Зум для найденной точки без границ.
+const PLACE_ZOOM: f64 = 15.0;
+/// Предельный зум для найденного места: мелкий объект показывается с окрестностями.
+const PLACE_MAX_ZOOM: f64 = 17.0;
 
 pub struct MapTab {
     pub root: gtk::Paned,
@@ -47,6 +55,90 @@ pub struct MapTab {
     suppress_center: Cell<bool>,
     fitted: Cell<bool>,
     last_size: Cell<(i32, i32)>,
+    search: Search,
+}
+
+/// Поиск местности: строка над картой и всплывающий список найденного.
+struct Search {
+    entry: gtk::SearchEntry,
+    popover: gtk::Popover,
+    list: gtk::ListBox,
+    places: RefCell<Vec<Place>>,
+    session: soup::Session,
+    /// Номер последнего запроса — ответы на устаревшие запросы отбрасываются.
+    generation: Cell<u64>,
+    last_request: Cell<Option<Instant>>,
+}
+
+impl Search {
+    fn new() -> Self {
+        let entry = gtk::SearchEntry::new();
+        entry.set_placeholder_text(Some(i18n::search_place()));
+        entry.set_width_chars(30);
+        entry.set_halign(gtk::Align::Start);
+        entry.set_valign(gtk::Align::Start);
+        entry.set_margin_top(10);
+        entry.set_margin_start(10);
+        entry.add_css_class("map-search");
+
+        let list = gtk::ListBox::new();
+        list.set_selection_mode(gtk::SelectionMode::None);
+        let scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .propagate_natural_width(true)
+            .max_content_height(360)
+            .child(&list)
+            .build();
+        let popover = gtk::Popover::new();
+        popover.set_child(Some(&scroll));
+        popover.set_position(gtk::PositionType::Bottom);
+        popover.set_has_arrow(false);
+        popover.set_halign(gtk::Align::Start);
+        popover.set_parent(&entry);
+
+        Self {
+            entry,
+            popover,
+            list,
+            places: RefCell::default(),
+            session: geocode::session(),
+            generation: Cell::new(0),
+            last_request: Cell::new(None),
+        }
+    }
+
+    /// Показать в списке найденные места либо (без мест) сообщение.
+    fn show(&self, places: Vec<Place>, message: Option<&str>) {
+        self.list.remove_all();
+        if let Some(text) = message {
+            let label = gtk::Label::new(Some(text));
+            label.add_css_class("dim-label");
+            label.set_margin_top(8);
+            label.set_margin_bottom(8);
+            label.set_margin_start(8);
+            label.set_margin_end(8);
+            let row = gtk::ListBoxRow::new();
+            row.set_child(Some(&label));
+            row.set_activatable(false);
+            self.list.append(&row);
+        }
+        for p in &places {
+            let label = gtk::Label::new(Some(&p.name));
+            label.set_xalign(0.0);
+            label.set_wrap(true);
+            // Иначе метка с переносом сжимается до самого длинного слова.
+            label.set_width_chars(40);
+            label.set_max_width_chars(50);
+            label.set_margin_top(6);
+            label.set_margin_bottom(6);
+            label.set_margin_start(6);
+            label.set_margin_end(6);
+            self.list.append(&label);
+        }
+        *self.places.borrow_mut() = places;
+        self.popover.popup();
+    }
 }
 
 impl MapTab {
@@ -75,8 +167,13 @@ impl MapTab {
         right.append(&photo_grid::pane_footer(&zoom));
         right.set_size_request(260, -1);
 
+        let search = Search::new();
+        let map_overlay = gtk::Overlay::new();
+        map_overlay.set_child(Some(&simple_map));
+        map_overlay.add_overlay(&search.entry);
+
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
-        root.set_start_child(Some(&simple_map));
+        root.set_start_child(Some(&map_overlay));
         root.set_end_child(Some(&right));
         root.set_resize_end_child(false);
         root.set_shrink_end_child(false);
@@ -101,6 +198,33 @@ impl MapTab {
             suppress_center: Cell::new(false),
             fitted: Cell::new(false),
             last_size: Cell::new((0, 0)),
+            search,
+        });
+
+        // Поиск местности: запрос по Enter, переход по выбору из списка.
+        let weak = Rc::downgrade(&this);
+        this.search.entry.connect_activate(move |e| {
+            if let Some(t) = weak.upgrade() {
+                t.search_place(e.text().to_string());
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.search.entry.connect_stop_search(move |_| {
+            if let Some(t) = weak.upgrade() {
+                t.search.popover.popdown();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.search.list.connect_row_activated(move |_, row| {
+            let Some(t) = weak.upgrade() else { return };
+            // Строки списка — найденные места по порядку (сообщение показывается без мест).
+            let place = usize::try_from(row.index())
+                .ok()
+                .and_then(|i| t.search.places.borrow().get(i).cloned());
+            if let Some(place) = place {
+                t.search.popover.popdown();
+                t.go_to_place(&place);
+            }
         });
 
         // Любое изменение зума/центра — пересчитать (с задержкой).
@@ -137,6 +261,72 @@ impl MapTab {
             }
         });
         this
+    }
+
+    /// Ввести запрос в строку поиска и выполнить его (отладочный хук).
+    pub fn search_for(self: &Rc<Self>, query: &str) {
+        self.search.entry.set_text(query);
+        self.search_place(query.to_string());
+    }
+
+    /// Найти место через геокодер; одно найденное — сразу перейти к нему.
+    fn search_place(self: &Rc<Self>, query: String) {
+        if query.trim().is_empty() {
+            return;
+        }
+        let generation = self.search.generation.get() + 1;
+        self.search.generation.set(generation);
+        let wait = self
+            .search
+            .last_request
+            .get()
+            .map(|t| SEARCH_INTERVAL.saturating_sub(t.elapsed()))
+            .unwrap_or_default();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            if !wait.is_zero() {
+                glib::timeout_future(wait).await;
+            }
+            let Some(t) = weak.upgrade() else { return };
+            if t.search.generation.get() != generation {
+                return;
+            }
+            t.search.last_request.set(Some(Instant::now()));
+            let session = t.search.session.clone();
+            drop(t);
+            let result = {
+                let _t = trace::span(format!("поиск местности «{query}»"));
+                geocode::search(&session, &query, i18n::lang_code()).await
+            };
+            let Some(t) = weak.upgrade() else { return };
+            if t.search.generation.get() != generation {
+                return;
+            }
+            match result {
+                Ok(places) if places.len() == 1 => {
+                    t.search.popover.popdown();
+                    t.go_to_place(&places[0]);
+                }
+                Ok(places) if places.is_empty() => t.search.show(places, Some(i18n::place_not_found())),
+                Ok(places) => t.search.show(places, None),
+                Err(e) => {
+                    eprintln!("Поиск местности: {e:#}");
+                    t.search.show(Vec::new(), Some(i18n::place_search_failed()));
+                }
+            }
+        });
+    }
+
+    /// Показать найденное место целиком (по его границам) или точку крупным планом.
+    fn go_to_place(&self, place: &Place) {
+        let (w, h) = (self.simple_map.width() as f64, self.simple_map.height() as f64);
+        let pts = place.corners();
+        let max = self.viewport.max_zoom_level() as f64;
+        let fit = geo::fit_zoom(&pts, w, h, 40.0);
+        // Целый зум: на дробном у тайлов видны швы.
+        let zoom = if fit.is_finite() { fit.floor() } else { PLACE_ZOOM }.clamp(1.0, PLACE_MAX_ZOOM.min(max));
+        let (lat, lon) = geo::center(&pts).unwrap_or((place.lat, place.lon));
+        self.map.go_to_full(lat, lon, zoom);
     }
 
     /// Сменить сортировку списка, не сдвигая карту к выбранному фото.

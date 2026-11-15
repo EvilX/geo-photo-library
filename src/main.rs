@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod dng;
 mod geo;
+mod geocode;
 mod i18n;
 mod metadata;
 mod paths;

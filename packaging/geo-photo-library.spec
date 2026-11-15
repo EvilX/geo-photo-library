@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        0.3
+Version:        0.4
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
@@ -19,6 +19,7 @@ BuildRequires:  gcc
 BuildRequires:  pkgconfig(gtk4)
 BuildRequires:  pkgconfig(shumate-1.0)
 BuildRequires:  pkgconfig(libheif)
+BuildRequires:  pkgconfig(libsoup-3.0)
 BuildRequires:  desktop-file-utils
 BuildRequires:  appstream
 Requires:       hicolor-icon-theme
@@ -61,6 +62,10 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.4-1
+- Поиск местности на карте (геокодер Nominatim)
+- CI: тесты и сборка RPM для Fedora 45 в GitHub Actions
+
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.3-1
 - Локализация интерфейса: английский, русский, греческий
 - Вкладка «Карта» открывается первой
