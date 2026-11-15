@@ -141,6 +141,10 @@ impl PhotoGrid {
 
         let view = gtk::GridView::new(Some(selection.clone()), Some(factory));
         popover.set_parent(&view);
+        // Привязанное вручную меню нужно и отвязать вручную (см. предупреждение GTK
+        // «Finalizing … but it still has children left»).
+        let pop = popover.clone();
+        view.connect_destroy(move |_| pop.unparent());
         view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photo, &handlers)));
         view.set_max_columns(max_columns);
         view.set_min_columns(1);

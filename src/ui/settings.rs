@@ -122,8 +122,12 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
     content.append(&buttons);
     dialog.set_child(Some(&content));
 
-    let (d, e) = (dialog.clone(), entry.clone());
+    // Обработчики на дочерних виджетах держат диалог слабой ссылкой: GTK4 при закрытии
+    // окна не разрывает циклы «окно → кнопка → обработчик → окно», и с сильной ссылкой
+    // каждый открытый диалог (и `on_save` с состоянием приложения) оставался бы в памяти.
+    let (d, e) = (dialog.downgrade(), entry.clone());
     browse.connect_clicked(move |_| {
+        let Some(d) = d.upgrade() else { return };
         let chooser = gtk::FileDialog::builder().title(i18n::photo_folder()).modal(true).build();
         let text = e.text();
         if !text.is_empty() {
@@ -137,10 +141,14 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
         });
     });
 
-    let d = dialog.clone();
-    cancel.connect_clicked(move |_| d.close());
+    let d = dialog.downgrade();
+    cancel.connect_clicked(move |_| {
+        if let Some(d) = d.upgrade() {
+            d.close();
+        }
+    });
 
-    let d = dialog.clone();
+    let d = dialog.downgrade();
     let config = config.clone();
     save.connect_clicked(move |_| {
         let path = PathBuf::from(entry.text().trim());
@@ -155,14 +163,18 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
             editor: editor.selected(),
             ..config.clone()
         });
-        d.close();
+        if let Some(d) = d.upgrade() {
+            d.close();
+        }
     });
 
     let key = gtk::EventControllerKey::new();
-    let d = dialog.clone();
+    let d = dialog.downgrade();
     key.connect_key_pressed(move |_, k, _, _| {
         if k == gtk::gdk::Key::Escape {
-            d.close();
+            if let Some(d) = d.upgrade() {
+                d.close();
+            }
             return glib::Propagation::Stop;
         }
         glib::Propagation::Proceed

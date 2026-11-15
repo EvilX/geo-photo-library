@@ -119,6 +119,10 @@ impl Search {
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
         popover.set_parent(&entry);
+        // Привязанный вручную popover нужно и отвязать вручную, иначе GTK при
+        // разрушении строки поиска предупреждает об оставшихся дочерних виджетах.
+        let pop = popover.clone();
+        entry.connect_destroy(move |_| pop.unparent());
 
         Self {
             entry,

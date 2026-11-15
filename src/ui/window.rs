@@ -27,6 +27,10 @@ use std::{
 
 /// Как часто подгружать в интерфейс уже обработанные фото во время сканирования.
 const PARTIAL_RELOAD: Duration = Duration::from_secs(3);
+/// Во сколько раз пауза между подгрузками должна быть длиннее самой подгрузки:
+/// чтение БД идёт в главном потоке и растёт с библиотекой, а так на него уходит
+/// не больше 5% времени, какой бы большой она ни была.
+const PARTIAL_RELOAD_RATIO: u32 = 20;
 
 enum ScanEvent {
     Progress(usize, usize),
@@ -53,6 +57,8 @@ struct App {
     /// Запустить сканирование заново после окончания текущего (сменилась папка).
     rescan_pending: Cell<bool>,
     last_partial_reload: Cell<Instant>,
+    /// Пауза до следующей подгрузки во время сканирования (см. `PARTIAL_RELOAD_RATIO`).
+    partial_reload_interval: Cell<Duration>,
 }
 
 pub fn build(app: &gtk::Application) {
@@ -158,6 +164,7 @@ pub fn build(app: &gtk::Application) {
         cancel: RefCell::default(),
         rescan_pending: Cell::new(false),
         last_partial_reload: Cell::new(Instant::now()),
+        partial_reload_interval: Cell::new(PARTIAL_RELOAD),
     });
 
     init_sort(&state);
@@ -649,9 +656,12 @@ fn start_scan(state: &Rc<App>) {
                         state.status.set_text(&i18n::processing(done, total));
                     }
                     // Длинное сканирование: показываем уже обработанные фото.
-                    if state.last_partial_reload.get().elapsed() >= PARTIAL_RELOAD {
-                        state.last_partial_reload.set(Instant::now());
+                    if state.last_partial_reload.get().elapsed() >= state.partial_reload_interval.get() {
+                        let started = Instant::now();
                         reload(&state, false);
+                        let interval = (started.elapsed() * PARTIAL_RELOAD_RATIO).max(PARTIAL_RELOAD);
+                        state.partial_reload_interval.set(interval);
+                        state.last_partial_reload.set(Instant::now());
                     }
                 }
                 ScanEvent::Cancelled => {
