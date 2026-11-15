@@ -2,7 +2,8 @@
 
 Инструкции для ИИ-агентов, работающих с репозиторием **Geo photo library** —
 каталогизатором фотографий на Rust + GTK4 + SQLite с поиском снимков на карте OSM
-по GPS из EXIF. Пользовательское описание — в `README.md`.
+по GPS из EXIF. Пользовательское описание — в `README.md` (русский)
+и `README.en.md` (английский).
 
 ## Язык и стиль
 
@@ -55,6 +56,7 @@ cargo test --release
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
 | `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
+| `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` |
 
 Данные пользователя: `~/.config/geo-photo-library/config.toml`,
 `~/.local/share/geo-photo-library/library.db`, `~/.cache/geo-photo-library/thumbs/`.
@@ -124,6 +126,26 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 
 Скан без GUI: `geo-photo-library --scan <папка>`.
 Бенчмарк миниатюр: `cargo run --release --example bench_thumbs -- <папка> [N]`.
+
+## Документация
+
+- `README.md` (русский) и `README.en.md` (английский) держать согласованными: новая
+  возможность — в оба сразу. Вверху каждого — ссылка на другой.
+- Скриншоты в `docs/screenshots/` снимаются на синтетической `testdata/library` (не на
+  галерее пользователя — репозиторий публичный), без панели «Информация» (в ней виден
+  домашний путь), с чистым конфигом без `[map_view]` — карта показывает все фото:
+
+  ```sh
+  X=/tmp/gpl-shot; mkdir -p $X/cfg/geo-photo-library
+  for l in ru_RU:ru en_US:en; do
+    echo "library_path = \"$PWD/testdata/library\"" > $X/cfg/geo-photo-library/config.toml
+    LANG=${l%:*}.UTF-8 XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
+      GEO_PHOTO_LIBRARY_SCREENSHOT=docs/screenshots/map-${l#*:}.png GEO_PHOTO_LIBRARY_DELAY=8 \
+      dbus-run-session -- ./target/release/geo-photo-library
+  done
+  ```
+
+  Первый запуск сканирует выборку; если к моменту снимка скан не закончился, повторить.
 
 ## Тестовые данные
 
