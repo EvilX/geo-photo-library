@@ -1,0 +1,73 @@
+# CI: clippy и тесты, затем сборка RPM для Fedora 45.
+# Всё выполняется в контейнере fedora:45 — те же системные библиотеки
+# (gtk4, libshumate, libheif), что и у целевой системы.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Тесты (Fedora 45)
+    runs-on: ubuntu-latest
+    container: fedora:45
+    steps:
+      # git нужен до checkout, иначе actions/checkout скачает архив без .git.
+      - name: Системные зависимости
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git gcc cargo rust clippy \
+            gtk4-devel libshumate-devel libheif-devel
+
+      - uses: actions/checkout@v4
+
+      - name: Кэш Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: fedora45-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: fedora45-cargo-
+
+      - name: Clippy
+        run: cargo clippy --release --all-targets --locked -- -D warnings
+
+      - name: Тесты
+        run: cargo test --release --locked
+
+  rpm:
+    name: RPM (Fedora 45)
+    needs: test
+    runs-on: ubuntu-latest
+    container: fedora:45
+    steps:
+      - name: Системные зависимости
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git gcc cargo rust rpm-build \
+            gtk4-devel libshumate-devel libheif-devel \
+            desktop-file-utils appstream
+
+      - uses: actions/checkout@v4
+
+      # Репозиторий в контейнере принадлежит другому пользователю — git иначе откажется работать.
+      - name: Доверять каталогу репозитория
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Сборка RPM
+        run: ./packaging/build-rpm.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geo-photo-library-fc45-rpm
+          path: target/rpmbuild/RPMS/x86_64/*.rpm
+          if-no-files-found: error
