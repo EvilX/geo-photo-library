@@ -113,8 +113,12 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
     apps_hint.set_xalign(0.0);
     apps_hint.set_wrap(true);
     apps_hint.add_css_class("dim-label");
-    content.append(&grid);
-    content.append(&apps_hint);
+    // В песочнице Flatpak программы хоста не видны — список пуст, файлы
+    // открываются через портал с выбором программы.
+    if !apps.is_empty() {
+        content.append(&grid);
+        content.append(&apps_hint);
+    }
     content.append(&buttons);
     dialog.set_child(Some(&content));
 

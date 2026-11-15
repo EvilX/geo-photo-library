@@ -1,0 +1,6 @@
+# Конфигурация Cargo для сборки Flatpak: зависимости берутся из vendor/ (без сети).
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

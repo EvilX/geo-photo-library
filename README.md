@@ -24,6 +24,9 @@ cargo run --release
 
 Сканирование без GUI: `geo-photo-library --scan <папка>`.
 
+Пакеты: `./packaging/build-rpm.sh` (RPM) и `./packaging/flatpak/build-flatpak.sh` (Flatpak-бандл,
+SDK ставится в пользовательскую установку).
+
 ## Данные
 
 | Что | Где |

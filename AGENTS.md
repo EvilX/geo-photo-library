@@ -51,7 +51,7 @@ cargo test --release
 | `src/ui/photo_grid.rs` | общая сетка миниатюр (`GridView`) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
-| `packaging/` | RPM spec и `build-rpm.sh` |
+| `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
 
 Данные пользователя: `~/.config/geo-photo-library/config.toml`,
@@ -138,3 +138,25 @@ root — агент её не выполняет, а даёт пользоват
 
 При выпуске версии синхронно менять: `version` в `Cargo.toml`, `Version`/`Release` и
 `%changelog` в spec, `<releases>` в metainfo.
+
+## Flatpak
+
+```sh
+./packaging/flatpak/build-flatpak.sh   # → target/flatpak/geo-photo-library.flatpak
+flatpak install --user target/flatpak/geo-photo-library.flatpak
+```
+
+Манифест `packaging/flatpak/io.github.EvilX.GeoPhotoLibrary.yml`: рантайм GNOME 51 +
+rust-stable. Скрипт, как и для RPM, готовит архив исходников из git и вендоренные
+зависимости Cargo в `target/flatpak/` (сборка внутри flatpak-builder без сети;
+`cargo-vendor.toml` подменяет `.cargo/config.toml`), ставит SDK в пользовательскую
+установку (`--user`, без root) и делает бандл.
+
+- В рантайме нет libshumate (собирается вместе с protobuf-c), а его libheif — без HEVC,
+  поэтому собираются свои libde265 и libheif. При обновлении источников менять `sha256`.
+- Права: `--filesystem=home` (библиотека где угодно в домашнем каталоге), сеть для
+  тайлов OSM. Корзина, открытие файлов и диалоги — через порталы.
+- В песочнице программы хоста не видны: выбор просмотрщика/редактора в настройках
+  скрыт, «Редактирование» открывает системный выбор программы.
+- Данные приложения в Flatpak — в `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`, отдельно
+  от версии из RPM.
