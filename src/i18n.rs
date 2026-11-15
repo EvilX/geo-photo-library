@@ -284,6 +284,32 @@ pub fn in_map_area(visible: usize, total: usize) -> String {
     }
 }
 
+/// Строка поиска местности на карте.
+pub fn search_place() -> &'static str {
+    tr("Search for a place…", "Поиск местности…", "Αναζήτηση τοποθεσίας…")
+}
+
+pub fn place_not_found() -> &'static str {
+    tr("Nothing found", "Ничего не найдено", "Δεν βρέθηκε τίποτα")
+}
+
+pub fn place_search_failed() -> &'static str {
+    tr(
+        "Search failed. Check your internet connection.",
+        "Не удалось выполнить поиск. Проверьте подключение к интернету.",
+        "Η αναζήτηση απέτυχε. Ελέγξτε τη σύνδεση στο διαδίκτυο.",
+    )
+}
+
+/// Код языка для внешних сервисов (названия мест в ответе геокодера).
+pub fn lang_code() -> &'static str {
+    match lang() {
+        Lang::En => "en",
+        Lang::Ru => "ru",
+        Lang::El => "el",
+    }
+}
+
 // ---------- Даты ----------
 
 const MONTHS_EN: [&str; 12] = [

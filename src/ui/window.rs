@@ -179,6 +179,15 @@ pub fn build(app: &gtk::Application) {
     debug_screenshot(&state.window, &stack);
     debug_bench(&state, &stack);
     debug_switch(&state);
+    debug_search(&state, &stack);
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_SEARCH=<запрос>` — через 2 с найти место на карте.
+fn debug_search(state: &Rc<App>, stack: &gtk::Stack) {
+    let Ok(query) = std::env::var("GEO_PHOTO_LIBRARY_SEARCH") else { return };
+    stack.set_visible_child_name("map");
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(2, move || state.map.search_for(&query));
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_DEBUG_SWITCH=<папка>` — через 3 с сменить папку

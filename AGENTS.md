@@ -41,13 +41,14 @@ cargo test --release
 | `src/dng.rs` | разбор IFD в DNG/TIFF и поиск JPEG-превью |
 | `src/db.rs` | SQLite: схема, миграции (`PRAGMA user_version`), запросы |
 | `src/geo.rs` | Web Mercator, видимая область, кластеризация по сетке |
+| `src/geocode.rs` | поиск местности через Nominatim (libsoup): URL запроса, разбор ответа |
 | `src/trace.rs` | замеры времени (`GEO_PHOTO_LIBRARY_TRACE`) |
 | `src/i18n.rs` | локализация en/ru/el: выбор языка по локали, строки, названия месяцев, формат дат |
 | `src/ui/window.rs` | окно, вкладки, главное меню, фоновое сканирование, отладочные хуки |
 | `src/ui/settings.rs` | диалог настроек (папка библиотеки) |
 | `src/ui/about.rs` | окно «О программе» |
 | `src/ui/dates_tab.rs` | дерево год → месяц → день (`TreeListModel`) + сетка |
-| `src/ui/map_tab.rs` | карта libshumate, маркеры-кластеры, список фото в видимой области |
+| `src/ui/map_tab.rs` | карта libshumate, строка поиска местности, маркеры-кластеры, список фото в видимой области |
 | `src/ui/photo_grid.rs` | общая сетка миниатюр (`GridView`) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
@@ -83,6 +84,9 @@ cargo test --release
   (`rescan_pending`). Во время сканирования UI перечитывает БД каждые 3 с
   (`reload(state, false)` сохраняет раскрытые узлы и выбор).
 - Зум карты при автоподгонке округляется до целого — на дробном видны швы тайлов.
+- **Поиск местности (Nominatim):** правила сервиса — не чаще 1 запроса в секунду и
+  User-Agent с названием программы; запрос только по Enter, без автодополнения.
+  HTTP — через libsoup (`soup3` 0.8: версия должна использовать тот же `glib`, что и `gtk4`).
 
 ## Проверка интерфейса без участия человека
 
@@ -109,6 +113,7 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 | `GEO_PHOTO_LIBRARY_TAB=dates` | открыть вкладку дат (по умолчанию — карта, она первая) |
 | `GEO_PHOTO_LIBRARY_BENCH=1` | прогнать зумы карты 18…2 вокруг первого фото и выйти |
 | `GEO_PHOTO_LIBRARY_DEBUG_SWITCH=<папка>` | через 3 с сменить папку библиотеки, как из настроек |
+| `GEO_PHOTO_LIBRARY_SEARCH=<запрос>` | через 2 с найти место на карте (одно найденное — переход, несколько — список) |
 
 Скан без GUI: `geo-photo-library --scan <папка>`.
 Бенчмарк миниатюр: `cargo run --release --example bench_thumbs -- <папка> [N]`.

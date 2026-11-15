@@ -24,5 +24,6 @@ pub const CSS: &str = "
     font-weight: bold;
     font-size: smaller;
 }
+.map-search { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
 .pane-title { font-weight: bold; padding: 6px 10px; }
 ";
