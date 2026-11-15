@@ -1,7 +1,7 @@
 //! Инкрементальное сканирование папки библиотеки.
 use crate::{
     db::{Db, NewPhoto},
-    metadata, thumbs,
+    i18n, metadata, thumbs,
 };
 use anyhow::{bail, Result};
 use rayon::prelude::*;
@@ -22,7 +22,7 @@ pub struct Cancelled;
 
 impl std::fmt::Display for Cancelled {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("сканирование отменено")
+        f.write_str(i18n::scan_cancelled())
     }
 }
 
@@ -66,7 +66,7 @@ pub fn scan(
     // Если папка недоступна (например, не подключён диск), не трогаем БД —
     // иначе все записи были бы удалены как «пропавшие».
     if !root.is_dir() {
-        bail!("папка {} недоступна", root.display());
+        bail!(i18n::folder_unavailable(root));
     }
     // Абсолютный канонический путь: иначе `--scan ./lib` и GUI с полным путём
     // видели бы одну библиотеку как разные файлы и пересканировали её целиком.

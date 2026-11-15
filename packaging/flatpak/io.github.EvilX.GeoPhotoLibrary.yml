@@ -1,0 +1,126 @@
+# Flatpak-манифест Geo photo library. Собирать скриптом packaging/flatpak/build-flatpak.sh:
+# он готовит архивы исходников и вендоренных зависимостей Cargo в target/flatpak/
+# (сборка внутри flatpak-builder идёт без сети).
+id: io.github.EvilX.GeoPhotoLibrary
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: geo-photo-library
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Тайлы OpenStreetMap.
+  - --share=network
+  # Библиотека фотографий может лежать где угодно в домашнем каталоге (в т. ч.
+  # ~/OneDrive/Pictures). Корзина, открытие файлов и выбор программ — через порталы.
+  - --filesystem=home
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/pkgconfig
+  - '*.a'
+  - '*.la'
+
+modules:
+  # Декодер HEVC для HEIC: libheif из рантайма GNOME собран только с AV1.
+  - name: libde265
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DENABLE_SDL=OFF
+      - -DENABLE_DECODER=OFF
+      - -DENABLE_ENCODER=OFF
+    cleanup:
+      - /bin
+    sources:
+      - type: archive
+        url: https://github.com/strukturag/libde265/releases/download/v1.1.3/libde265-1.1.3.tar.gz
+        sha256: 554228bd17788c99a7e63b37ab5634722190e6e2bf60c1dcb01cef328e133905
+
+  # Свой libheif (в /app он важнее рантаймового): только чтение HEIC через libde265.
+  - name: libheif
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      - -DBUILD_DOCUMENTATION=OFF
+      - -DWITH_EXAMPLES=OFF
+      - -DWITH_GDK_PIXBUF=OFF
+      - -DENABLE_PLUGIN_LOADING=OFF
+      - -DWITH_LIBDE265=ON
+      - -DWITH_LIBDE265_PLUGIN=OFF
+      - -DWITH_X265=OFF
+      - -DWITH_X264=OFF
+      - -DWITH_OpenH264_DECODER=OFF
+      - -DWITH_AOM_DECODER=OFF
+      - -DWITH_AOM_ENCODER=OFF
+      - -DWITH_DAV1D=OFF
+      - -DWITH_SvtEnc=OFF
+      - -DWITH_RAV1E=OFF
+      - -DWITH_OpenJPEG_DECODER=OFF
+      - -DWITH_OpenJPEG_ENCODER=OFF
+      - -DWITH_OPENJPH_ENCODER=OFF
+      - -DWITH_LIBSHARPYUV=OFF
+    cleanup:
+      - /bin
+    sources:
+      - type: archive
+        url: https://github.com/strukturag/libheif/releases/download/v1.23.7/libheif-1.23.7.tar.gz
+        sha256: f7483e818503ea6224c8863e4a56ac02c7089021a98472c811c12aa19faf2475
+
+  # Нужен libshumate (векторные тайлы), в рантайме GNOME его нет.
+  - name: protobuf-c
+    buildsystem: autotools
+    config-opts:
+      - --disable-protoc
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://github.com/protobuf-c/protobuf-c/releases/download/v1.5.2/protobuf-c-1.5.2.tar.gz
+        sha256: e2c86271873a79c92b58fef7ebf8de1aa0df4738347a8bd5d4e65a80a16d0d24
+
+  - name: libshumate
+    buildsystem: meson
+    config-opts:
+      - -Dgir=false
+      - -Dvapi=false
+      - -Dgtk_doc=false
+      - -Ddemos=false
+      - -Dsysprof=disabled
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/libshumate/1.7/libshumate-1.7.0.tar.xz
+        sha256: 3896cc4b6a7bf83141c27df23ce48cdd68467603bc6b764960307cdcbbef80e5
+
+  - name: geo-photo-library
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/geo-photo-library/cargo
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      - cargo build --release --offline --locked
+      - install -Dm0755 target/release/geo-photo-library /app/bin/geo-photo-library
+      - install -Dm0644 data/io.github.EvilX.GeoPhotoLibrary.desktop /app/share/applications/io.github.EvilX.GeoPhotoLibrary.desktop
+      - install -Dm0644 data/io.github.EvilX.GeoPhotoLibrary.metainfo.xml /app/share/metainfo/io.github.EvilX.GeoPhotoLibrary.metainfo.xml
+      - install -Dm0644 data/icons/io.github.EvilX.GeoPhotoLibrary.svg /app/share/icons/hicolor/scalable/apps/io.github.EvilX.GeoPhotoLibrary.svg
+    sources:
+      # Архивы создаёт build-flatpak.sh.
+      - type: archive
+        path: ../../target/flatpak/geo-photo-library-src.tar.gz
+      - type: archive
+        path: ../../target/flatpak/geo-photo-library-vendor.tar.xz
+        dest: vendor
+      # Заменяет .cargo/config.toml проекта: зависимости из vendor/, pkg-config из SDK.
+      - type: file
+        path: cargo-vendor.toml
+        dest: .cargo
+        dest-filename: config.toml

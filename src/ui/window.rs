@@ -1,7 +1,18 @@
 //! Главное окно: две вкладки, настройки, фоновое сканирование.
-use super::{dates_tab::DatesTab, map_tab::MapTab, settings, textures::TextureCache, CSS};
-use crate::{config::Config, db::Db, paths, scanner, trace};
-use gtk::{gdk, glib, prelude::*};
+use super::{
+    about,
+    dates_tab::DatesTab,
+    map_tab::MapTab,
+    settings,
+    textures::{self, TextureCache},
+    CSS,
+};
+use crate::{
+    config::{self, Config, SortOrder},
+    db::{Db, Photo},
+    i18n, paths, scanner, trace,
+};
+use gtk::{gdk, gio, glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -68,32 +79,44 @@ pub fn build(app: &gtk::Application) {
 
     let stack = gtk::Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    stack.add_titled(&dates.root, Some("dates"), "По датам");
-    stack.add_titled(&map.root, Some("map"), "Карта");
+    // Первая вкладка открывается при запуске.
+    stack.add_titled(&map.root, Some("map"), i18n::tab_map());
+    stack.add_titled(&dates.root, Some("dates"), i18n::tab_dates());
     let switcher = gtk::StackSwitcher::new();
     switcher.set_stack(Some(&stack));
 
-    let settings_btn = gtk::Button::from_icon_name("emblem-system-symbolic");
-    settings_btn.set_tooltip_text(Some("Настройки"));
+    let menu = gio::Menu::new();
+    menu.append(Some(i18n::settings()), Some("win.settings"));
+    menu.append(Some(i18n::about()), Some("win.about"));
+    let menu_btn = gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .menu_model(&menu)
+        .primary(true)
+        .tooltip_text(i18n::main_menu())
+        .build();
+    app.set_accels_for_action("win.settings", &["<Control>comma"]);
     let rescan = gtk::Button::from_icon_name("view-refresh-symbolic");
-    rescan.set_tooltip_text(Some("Пересканировать библиотеку"));
+    rescan.set_tooltip_text(Some(i18n::rescan()));
     let progress = gtk::ProgressBar::new();
     progress.set_valign(gtk::Align::Center);
     progress.set_size_request(120, -1);
     progress.set_visible(false);
     let status = gtk::Label::new(None);
     status.add_css_class("dim-label");
+    // Длинные сообщения (ошибки) не должны раздвигать заголовок окна.
+    status.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    status.set_max_width_chars(50);
 
     let header = gtk::HeaderBar::new();
     header.set_title_widget(Some(&switcher));
-    header.pack_end(&settings_btn);
+    header.pack_end(&menu_btn);
     header.pack_end(&rescan);
     header.pack_start(&progress);
     header.pack_start(&status);
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
-        .title("Geo photo library")
+        .title(crate::APP_NAME)
         .default_width(1280)
         .default_height(820)
         .child(&stack)
@@ -116,8 +139,24 @@ pub fn build(app: &gtk::Application) {
         last_partial_reload: Cell::new(Instant::now()),
     });
 
+    init_sort(&state);
+    init_thumb_scale(&state);
+    apply_preferred_apps(&state);
+    for grid in [state.dates.grid(), state.map.grid()] {
+        let s = Rc::downgrade(&state);
+        grid.connect_trashed(move |photo, res| {
+            if let Some(s) = s.upgrade() {
+                photo_trashed(&s, photo, res);
+            }
+        });
+    }
+
     let s = state.clone();
-    settings_btn.connect_clicked(move |_| open_settings(&s));
+    let settings_action = gio::ActionEntry::builder("settings").activate(move |_, _, _| open_settings(&s)).build();
+    let about_action = gio::ActionEntry::builder("about")
+        .activate(|w: &gtk::ApplicationWindow, _, _| about::show(w))
+        .build();
+    state.window.add_action_entries([settings_action, about_action]);
     let s = state.clone();
     rescan.connect_clicked(move |_| start_scan(&s));
 
@@ -136,6 +175,7 @@ pub fn build(app: &gtk::Application) {
     } else {
         open_settings(&state);
     }
+    debug_action(&state.window);
     debug_screenshot(&state.window, &stack);
     debug_bench(&state, &stack);
     debug_switch(&state);
@@ -178,16 +218,29 @@ fn debug_bench(state: &Rc<App>, stack: &gtk::Stack) {
     });
 }
 
+/// Отладка: `GEO_PHOTO_LIBRARY_ACTION=about` — при запуске выполнить действие окна
+/// (пункт главного меню: `settings`, `about`).
+fn debug_action(window: &gtk::ApplicationWindow) {
+    let Ok(name) = std::env::var("GEO_PHOTO_LIBRARY_ACTION") else { return };
+    gtk::prelude::ActionGroupExt::activate_action(window, &name, None);
+}
+
 /// Отладка: `GEO_PHOTO_LIBRARY_SCREENSHOT=out.png [GEO_PHOTO_LIBRARY_TAB=map]` — через несколько
-/// секунд отрисовать окно в PNG и выйти.
+/// секунд отрисовать окно в PNG и выйти. Если открыт диалог (настройки, «О программе»),
+/// снимается он.
 fn debug_screenshot(window: &gtk::ApplicationWindow, stack: &gtk::Stack) {
     let Ok(path) = std::env::var("GEO_PHOTO_LIBRARY_SCREENSHOT") else { return };
     if let Ok(tab) = std::env::var("GEO_PHOTO_LIBRARY_TAB") {
         stack.set_visible_child_name(&tab);
     }
     let delay = std::env::var("GEO_PHOTO_LIBRARY_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(6);
-    let w = window.clone();
+    let main = window.clone();
     glib::timeout_add_seconds_local_once(delay, move || {
+        let w: gtk::Window = gtk::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|o| o.downcast::<gtk::Window>().ok())
+            .find(|t| t.is_visible() && t.transient_for().as_ref() == Some(main.upcast_ref()))
+            .unwrap_or_else(|| main.clone().upcast());
         let paintable = gtk::WidgetPaintable::new(Some(&w));
         let snapshot = gtk::Snapshot::new();
         paintable.snapshot(&snapshot, w.width() as f64, w.height() as f64);
@@ -196,7 +249,7 @@ fn debug_screenshot(window: &gtk::ApplicationWindow, stack: &gtk::Stack) {
                 eprintln!("скриншот: {e}");
             }
         }
-        if let Some(app) = w.application() {
+        if let Some(app) = main.application() {
             app.quit();
         }
     });
@@ -222,14 +275,104 @@ fn reload(state: &Rc<App>, force: bool) {
     state.map.reload(force);
     if !state.scanning.get() {
         let n = state.db.count().unwrap_or(0);
-        state.status.set_text(&format!("{n} фото"));
+        state.status.set_text(&i18n::photos(n as usize));
     }
 }
 
-fn open_settings(state: &Rc<App>) {
-    let current = state.config.borrow().library_path.clone();
+/// Сортировка фото: один выбор на обе вкладки, сохраняется в настройках.
+fn init_sort(state: &Rc<App>) {
+    let order = state.config.borrow().sort;
+    state.dates.set_order(order);
+    state.map.set_order(order);
+    state.dates.sort.set_selected(order.index());
+    state.map.sort.set_selected(order.index());
+    state
+        .dates
+        .sort
+        .bind_property("selected", &state.map.sort, "selected")
+        .bidirectional()
+        .build();
+    // Обе вкладки уже синхронизированы привязкой — реагируем на одну.
     let s = state.clone();
-    settings::show(&state.window, current.as_deref(), move |path| set_library(&s, path));
+    state.dates.sort.connect_selected_notify(move |d| {
+        let order = SortOrder::from_index(d.selected());
+        s.dates.set_order(order);
+        s.map.set_order(order);
+        if s.config.borrow().sort != order {
+            s.config.borrow_mut().sort = order;
+            if let Err(e) = s.config.borrow().save() {
+                eprintln!("Не удалось сохранить настройки: {e:#}");
+            }
+        }
+    });
+}
+
+/// Масштаб миниатюр: один слайдер на обе вкладки (общий `Adjustment`),
+/// значение округляется до шага 5% и сохраняется в настройках.
+fn init_thumb_scale(state: &Rc<App>) {
+    let percent = config::snap_thumb_scale(state.config.borrow().thumb_scale as f64);
+    let adj = state.dates.zoom.adjustment();
+    state.map.zoom.set_adjustment(&adj);
+    adj.set_value(percent as f64);
+    state.dates.set_thumb_scale(percent);
+    state.map.set_thumb_scale(percent);
+    let s = state.clone();
+    adj.connect_value_changed(move |adj| {
+        let percent = config::snap_thumb_scale(adj.value());
+        if adj.value() != percent as f64 {
+            // Перетаскивание даёт дробные значения — прилипаем к шагу.
+            adj.set_value(percent as f64);
+            return;
+        }
+        s.dates.set_thumb_scale(percent);
+        s.map.set_thumb_scale(percent);
+        if s.config.borrow().thumb_scale != percent {
+            s.config.borrow_mut().thumb_scale = percent;
+            if let Err(e) = s.config.borrow().save() {
+                eprintln!("Не удалось сохранить настройки: {e:#}");
+            }
+        }
+    });
+}
+
+/// Фото перемещено в корзину из контекстного меню: убрать его из БД и интерфейса.
+fn photo_trashed(state: &Rc<App>, photo: &Photo, res: Result<(), glib::Error>) {
+    if let Err(e) = res {
+        state.status.set_text(&i18n::trash_failed(photo.file_name(), e.message()));
+        return;
+    }
+    match state.db.remove(photo.id) {
+        Ok(Some(thumb)) => {
+            let _ = std::fs::remove_file(thumb);
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("БД: {e:#}"),
+    }
+    reload(state, false);
+    state.status.set_text(&i18n::trashed(photo.file_name()));
+}
+
+fn open_settings(state: &Rc<App>) {
+    let s = state.clone();
+    let config = state.config.borrow().clone();
+    settings::show(&state.window, &config, move |new| {
+        {
+            let mut c = s.config.borrow_mut();
+            c.viewer = new.viewer;
+            c.editor = new.editor;
+        }
+        apply_preferred_apps(&s);
+        // Сохраняет настройки и при смене папки пересканирует.
+        if let Some(path) = new.library_path {
+            set_library(&s, path);
+        }
+    });
+}
+
+/// Передать выбранные в настройках просмотрщик и редактор сеткам фото.
+fn apply_preferred_apps(state: &App) {
+    let c = state.config.borrow();
+    textures::set_preferred_apps(textures::PreferredApps { viewer: c.viewer.clone(), editor: c.editor.clone() });
 }
 
 /// Сменить папку библиотеки: сохранить настройки и пересканировать
@@ -253,7 +396,7 @@ fn start_scan(state: &Rc<App>) {
         if let Some(cancel) = state.cancel.borrow().as_ref() {
             cancel.store(true, Ordering::Relaxed);
         }
-        state.status.set_text("Остановка текущего сканирования…");
+        state.status.set_text(i18n::stopping_scan());
         return;
     }
     let Some(root) = state.config.borrow().library_path.clone() else {
@@ -264,7 +407,7 @@ fn start_scan(state: &Rc<App>) {
     state.rescan.set_sensitive(false);
     state.progress.set_fraction(0.0);
     state.progress.set_visible(true);
-    state.status.set_text("Поиск фотографий…");
+    state.status.set_text(i18n::searching());
     state.last_partial_reload.set(Instant::now());
     let cancel = Arc::new(AtomicBool::new(false));
     *state.cancel.borrow_mut() = Some(cancel.clone());
@@ -289,7 +432,7 @@ fn start_scan(state: &Rc<App>) {
                 ScanEvent::Progress(done, total) => {
                     if total > 0 && !state.rescan_pending.get() {
                         state.progress.set_fraction(done as f64 / total as f64);
-                        state.status.set_text(&format!("Обработка {done} / {total}"));
+                        state.status.set_text(&i18n::processing(done, total));
                     }
                     // Длинное сканирование: показываем уже обработанные фото.
                     if state.last_partial_reload.get().elapsed() >= PARTIAL_RELOAD {
@@ -315,15 +458,14 @@ fn start_scan(state: &Rc<App>) {
                             }
                             reload(&state, true);
                             if s.added + s.updated + s.removed > 0 {
-                                state.status.set_text(&format!(
-                                    "{} фото (новых {}, изменено {}, удалено {})",
-                                    s.found, s.added, s.updated, s.removed
+                                state.status.set_text(&i18n::scan_summary(
+                                    s.found, s.added, s.updated, s.removed,
                                 ));
                             }
                         }
                         Err(e) => {
                             reload(&state, true);
-                            state.status.set_text(&format!("Ошибка сканирования: {e}"));
+                            state.status.set_text(&i18n::scan_error(&e));
                         }
                     }
                     break;

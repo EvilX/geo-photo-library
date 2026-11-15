@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{Datelike, NaiveDateTime};
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::{collections::HashMap, path::Path, time::Duration};
 
 const SCHEMA: &str = "
@@ -64,10 +64,10 @@ impl Photo {
         self.path.rsplit('/').next().unwrap_or(&self.path)
     }
 
-    /// `14.07.2023 12:30`
+    /// Дата съёмки в формате текущего языка, например `14.07.2023 12:30`.
     pub fn display_date(&self) -> String {
         NaiveDateTime::parse_from_str(&self.taken_at, "%Y-%m-%d %H:%M:%S")
-            .map(|d| d.format("%d.%m.%Y %H:%M").to_string())
+            .map(|d| crate::i18n::datetime(&d))
             .unwrap_or_else(|_| self.taken_at.clone())
     }
 }
@@ -197,6 +197,18 @@ impl Db {
         Ok(thumbs)
     }
 
+    /// Удаляет одну запись (фото перемещено в корзину из интерфейса).
+    /// Возвращает путь миниатюры; `None`, если записи не было или миниатюры нет.
+    pub fn remove(&self, id: i64) -> Result<Option<String>> {
+        let thumb = self
+            .conn
+            .query_row("SELECT thumb_path FROM photos WHERE id = ?1", [id], |r| r.get::<_, Option<String>>(0))
+            .optional()?
+            .flatten();
+        self.conn.execute("DELETE FROM photos WHERE id = ?1", [id])?;
+        Ok(thumb)
+    }
+
     pub fn count(&self) -> Result<i64> {
         Ok(self.conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))?)
     }
@@ -289,6 +301,11 @@ mod tests {
         let thumbs = db.delete(&["/a.jpg".into(), "/missing.jpg".into()]).unwrap();
         assert_eq!(thumbs, ["/a.jpg.thumb"]);
         assert_eq!(db.known_files().unwrap().len(), 3);
+
+        let p = db.photos_by_date(2023, Some(8), Some(1)).unwrap().remove(0);
+        assert_eq!(db.remove(p.id).unwrap(), Some(format!("{}.thumb", p.path)));
+        assert_eq!(db.count().unwrap(), 2);
+        assert_eq!(db.remove(p.id).unwrap(), None);
     }
 
     #[test]
@@ -317,6 +334,6 @@ mod tests {
             thumb_path: None,
         };
         assert_eq!(p.file_name(), "IMG_1.HEIC");
-        assert_eq!(p.display_date(), "14.07.2023 12:30");
+        assert!(p.display_date().contains("12:30"));
     }
 }

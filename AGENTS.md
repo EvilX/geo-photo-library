@@ -6,7 +6,12 @@
 
 ## Язык и стиль
 
-- Комментарии, строки интерфейса, сообщения об ошибках и коммиты — **на русском**.
+- Комментарии, отладочный вывод (`eprintln!`, `[trace]`) и коммиты — **на русском**.
+- Интерфейс локализован: английский (по умолчанию), русский, греческий. Все строки,
+  которые видит пользователь (окно, статусы, ошибки сканера, вывод `--scan`), — только
+  через `src/i18n.rs`, сразу на трёх языках. Язык определяется один раз по `LANGUAGE`,
+  `LC_ALL`, `LC_MESSAGES`, `LANG`; проверить: `LANG=el_GR.UTF-8 ./target/release/geo-photo-library`.
+  Переводы `.desktop` и metainfo тоже держать для `ru` и `el`.
 - Коммиты: заголовок-суть, пустая строка, тело «что и почему» (см. `git log`).
 - Перед коммитом: `cargo clippy --release --all-targets` без предупреждений и `cargo test --release`.
 
@@ -37,13 +42,16 @@ cargo test --release
 | `src/db.rs` | SQLite: схема, миграции (`PRAGMA user_version`), запросы |
 | `src/geo.rs` | Web Mercator, видимая область, кластеризация по сетке |
 | `src/trace.rs` | замеры времени (`GEO_PHOTO_LIBRARY_TRACE`) |
-| `src/ui/window.rs` | окно, вкладки, настройки, фоновое сканирование, отладочные хуки |
+| `src/i18n.rs` | локализация en/ru/el: выбор языка по локали, строки, названия месяцев, формат дат |
+| `src/ui/window.rs` | окно, вкладки, главное меню, фоновое сканирование, отладочные хуки |
+| `src/ui/settings.rs` | диалог настроек (папка библиотеки) |
+| `src/ui/about.rs` | окно «О программе» |
 | `src/ui/dates_tab.rs` | дерево год → месяц → день (`TreeListModel`) + сетка |
 | `src/ui/map_tab.rs` | карта libshumate, маркеры-кластеры, список фото в видимой области |
 | `src/ui/photo_grid.rs` | общая сетка миниатюр (`GridView`) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
-| `packaging/` | RPM spec и `build-rpm.sh` |
+| `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
 
 Данные пользователя: `~/.config/geo-photo-library/config.toml`,
@@ -65,7 +73,9 @@ cargo test --release
   Встроенная миниатюра берётся, только если её пропорции совпадают с основным снимком.
 - **`GridView::set_max_columns`:** GTK держит виджеты примерно для `max_columns × 30`
   элементов. Завышенное значение (было 32) отключает виртуализацию — создаются ячейки
-  для всех фото, интерфейс тормозит. Сейчас 12 (даты) и 4 (карта).
+  для всех фото, интерфейс тормозит. Сейчас 12 (даты) и 4 (карта) при масштабе
+  миниатюр 100%; слайдер масштаба (50…200%) меняет предел обратно пропорционально,
+  но не выше 16 (`MAX_COLUMNS_LIMIT` в `photo_grid.rs`).
 - **Всё тяжёлое — вне главного потока:** сканирование в `std::thread`, текстуры через
   `gio::spawn_blocking`. Ячейки сетки переиспользуются — перед установкой текстуры
   проверять, что ячейка показывает тот же элемент (`set_thumbnail(.., still_valid)`).
@@ -85,7 +95,7 @@ X=/tmp/gpl-test
 mkdir -p $X/cfg/geo-photo-library
 echo "library_path = \"$PWD/testdata/library\"" > $X/cfg/geo-photo-library/config.toml
 XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
-  GEO_PHOTO_LIBRARY_SCREENSHOT=/tmp/shot.png GEO_PHOTO_LIBRARY_TAB=map \
+  GEO_PHOTO_LIBRARY_SCREENSHOT=/tmp/shot.png GEO_PHOTO_LIBRARY_TAB=dates \
   dbus-run-session -- ./target/release/geo-photo-library
 ```
 
@@ -94,8 +104,9 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 | Переменная | Действие |
 | --- | --- |
 | `GEO_PHOTO_LIBRARY_TRACE=1` | печатать длительность операций (`[trace] …`) |
-| `GEO_PHOTO_LIBRARY_SCREENSHOT=out.png` | через `GEO_PHOTO_LIBRARY_DELAY` с (по умолчанию 6) сохранить окно в PNG и выйти |
-| `GEO_PHOTO_LIBRARY_TAB=map` | открыть вкладку карты |
+| `GEO_PHOTO_LIBRARY_SCREENSHOT=out.png` | через `GEO_PHOTO_LIBRARY_DELAY` с (по умолчанию 6) сохранить окно в PNG и выйти; если открыт диалог — его |
+| `GEO_PHOTO_LIBRARY_ACTION=about` | при запуске выполнить пункт главного меню (`settings`, `about`) |
+| `GEO_PHOTO_LIBRARY_TAB=dates` | открыть вкладку дат (по умолчанию — карта, она первая) |
 | `GEO_PHOTO_LIBRARY_BENCH=1` | прогнать зумы карты 18…2 вокруг первого фото и выйти |
 | `GEO_PHOTO_LIBRARY_DEBUG_SWITCH=<папка>` | через 3 с сменить папку библиотеки, как из настроек |
 
@@ -127,3 +138,25 @@ root — агент её не выполняет, а даёт пользоват
 
 При выпуске версии синхронно менять: `version` в `Cargo.toml`, `Version`/`Release` и
 `%changelog` в spec, `<releases>` в metainfo.
+
+## Flatpak
+
+```sh
+./packaging/flatpak/build-flatpak.sh   # → target/flatpak/geo-photo-library.flatpak
+flatpak install --user target/flatpak/geo-photo-library.flatpak
+```
+
+Манифест `packaging/flatpak/io.github.EvilX.GeoPhotoLibrary.yml`: рантайм GNOME 51 +
+rust-stable. Скрипт, как и для RPM, готовит архив исходников из git и вендоренные
+зависимости Cargo в `target/flatpak/` (сборка внутри flatpak-builder без сети;
+`cargo-vendor.toml` подменяет `.cargo/config.toml`), ставит SDK в пользовательскую
+установку (`--user`, без root) и делает бандл.
+
+- В рантайме нет libshumate (собирается вместе с protobuf-c), а его libheif — без HEVC,
+  поэтому собираются свои libde265 и libheif. При обновлении источников менять `sha256`.
+- Права: `--filesystem=home` (библиотека где угодно в домашнем каталоге), сеть для
+  тайлов OSM. Корзина, открытие файлов и диалоги — через порталы.
+- В песочнице программы хоста не видны: выбор просмотрщика/редактора в настройках
+  скрыт, «Редактирование» открывает системный выбор программы.
+- Данные приложения в Flatpak — в `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`, отдельно
+  от версии из RPM.
