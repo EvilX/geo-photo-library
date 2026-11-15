@@ -26,10 +26,10 @@ jobs:
             git gcc cargo rust clippy \
             gtk4-devel libshumate-devel libheif-devel
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Кэш Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -57,7 +57,7 @@ jobs:
             gtk4-devel libshumate-devel libheif-devel \
             desktop-file-utils appstream
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Репозиторий в контейнере принадлежит другому пользователю — git иначе откажется работать.
       - name: Доверять каталогу репозитория
@@ -66,7 +66,7 @@ jobs:
       - name: Сборка RPM
         run: ./packaging/build-rpm.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: geo-photo-library-fc45-rpm
           path: target/rpmbuild/RPMS/x86_64/*.rpm
