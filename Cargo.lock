@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "geo-photo-library"
-version = "0.7.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-channel",
