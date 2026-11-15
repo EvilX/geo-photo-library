@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
@@ -62,6 +62,11 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.0.1-1
+- Исправлено определение местоположения (кнопка «Моё местоположение»)
+- Исправлена утечка памяти в диалоге настроек
+- Убраны предупреждения GTK при закрытии окна
+
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.0-1
 - Даты под фото — в формате системной локали
 - Ускорение карты на больших библиотеках, программа не тратит CPU в простое
