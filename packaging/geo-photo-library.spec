@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        0.5
+Version:        0.6
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
@@ -62,6 +62,12 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.6-1
+- Кнопка «i» в заголовке открывает и закрывает панель «Информация»
+- Положение и масштаб карты запоминаются между запусками
+- Пункт «Найти на карте» в меню фото
+- Иконки у пунктов меню фото
+
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.5-1
 - Панель «Информация» с данными файла и EXIF выбранного фото
 
