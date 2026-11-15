@@ -113,7 +113,13 @@ pub fn build(app: &gtk::Application) {
 
     let header = gtk::HeaderBar::new();
     header.set_title_widget(Some(&switcher));
+    // Переключатель панели «Информация» — слева от кнопки меню.
+    let info_btn = gtk::ToggleButton::new();
+    // «i» в круге; dialog-information в Adwaita — лампочка.
+    info_btn.set_icon_name("help-about-symbolic");
+    info_btn.set_tooltip_text(Some(i18n::info()));
     header.pack_end(&menu_btn);
+    header.pack_end(&info_btn);
     header.pack_end(&rescan);
     header.pack_start(&progress);
     header.pack_start(&status);
@@ -164,7 +170,7 @@ pub fn build(app: &gtk::Application) {
         });
     }
 
-    init_info_panel(&state);
+    init_info_panel(&state, &info_btn);
 
     let s = state.clone();
     let settings_action = gio::ActionEntry::builder("settings").activate(move |_, _, _| open_settings(&s)).build();
@@ -198,9 +204,27 @@ pub fn build(app: &gtk::Application) {
     debug_info(&state);
 }
 
-/// Панель «Информация»: открывается из меню фото, показывает выбранное фото
-/// активной вкладки, закрывается крестиком.
-fn init_info_panel(state: &Rc<App>) {
+/// Панель «Информация»: открывается из меню фото или кнопкой в заголовке, показывает выбранное фото
+/// активной вкладки, закрывается крестиком или той же кнопкой.
+fn init_info_panel(state: &Rc<App>, button: &gtk::ToggleButton) {
+    // Кнопка в заголовке и видимость панели всегда согласованы: панель открывают
+    // кнопка и пункт меню, закрывают кнопка и крестик.
+    let s = Rc::downgrade(state);
+    button.connect_toggled(move |b| {
+        let Some(s) = s.upgrade() else { return };
+        if b.is_active() {
+            s.info.open();
+            update_info(&s);
+        } else {
+            s.info.hide();
+        }
+    });
+    let b = button.downgrade();
+    state.info.root.connect_visible_notify(move |root| {
+        if let Some(b) = b.upgrade() {
+            b.set_active(root.is_visible());
+        }
+    });
     for grid in [state.dates.grid(), state.map.grid()] {
         let s = Rc::downgrade(state);
         grid.connect_info(move |_| {
