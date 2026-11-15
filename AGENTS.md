@@ -36,7 +36,7 @@ cargo test --release
 | --- | --- |
 | `src/main.rs` | запуск GTK-приложения; CLI-режим `--scan <папка>` без GUI |
 | `src/scanner.rs` | инкрементальное сканирование (size+mtime), rayon, пачки по 64, отмена через `AtomicBool` |
-| `src/metadata.rs` | EXIF (kamadak-exif): дата, GPS, ориентация, камера |
+| `src/metadata.rs` | EXIF (kamadak-exif): дата, GPS, ориентация, камера; подробности для панели «Информация» |
 | `src/thumbs.rs` | квадратные миниатюры 320×320: JPEG через mozjpeg с IDCT-масштабом, HEIC — встроенная миниатюра, DNG — встроенное JPEG-превью |
 | `src/dng.rs` | разбор IFD в DNG/TIFF и поиск JPEG-превью |
 | `src/db.rs` | SQLite: схема, миграции (`PRAGMA user_version`), запросы |
@@ -49,7 +49,8 @@ cargo test --release
 | `src/ui/about.rs` | окно «О программе» |
 | `src/ui/dates_tab.rs` | дерево год → месяц → день (`TreeListModel`) + сетка |
 | `src/ui/map_tab.rs` | карта libshumate, строка поиска местности, маркеры-кластеры, список фото в видимой области |
-| `src/ui/photo_grid.rs` | общая сетка миниатюр (`GridView`) |
+| `src/ui/photo_grid.rs` | общая сетка миниатюр (`GridView`) и контекстное меню фото |
+| `src/ui/info_panel.rs` | панель «Информация» справа: файл и EXIF выбранного фото (чтение в фоне) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
 | `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
@@ -113,6 +114,7 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 | `GEO_PHOTO_LIBRARY_TAB=dates` | открыть вкладку дат (по умолчанию — карта, она первая) |
 | `GEO_PHOTO_LIBRARY_BENCH=1` | прогнать зумы карты 18…2 вокруг первого фото и выйти |
 | `GEO_PHOTO_LIBRARY_DEBUG_SWITCH=<папка>` | через 3 с сменить папку библиотеки, как из настроек |
+| `GEO_PHOTO_LIBRARY_INFO=1` | через 3 с выделить первое фото на открытой вкладке и открыть панель «Информация» |
 | `GEO_PHOTO_LIBRARY_SEARCH=<запрос>` | через 2 с найти место на карте (одно найденное — переход, несколько — список) |
 
 Скан без GUI: `geo-photo-library --scan <папка>`.

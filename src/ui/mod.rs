@@ -1,5 +1,6 @@
 pub mod about;
 pub mod dates_tab;
+pub mod info_panel;
 pub mod map_tab;
 pub mod photo_grid;
 pub mod settings;

@@ -2,6 +2,7 @@
 use super::{
     about,
     dates_tab::DatesTab,
+    info_panel::InfoPanel,
     map_tab::MapTab,
     settings,
     textures::{self, TextureCache},
@@ -39,6 +40,9 @@ struct App {
     cache: Rc<TextureCache>,
     dates: Rc<DatesTab>,
     map: Rc<MapTab>,
+    stack: gtk::Stack,
+    /// Панель «Информация» справа от вкладок.
+    info: Rc<InfoPanel>,
     progress: gtk::ProgressBar,
     status: gtk::Label,
     rescan: gtk::Button,
@@ -114,12 +118,19 @@ pub fn build(app: &gtk::Application) {
     header.pack_start(&progress);
     header.pack_start(&status);
 
+    // Справа от вкладок — панель «Информация», общая для обеих.
+    let info = InfoPanel::new();
+    stack.set_hexpand(true);
+    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    body.append(&stack);
+    body.append(&info.root);
+
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title(crate::APP_NAME)
         .default_width(1280)
         .default_height(820)
-        .child(&stack)
+        .child(&body)
         .build();
     window.set_titlebar(Some(&header));
 
@@ -130,6 +141,8 @@ pub fn build(app: &gtk::Application) {
         cache,
         dates,
         map,
+        stack: stack.clone(),
+        info,
         progress,
         status,
         rescan: rescan.clone(),
@@ -150,6 +163,8 @@ pub fn build(app: &gtk::Application) {
             }
         });
     }
+
+    init_info_panel(&state);
 
     let s = state.clone();
     let settings_action = gio::ActionEntry::builder("settings").activate(move |_, _, _| open_settings(&s)).build();
@@ -180,6 +195,75 @@ pub fn build(app: &gtk::Application) {
     debug_bench(&state, &stack);
     debug_switch(&state);
     debug_search(&state, &stack);
+    debug_info(&state);
+}
+
+/// Панель «Информация»: открывается из меню фото, показывает выбранное фото
+/// активной вкладки, закрывается крестиком.
+fn init_info_panel(state: &Rc<App>) {
+    for grid in [state.dates.grid(), state.map.grid()] {
+        let s = Rc::downgrade(state);
+        grid.connect_info(move |_| {
+            if let Some(s) = s.upgrade() {
+                // Фото уже выделено щелчком правой кнопки — панель покажет его.
+                s.info.open();
+                update_info(&s);
+            }
+        });
+        let s = Rc::downgrade(state);
+        grid.selection.connect_selected_item_notify(move |_| {
+            if let Some(s) = s.upgrade() {
+                update_info(&s);
+            }
+        });
+    }
+    let s = Rc::downgrade(state);
+    state.stack.connect_visible_child_notify(move |_| {
+        if let Some(s) = s.upgrade() {
+            update_info(&s);
+        }
+    });
+    let s = Rc::downgrade(state);
+    state.info.close.connect_clicked(move |_| {
+        if let Some(s) = s.upgrade() {
+            s.info.hide();
+        }
+    });
+}
+
+/// Сетка фото на открытой вкладке.
+fn active_grid(state: &App) -> &super::photo_grid::PhotoGrid {
+    match state.stack.visible_child_name().as_deref() {
+        Some("dates") => state.dates.grid(),
+        _ => state.map.grid(),
+    }
+}
+
+/// Показать в открытой панели «Информация» выбранное фото активной вкладки.
+///
+/// Откладывается до простоя: при перестроении списка (сдвиг карты, пересканирование)
+/// выделение на миг снимается и восстанавливается — панель видит уже итоговый выбор.
+fn update_info(state: &Rc<App>) {
+    let s = Rc::downgrade(state);
+    glib::idle_add_local_once(move || {
+        if let Some(s) = s.upgrade().filter(|s| s.info.is_open()) {
+            s.info.show_photo(active_grid(&s).selected_photo());
+        }
+    });
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_INFO=1` — через 3 с выделить первое фото на открытой
+/// вкладке и показать панель «Информация», как из меню фото.
+fn debug_info(state: &Rc<App>) {
+    if std::env::var_os("GEO_PHOTO_LIBRARY_INFO").is_none() {
+        return;
+    }
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(3, move || {
+        active_grid(&state).selection.set_selected(0);
+        state.info.open();
+        update_info(&state);
+    });
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_SEARCH=<запрос>` — через 2 с найти место на карте.

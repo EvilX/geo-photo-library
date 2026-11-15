@@ -13,6 +13,15 @@ use std::{
 
 /// Обработчик результата перемещения фото в корзину.
 type TrashedHandler = Box<dyn Fn(&Photo, Result<(), glib::Error>)>;
+/// Обработчик пункта «Информация».
+type InfoHandler = Box<dyn Fn(&Photo)>;
+
+/// Обработчики действий контекстного меню, которые выполняет окно.
+#[derive(Clone, Default)]
+struct Handlers {
+    trashed: Rc<RefCell<Option<TrashedHandler>>>,
+    info: Rc<RefCell<Option<InfoHandler>>>,
+}
 
 /// Верхний предел колонок при уменьшенных миниатюрах (см. `set_scale`).
 const MAX_COLUMNS_LIMIT: u32 = 16;
@@ -32,7 +41,7 @@ pub struct PhotoGrid {
     base_max_columns: u32,
     /// Картинки всех созданных ячеек — чтобы менять их размер без пересоздания.
     images: Rc<RefCell<Vec<glib::WeakRef<gtk::Image>>>>,
-    on_trashed: Rc<RefCell<Option<TrashedHandler>>>,
+    handlers: Handlers,
 }
 
 impl PhotoGrid {
@@ -53,7 +62,7 @@ impl PhotoGrid {
 
         // Контекстное меню: действия работают с фото, на котором нажали правую кнопку.
         let menu_photo: Rc<RefCell<Option<Photo>>> = Rc::default();
-        let on_trashed: Rc<RefCell<Option<TrashedHandler>>> = Rc::default();
+        let handlers = Handlers::default();
         let popover = gtk::PopoverMenu::from_model(Some(&context_menu()));
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
@@ -116,7 +125,7 @@ impl PhotoGrid {
 
         let view = gtk::GridView::new(Some(selection.clone()), Some(factory));
         popover.set_parent(&view);
-        view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photo, &on_trashed)));
+        view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photo, &handlers)));
         view.set_max_columns(max_columns);
         view.set_min_columns(1);
         // Двойной щелчок или Enter — просмотр, с Ctrl — редактирование.
@@ -147,13 +156,18 @@ impl PhotoGrid {
             base_max_columns: max_columns,
             size,
             images,
-            on_trashed,
+            handlers,
         }
     }
 
     /// Вызывается после попытки переместить фото в корзину из контекстного меню.
     pub fn connect_trashed(&self, f: impl Fn(&Photo, Result<(), glib::Error>) + 'static) {
-        *self.on_trashed.borrow_mut() = Some(Box::new(f));
+        *self.handlers.trashed.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Вызывается пунктом «Информация» контекстного меню.
+    pub fn connect_info(&self, f: impl Fn(&Photo) + 'static) {
+        *self.handlers.info.borrow_mut() = Some(Box::new(f));
     }
 
     /// Масштаб миниатюр в процентах от исходного размера. Предел колонок меняется
@@ -287,11 +301,14 @@ fn context_menu() -> gio::Menu {
     open.append(Some(i18n::edit()), Some("photo.edit"));
     let copy = gio::Menu::new();
     copy.append(Some(i18n::copy()), Some("photo.copy"));
+    let info = gio::Menu::new();
+    info.append(Some(i18n::info()), Some("photo.info"));
     let delete = gio::Menu::new();
     delete.append(Some(i18n::delete()), Some("photo.trash"));
     let menu = gio::Menu::new();
     menu.append_section(None, &copy);
     menu.append_section(None, &open);
+    menu.append_section(None, &info);
     menu.append_section(None, &delete);
     menu
 }
@@ -300,23 +317,28 @@ fn context_menu() -> gio::Menu {
 fn photo_actions(
     view: &gtk::GridView,
     menu_photo: &Rc<RefCell<Option<Photo>>>,
-    on_trashed: &Rc<RefCell<Option<TrashedHandler>>>,
+    handlers: &Handlers,
 ) -> gio::SimpleActionGroup {
     let group = gio::SimpleActionGroup::new();
-    let add = |name: &str, f: fn(&gtk::GridView, &Photo, &Rc<RefCell<Option<TrashedHandler>>>)| {
+    let add = |name: &str, f: fn(&gtk::GridView, &Photo, &Handlers)| {
         let action = gio::SimpleAction::new(name, None);
-        let (view, mp, handler) = (view.downgrade(), menu_photo.clone(), on_trashed.clone());
+        let (view, mp, handlers) = (view.downgrade(), menu_photo.clone(), handlers.clone());
         action.connect_activate(move |_, _| {
             let (Some(view), Some(photo)) = (view.upgrade(), mp.borrow().clone()) else { return };
-            f(&view, &photo, &handler);
+            f(&view, &photo, &handlers);
         });
         group.add_action(&action);
     };
     add("copy", |v, p, _| copy_to_clipboard(v, &p.path));
     add("view", |v, p, _| open_external(v, &p.path));
     add("edit", |v, p, _| open_in_editor(v, &p.path));
-    add("trash", |_, p, handler| {
-        let (p, handler) = (p.clone(), handler.clone());
+    add("info", |_, p, handlers| {
+        if let Some(f) = handlers.info.borrow().as_ref() {
+            f(p);
+        }
+    });
+    add("trash", |_, p, handlers| {
+        let (p, handler) = (p.clone(), handlers.trashed.clone());
         let file = gio::File::for_path(&p.path);
         file.trash_async(glib::Priority::DEFAULT, gio::Cancellable::NONE, move |res| {
             if let Some(f) = handler.borrow().as_ref() {

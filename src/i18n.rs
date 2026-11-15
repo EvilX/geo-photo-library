@@ -167,6 +167,10 @@ pub fn delete() -> &'static str {
     tr("Delete", "Удалить", "Διαγραφή")
 }
 
+pub fn info() -> &'static str {
+    tr("Information", "Информация", "Πληροφορίες")
+}
+
 pub fn trashed(name: &str) -> String {
     format!("{}: {name}", tr("Moved to trash", "Перемещено в корзину", "Μετακινήθηκε στα απορρίμματα"))
 }
@@ -310,6 +314,154 @@ pub fn lang_code() -> &'static str {
     }
 }
 
+// ---------- Панель «Информация» ----------
+
+pub fn close() -> &'static str {
+    tr("Close", "Закрыть", "Κλείσιμο")
+}
+
+pub fn select_photo() -> &'static str {
+    tr("Select a photo", "Выберите фотографию", "Επιλέξτε μια φωτογραφία")
+}
+
+pub fn no_exif() -> &'static str {
+    tr("No EXIF data", "Нет данных EXIF", "Δεν υπάρχουν δεδομένα EXIF")
+}
+
+/// Заголовки разделов и подписи полей панели.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Info {
+    File,
+    Shooting,
+    Location,
+    AllTags,
+    Name,
+    Folder,
+    Size,
+    Dimensions,
+    Taken,
+    Camera,
+    Lens,
+    Exposure,
+    Aperture,
+    Iso,
+    FocalLength,
+    ExposureBias,
+    Flash,
+    Software,
+    Coordinates,
+    Altitude,
+}
+
+pub fn info_label(key: Info) -> &'static str {
+    match key {
+        Info::File => tr("File", "Файл", "Αρχείο"),
+        Info::Shooting => tr("Shooting", "Съёмка", "Λήψη"),
+        Info::Location => tr("Location", "Место", "Τοποθεσία"),
+        Info::AllTags => tr("All EXIF tags", "Все теги EXIF", "Όλες οι ετικέτες EXIF"),
+        Info::Name => tr("Name", "Имя", "Όνομα"),
+        Info::Folder => tr("Folder", "Папка", "Φάκελος"),
+        Info::Size => tr("Size", "Размер", "Μέγεθος"),
+        Info::Dimensions => tr("Dimensions", "Разрешение", "Διαστάσεις"),
+        Info::Taken => tr("Date taken", "Дата съёмки", "Ημερομηνία λήψης"),
+        Info::Camera => tr("Camera", "Камера", "Κάμερα"),
+        Info::Lens => tr("Lens", "Объектив", "Φακός"),
+        Info::Exposure => tr("Shutter speed", "Выдержка", "Ταχύτητα κλείστρου"),
+        Info::Aperture => tr("Aperture", "Диафрагма", "Διάφραγμα"),
+        Info::Iso => "ISO",
+        Info::FocalLength => tr("Focal length", "Фокусное расстояние", "Εστιακή απόσταση"),
+        Info::ExposureBias => tr("Exposure compensation", "Экспокоррекция", "Αντιστάθμιση έκθεσης"),
+        Info::Flash => tr("Flash", "Вспышка", "Φλας"),
+        Info::Software => tr("Software", "Программа", "Λογισμικό"),
+        Info::Coordinates => tr("Coordinates", "Координаты", "Συντεταγμένες"),
+        Info::Altitude => tr("Altitude", "Высота", "Υψόμετρο"),
+    }
+}
+
+pub fn flash(fired: bool) -> &'static str {
+    if fired {
+        tr("Fired", "Сработала", "Ενεργοποιήθηκε")
+    } else {
+        tr("Did not fire", "Не сработала", "Δεν ενεργοποιήθηκε")
+    }
+}
+
+/// Число с одним знаком после запятой без лишнего нуля; в ru/el — десятичная запятая.
+fn decimal(lang: Lang, v: f64) -> String {
+    let s = format!("{v:.1}");
+    let s = s.strip_suffix(".0").unwrap_or(&s).to_string();
+    match lang {
+        Lang::En => s,
+        Lang::Ru | Lang::El => s.replace('.', ","),
+    }
+}
+
+/// Выдержка: «1/250 s», «1/250 с», «1/250 δ».
+pub fn exposure(t: &str) -> String {
+    format!("{t} {}", tr("s", "с", "δ"))
+}
+
+/// Фокусное расстояние и эквивалент для 35-мм кадра.
+pub fn focal_length(mm: f64, equiv: Option<u32>) -> String {
+    focal_length_in(lang(), mm, equiv)
+}
+
+fn focal_length_in(lang: Lang, mm: f64, equiv: Option<u32>) -> String {
+    let (unit, eq) = match lang {
+        Lang::En => ("mm", "35 mm equivalent"),
+        Lang::Ru => ("мм", "в пересчёте на 35 мм"),
+        Lang::El => ("mm", "ισοδύναμο 35 mm"),
+    };
+    let f = decimal(lang, mm);
+    match equiv {
+        Some(e) => format!("{f} {unit} ({eq}: {e} {unit})"),
+        None => format!("{f} {unit}"),
+    }
+}
+
+pub fn aperture(f: f64) -> String {
+    format!("f/{}", decimal(lang(), f))
+}
+
+/// Экспокоррекция со знаком: «+0,7 EV», «0 EV».
+pub fn exposure_bias(ev: f64) -> String {
+    let v = decimal(lang(), ev);
+    if ev > 0.05 {
+        format!("+{v} EV")
+    } else {
+        format!("{v} EV")
+    }
+}
+
+/// Высота над уровнем моря в метрах.
+pub fn altitude(m: f64) -> String {
+    format!("{} {}", m.round() as i64, tr("m", "м", "μ"))
+}
+
+/// Размер файла: «850 KB», «3.2 MB»; в ru — «3,2 МБ».
+pub fn file_size(bytes: u64) -> String {
+    file_size_in(lang(), bytes)
+}
+
+fn file_size_in(lang: Lang, bytes: u64) -> String {
+    let (kb, mb) = match lang {
+        Lang::En | Lang::El => ("KB", "MB"),
+        Lang::Ru => ("КБ", "МБ"),
+    };
+    let b = bytes as f64;
+    if b < 1024.0 * 1024.0 {
+        format!("{} {kb}", (b / 1024.0).ceil() as u64)
+    } else {
+        format!("{} {mb}", decimal(lang, b / 1024.0 / 1024.0))
+    }
+}
+
+/// Разрешение снимка: «4032 × 3024 (12.2 MP)».
+pub fn dimensions(w: u32, h: u32) -> String {
+    let mp = decimal(lang(), w as f64 * h as f64 / 1e6);
+    format!("{w} × {h} ({mp} {})", tr("MP", "Мп", "MP"))
+}
+
 // ---------- Даты ----------
 
 const MONTHS_EN: [&str; 12] = [
@@ -401,6 +553,17 @@ mod tests {
 
     fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn info_units() {
+        assert_eq!(decimal(Lang::En, 2.0), "2");
+        assert_eq!(decimal(Lang::Ru, 1.78), "1,8");
+        assert_eq!(file_size_in(Lang::En, 3_355_443), "3.2 MB");
+        assert_eq!(file_size_in(Lang::Ru, 3_355_443), "3,2 МБ");
+        assert_eq!(file_size_in(Lang::En, 1000), "1 KB");
+        assert_eq!(focal_length_in(Lang::Ru, 6.86, Some(26)), "6,9 мм (в пересчёте на 35 мм: 26 мм)");
+        assert_eq!(focal_length_in(Lang::En, 50.0, None), "50 mm");
     }
 
     #[test]
