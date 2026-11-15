@@ -27,6 +27,8 @@ const DEBOUNCE: Duration = Duration::from_millis(150);
 const SEARCH_INTERVAL: Duration = Duration::from_secs(1);
 /// Зум для найденной точки без границ.
 const PLACE_ZOOM: f64 = 15.0;
+/// Зум для пункта «Найти на карте» — уровень улиц.
+const PHOTO_ZOOM: f64 = 16.0;
 /// Предельный зум для найденного места: мелкий объект показывается с окрестностями.
 const PLACE_MAX_ZOOM: f64 = 17.0;
 
@@ -56,6 +58,9 @@ pub struct MapTab {
     fitted: Cell<bool>,
     last_size: Cell<(i32, i32)>,
     search: Search,
+    /// Фото, которое выделить в списке, когда оно появится в видимой области
+    /// (после перехода «Найти на карте»).
+    pending_select: Cell<Option<i64>>,
 }
 
 /// Поиск местности: строка над картой и всплывающий список найденного.
@@ -199,6 +204,7 @@ impl MapTab {
             fitted: Cell::new(false),
             last_size: Cell::new((0, 0)),
             search,
+            pending_select: Cell::new(None),
         });
 
         // Поиск местности: запрос по Enter, переход по выбору из списка.
@@ -344,6 +350,19 @@ impl MapTab {
         self.grid.set_scale(percent);
     }
 
+    /// Перейти к месту съёмки фото и выделить его в списке. `false` — у фото нет координат.
+    pub fn show_photo(self: &Rc<Self>, photo: &Photo) -> bool {
+        let Some((lat, lon)) = photo.coords() else { return false };
+        // Сохранённое положение или автоподгонка больше не нужны.
+        self.fitted.set(true);
+        self.pending_select.set(Some(photo.id));
+        let max = self.viewport.max_zoom_level() as f64;
+        self.map.go_to_full(lat, lon, PHOTO_ZOOM.min(max));
+        // Если карта уже здесь, viewport не изменится — обновить список явно.
+        self.schedule_refresh();
+        true
+    }
+
     /// Мгновенно (без анимации) перейти к точке — для бенчмарка.
     pub fn jump_to(&self, lat: f64, lon: f64, zoom: f64) {
         self.viewport.set_zoom_level(zoom);
@@ -472,6 +491,13 @@ impl MapTab {
             }
             self.suppress_center.set(false);
             *self.visible_ids.borrow_mut() = ids;
+        }
+        // Фото из «Найти на карте» — выделить, как только оно в видимой области.
+        if let Some(id) = self.pending_select.get().filter(|id| self.visible_ids.borrow().contains(id)) {
+            self.suppress_center.set(true);
+            self.grid.select_id(id);
+            self.suppress_center.set(false);
+            self.pending_select.set(None);
         }
         let total = self.photos.borrow().len();
         self.info.set_text(&if total == 0 {

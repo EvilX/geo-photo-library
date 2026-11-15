@@ -171,6 +171,26 @@ pub fn info() -> &'static str {
     tr("Information", "Информация", "Πληροφορίες")
 }
 
+pub fn show_on_map() -> &'static str {
+    tr("Show on map", "Найти на карте", "Εύρεση στον χάρτη")
+}
+
+pub fn no_coordinates() -> &'static str {
+    tr("No coordinates", "Координаты отсутствуют", "Δεν υπάρχουν συντεταγμένες")
+}
+
+pub fn no_coordinates_detail(name: &str) -> String {
+    match lang() {
+        Lang::En => format!("The EXIF data of {name} has no GPS coordinates."),
+        Lang::Ru => format!("В EXIF фотографии {name} нет GPS-координат."),
+        Lang::El => format!("Τα δεδομένα EXIF της φωτογραφίας {name} δεν περιέχουν συντεταγμένες GPS."),
+    }
+}
+
+pub fn ok() -> &'static str {
+    tr("OK", "OK", "OK")
+}
+
 pub fn trashed(name: &str) -> String {
     format!("{}: {name}", tr("Moved to trash", "Перемещено в корзину", "Μετακινήθηκε στα απορρίμματα"))
 }

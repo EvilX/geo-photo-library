@@ -13,14 +13,15 @@ use std::{
 
 /// Обработчик результата перемещения фото в корзину.
 type TrashedHandler = Box<dyn Fn(&Photo, Result<(), glib::Error>)>;
-/// Обработчик пункта «Информация».
-type InfoHandler = Box<dyn Fn(&Photo)>;
+/// Обработчик пункта меню над фото («Информация», «Найти на карте»).
+type PhotoHandler = Box<dyn Fn(&Photo)>;
 
 /// Обработчики действий контекстного меню, которые выполняет окно.
 #[derive(Clone, Default)]
 struct Handlers {
     trashed: Rc<RefCell<Option<TrashedHandler>>>,
-    info: Rc<RefCell<Option<InfoHandler>>>,
+    info: Rc<RefCell<Option<PhotoHandler>>>,
+    show_on_map: Rc<RefCell<Option<PhotoHandler>>>,
 }
 
 /// Верхний предел колонок при уменьшенных миниатюрах (см. `set_scale`).
@@ -63,7 +64,7 @@ impl PhotoGrid {
         // Контекстное меню: действия работают с фото, на котором нажали правую кнопку.
         let menu_photo: Rc<RefCell<Option<Photo>>> = Rc::default();
         let handlers = Handlers::default();
-        let popover = gtk::PopoverMenu::from_model(Some(&context_menu()));
+        let popover = context_menu();
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
 
@@ -168,6 +169,11 @@ impl PhotoGrid {
     /// Вызывается пунктом «Информация» контекстного меню.
     pub fn connect_info(&self, f: impl Fn(&Photo) + 'static) {
         *self.handlers.info.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Вызывается пунктом «Найти на карте» контекстного меню.
+    pub fn connect_show_on_map(&self, f: impl Fn(&Photo) + 'static) {
+        *self.handlers.show_on_map.borrow_mut() = Some(Box::new(f));
     }
 
     /// Масштаб миниатюр в процентах от исходного размера. Предел колонок меняется
@@ -295,22 +301,60 @@ pub fn pane_footer(zoom: &gtk::Scale) -> gtk::Box {
     footer
 }
 
-fn context_menu() -> gio::Menu {
-    let open = gio::Menu::new();
-    open.append(Some(i18n::view()), Some("photo.view"));
-    open.append(Some(i18n::edit()), Some("photo.edit"));
-    let copy = gio::Menu::new();
-    copy.append(Some(i18n::copy()), Some("photo.copy"));
-    let info = gio::Menu::new();
-    info.append(Some(i18n::info()), Some("photo.info"));
-    let delete = gio::Menu::new();
-    delete.append(Some(i18n::delete()), Some("photo.trash"));
-    let menu = gio::Menu::new();
-    menu.append_section(None, &copy);
-    menu.append_section(None, &open);
-    menu.append_section(None, &info);
-    menu.append_section(None, &delete);
-    menu
+/// Пункты контекстного меню по разделам: (подпись, действие, иконка).
+fn context_menu_items() -> [Vec<(&'static str, &'static str, &'static str)>; 4] {
+    [
+        vec![(i18n::copy(), "photo.copy", "edit-copy-symbolic")],
+        vec![
+            (i18n::view(), "photo.view", "view-reveal-symbolic"),
+            (i18n::edit(), "photo.edit", "document-edit-symbolic"),
+        ],
+        vec![
+            (i18n::info(), "photo.info", "help-about-symbolic"),
+            (i18n::show_on_map(), "photo.show-on-map", "mark-location-symbolic"),
+        ],
+        vec![(i18n::delete(), "photo.trash", "user-trash-symbolic")],
+    ]
+}
+
+/// Контекстное меню фото с иконками у пунктов.
+///
+/// `PopoverMenu` в GTK4 не рисует иконки обычных пунктов, поэтому каждый пункт —
+/// свой виджет (атрибут `custom`), а разделы и разделители остаются от модели.
+fn context_menu() -> gtk::PopoverMenu {
+    let model = gio::Menu::new();
+    let mut custom = Vec::new();
+    for items in context_menu_items() {
+        let section = gio::Menu::new();
+        for (label, action, icon) in items {
+            let id = action.replace('.', "-");
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_attribute_value("custom", Some(&id.to_variant()));
+            section.append_item(&item);
+            custom.push((id, label, action, icon));
+        }
+        model.append_section(None, &section);
+    }
+    let popover = gtk::PopoverMenu::from_model(Some(&model));
+    for (id, label, action, icon) in custom {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        row.append(&gtk::Image::from_icon_name(icon));
+        let text = gtk::Label::new(Some(label));
+        text.set_xalign(0.0);
+        text.set_hexpand(true);
+        row.append(&text);
+        let button = gtk::Button::builder().child(&row).action_name(action).build();
+        button.add_css_class("flat");
+        button.add_css_class("photo-menu-item");
+        let pop = popover.downgrade();
+        button.connect_clicked(move |_| {
+            if let Some(p) = pop.upgrade() {
+                p.popdown();
+            }
+        });
+        popover.add_child(&button, &id);
+    }
+    popover
 }
 
 /// Действия контекстного меню (группа `photo`) над фото из `menu_photo`.
@@ -334,6 +378,11 @@ fn photo_actions(
     add("edit", |v, p, _| open_in_editor(v, &p.path));
     add("info", |_, p, handlers| {
         if let Some(f) = handlers.info.borrow().as_ref() {
+            f(p);
+        }
+    });
+    add("show-on-map", |_, p, handlers| {
+        if let Some(f) = handlers.show_on_map.borrow().as_ref() {
             f(p);
         }
     });

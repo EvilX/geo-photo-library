@@ -26,5 +26,6 @@ pub const CSS: &str = "
     font-size: smaller;
 }
 .map-search { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+.photo-menu-item { padding: 4px 10px; font-weight: normal; }
 .pane-title { font-weight: bold; padding: 6px 10px; }
 ";

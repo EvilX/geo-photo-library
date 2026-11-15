@@ -172,6 +172,14 @@ pub fn build(app: &gtk::Application) {
     }
 
     init_info_panel(&state, &info_btn);
+    for grid in [state.dates.grid(), state.map.grid()] {
+        let s = Rc::downgrade(&state);
+        grid.connect_show_on_map(move |photo| {
+            if let Some(s) = s.upgrade() {
+                show_on_map(&s, photo);
+            }
+        });
+    }
 
     let s = state.clone();
     let settings_action = gio::ActionEntry::builder("settings").activate(move |_, _, _| open_settings(&s)).build();
@@ -254,6 +262,22 @@ fn init_info_panel(state: &Rc<App>, button: &gtk::ToggleButton) {
             s.info.hide();
         }
     });
+}
+
+/// «Найти на карте»: открыть карту в месте съёмки, а без координат — предупредить.
+fn show_on_map(state: &Rc<App>, photo: &Photo) {
+    if photo.coords().is_none() {
+        gtk::AlertDialog::builder()
+            .modal(true)
+            .message(i18n::no_coordinates())
+            .detail(i18n::no_coordinates_detail(photo.file_name()))
+            .buttons([i18n::ok()])
+            .build()
+            .show(Some(&state.window));
+        return;
+    }
+    state.stack.set_visible_child_name("map");
+    state.map.show_photo(photo);
 }
 
 /// Сетка фото на открытой вкладке.
