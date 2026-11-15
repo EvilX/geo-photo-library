@@ -30,7 +30,8 @@ map using GPS coordinates from EXIF.
 - On startup the library is rescanned incrementally (new, changed and deleted files).
 - Formats: JPEG, HEIC/HEIF (iPhone, Samsung), PNG, WebP, TIFF, DNG (metadata only).
 - Interface languages: English, Russian, Greek — from the system locale (`LANG`, `LC_MESSAGES`,
-  `LANGUAGE`), English by default.
+  `LANGUAGE`), English by default. Photo dates follow the system date format (`LC_TIME`),
+  e.g. `12/21/2025 01:03 PM` in en_US and `21/12/25 13:03` in en_GB.
 
 ## Installation
 

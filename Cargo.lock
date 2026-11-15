@@ -607,6 +607,7 @@ dependencies = [
  "gtk4",
  "image",
  "kamadak-exif",
+ "libc",
  "libheif-rs",
  "libshumate",
  "mozjpeg",

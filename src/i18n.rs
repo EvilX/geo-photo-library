@@ -585,9 +585,59 @@ pub fn year(y: i32) -> String {
     }
 }
 
-/// Дата и время снимка в подписи: «2023-07-14 12:30», «14.07.2023 12:30», «14/07/2023 12:30».
+/// Дата и время снимка в подписи — по системной локали дат (`LC_TIME`):
+/// en_US «12/21/2025 01:03 PM», en_GB «21/12/25 13:03», de_DE «21.12.2025 13:03».
+/// При локали C/POSIX — по языку интерфейса (см. [`datetime_in`]).
 pub fn datetime(dt: &NaiveDateTime) -> String {
-    datetime_in(lang(), dt)
+    locale_datetime_pattern()
+        .and_then(|pattern| format_glib(dt, pattern))
+        .unwrap_or_else(|| datetime_in(lang(), dt))
+}
+
+/// Шаблон «дата время» из локали `LC_TIME` без секунд; `None` — локаль C/POSIX
+/// (не настроена) или её не прочитать. Читается один раз: локаль выставляет GTK
+/// при запуске (`setlocale(LC_ALL, "")`), до первой подписи с датой.
+fn locale_datetime_pattern() -> Option<&'static str> {
+    static PATTERN: OnceLock<Option<String>> = OnceLock::new();
+    PATTERN
+        .get_or_init(|| {
+            // SAFETY: запрос текущей локали и её строк; указатели действительны до
+            // следующего setlocale, строки сразу копируются.
+            let read = |p: *const libc::c_char| {
+                (!p.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+            };
+            let name = read(unsafe { libc::setlocale(libc::LC_TIME, std::ptr::null()) })?;
+            if is_c_locale(&name) {
+                return None;
+            }
+            let date = read(unsafe { libc::nl_langinfo(libc::D_FMT) })?;
+            let time = read(unsafe { libc::nl_langinfo(libc::T_FMT) })?;
+            (!date.is_empty() && !time.is_empty()).then(|| format!("{date} {}", time_without_seconds(&time)))
+        })
+        .as_deref()
+}
+
+fn is_c_locale(name: &str) -> bool {
+    name == "C" || name == "POSIX" || name.starts_with("C.")
+}
+
+/// Время из шаблона локали без секунд: «%T» → «%H:%M», «%r» → «%I:%M %p».
+fn time_without_seconds(fmt: &str) -> String {
+    fmt.replace("%T", "%H:%M")
+        .replace("%r", "%I:%M %p")
+        .replace("%X", "%H:%M")
+        .replace(":%S", "")
+        .replace(".%S", "")
+        .trim()
+        .to_string()
+}
+
+/// Формат через GLib: он, в отличие от chrono, берёт из локали названия месяцев и AM/PM.
+fn format_glib(dt: &NaiveDateTime, pattern: &str) -> Option<String> {
+    use chrono::{Datelike, Timelike};
+    let (y, mo, d) = (dt.year(), dt.month() as i32, dt.day() as i32);
+    let g = gtk::glib::DateTime::new(&gtk::glib::TimeZone::utc(), y, mo, d, dt.hour() as i32, dt.minute() as i32, 0.0);
+    g.ok()?.format(pattern).ok().map(|s| s.to_string())
 }
 
 fn datetime_in(lang: Lang, dt: &NaiveDateTime) -> String {
@@ -657,5 +707,12 @@ mod tests {
         assert_eq!(datetime_in(Lang::En, &dt), "2023-07-14 12:30");
         assert_eq!(datetime_in(Lang::Ru, &dt), "14.07.2023 12:30");
         assert_eq!(datetime_in(Lang::El, &dt), "14/07/2023 12:30");
+        // Шаблоны локалей: en_US, ru_RU/en_GB, нестандартный с точкой.
+        assert_eq!(time_without_seconds("%r"), "%I:%M %p");
+        assert_eq!(time_without_seconds("%T"), "%H:%M");
+        assert_eq!(time_without_seconds("%H.%M.%S"), "%H.%M");
+        assert_eq!(format_glib(&dt, "%m/%d/%Y %I:%M %p").as_deref(), Some("07/14/2023 12:30 PM"));
+        assert_eq!(format_glib(&dt, "%d/%m/%y %H:%M").as_deref(), Some("14/07/23 12:30"));
+        assert!(is_c_locale("C.UTF-8") && is_c_locale("POSIX") && !is_c_locale("en_US.UTF-8"));
     }
 }
