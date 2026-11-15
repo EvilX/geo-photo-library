@@ -31,7 +31,8 @@ pub fn unproject(x: f64, y: f64, zoom: f64) -> (f64, f64) {
 pub struct View {
     cx: f64,
     cy: f64,
-    zoom: f64,
+    /// 2^zoom: множитель от координат на зуме 0 к пикселям этого зума.
+    scale: f64,
     half_w: f64,
     half_h: f64,
 }
@@ -39,13 +40,21 @@ pub struct View {
 impl View {
     pub fn new(lat: f64, lon: f64, zoom: f64, width: f64, height: f64) -> Self {
         let (cx, cy) = project(lat, lon, zoom);
-        Self { cx, cy, zoom, half_w: width / 2.0, half_h: height / 2.0 }
+        Self { cx, cy, scale: zoom.exp2(), half_w: width / 2.0, half_h: height / 2.0 }
     }
 
     /// Попадает ли точка в область, расширенную на `margin` пикселей.
+    #[cfg(test)]
     pub fn contains(&self, lat: f64, lon: f64, margin: f64) -> bool {
-        let (x, y) = project(lat, lon, self.zoom);
-        (x - self.cx).abs() <= self.half_w + margin && (y - self.cy).abs() <= self.half_h + margin
+        let (x, y) = project(lat, lon, 0.0);
+        self.contains_world(x, y, margin)
+    }
+
+    /// То же для точки, уже спроецированной на зум 0 ([`project`] с `zoom = 0`):
+    /// без тригонометрии — для проверки десятков тысяч фото на каждое движение карты.
+    pub fn contains_world(&self, x0: f64, y0: f64, margin: f64) -> bool {
+        let s = self.scale;
+        (x0 * s - self.cx).abs() <= self.half_w + margin && (y0 * s - self.cy).abs() <= self.half_h + margin
     }
 }
 
@@ -59,11 +68,19 @@ pub struct Cluster {
 
 /// Группирует точки по сетке `cell`×`cell` пикселей, привязанной к миру
 /// (а не к экрану), поэтому при панорамировании кластеры не «прыгают».
+#[cfg(test)]
 pub fn cluster(points: &[(f64, f64)], zoom: f64, cell: f64) -> Vec<Cluster> {
+    let world: Vec<(f64, f64)> = points.iter().map(|&(lat, lon)| project(lat, lon, 0.0)).collect();
+    cluster_world(&world, zoom, cell)
+}
+
+/// [`cluster`] для точек, уже спроецированных на зум 0.
+pub fn cluster_world(points: &[(f64, f64)], zoom: f64, cell: f64) -> Vec<Cluster> {
+    let scale = zoom.exp2();
     let mut cells: HashMap<(i64, i64), usize> = HashMap::new();
     let mut acc: Vec<(f64, f64, Vec<usize>)> = Vec::new();
-    for (i, &(lat, lon)) in points.iter().enumerate() {
-        let (x, y) = project(lat, lon, zoom);
+    for (i, &(x0, y0)) in points.iter().enumerate() {
+        let (x, y) = (x0 * scale, y0 * scale);
         let key = ((x / cell).floor() as i64, (y / cell).floor() as i64);
         let slot = *cells.entry(key).or_insert_with(|| {
             acc.push((0.0, 0.0, Vec::new()));

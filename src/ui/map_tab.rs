@@ -14,7 +14,8 @@ use crate::{
 use gtk::{glib, prelude::*};
 use shumate::prelude::*;
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, Ref, RefCell},
+    collections::{HashMap, HashSet},
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -34,6 +35,17 @@ const LOCATION_MAX_ZOOM: f64 = 16.0;
 /// Предельный зум для найденного места: мелкий объект показывается с окрестностями.
 const PLACE_MAX_ZOOM: f64 = 17.0;
 
+/// Фото в быстрых проходах: id и мировые координаты на зуме 0.
+#[derive(Clone, Copy)]
+struct Point {
+    id: i64,
+    x: f64,
+    y: f64,
+}
+
+/// Ключ кластера: id первого фото, число фото и сумма их id (состав).
+type ClusterKey = (i64, usize, i64);
+
 pub struct MapTab {
     pub root: gtk::Paned,
     /// Выбор сортировки в заголовке списка.
@@ -48,12 +60,17 @@ pub struct MapTab {
     info: gtk::Label,
     db: Rc<Db>,
     cache: Rc<TextureCache>,
-    /// Все фото с координатами, по дате.
-    photos: RefCell<Vec<Photo>>,
+    /// Все фото с координатами, по дате: объекты с [`Photo`] внутри. Создаются один
+    /// раз при загрузке и передаются в список как есть, без копирования данных.
+    photos: RefCell<Vec<glib::BoxedAnyObject>>,
+    /// id и проекция (зум 0) каждого фото из `photos` — для быстрых проходов по всем
+    /// фото при каждом движении карты.
+    points: RefCell<Vec<Point>>,
     /// id фото в правом списке — чтобы не перестраивать его без изменений.
     visible_ids: RefCell<Vec<i64>>,
-    /// Подпись текущего набора кластеров (cover id, количество).
-    cluster_sig: RefCell<Vec<(i64, usize)>>,
+    /// Маркеры на карте по ключу кластера — при сдвиге карты пересоздаются только
+    /// изменившиеся.
+    markers: RefCell<HashMap<ClusterKey, shumate::Marker>>,
     pending: RefCell<Option<glib::SourceId>>,
     /// Не центрировать карту при программном изменении выделения.
     suppress_center: Cell<bool>,
@@ -191,6 +208,9 @@ impl MapTab {
         let map_overlay = gtk::Overlay::new();
         map_overlay.set_child(Some(&simple_map));
         map_overlay.add_overlay(&toolbar);
+        let size_probe = gtk::DrawingArea::new();
+        size_probe.set_can_target(false);
+        map_overlay.add_overlay(&size_probe);
 
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
         root.set_start_child(Some(&map_overlay));
@@ -212,8 +232,9 @@ impl MapTab {
             db,
             cache,
             photos: RefCell::default(),
+            points: RefCell::default(),
             visible_ids: RefCell::default(),
-            cluster_sig: RefCell::default(),
+            markers: RefCell::default(),
             pending: RefCell::default(),
             suppress_center: Cell::new(false),
             fitted: Cell::new(false),
@@ -264,11 +285,16 @@ impl MapTab {
                 t.schedule_refresh();
             }
         });
-        // Изменение размера виджета (переключение вкладки, перетаскивание Paned).
+        // Изменение размера карты (первый показ, размер окна, перетаскивание Paned).
+        // У виджетов GTK4 нет сигнала о размере, а покадровый обработчик будил бы
+        // главный поток 60 раз в секунду даже в простое — поэтому за размером следит
+        // невидимая DrawingArea поверх карты. Обработка — после раскладки, из простоя.
         let weak = Rc::downgrade(&this);
-        this.simple_map.add_tick_callback(move |w, _| {
-            if let Some(t) = weak.upgrade() {
-                let size = (w.width(), w.height());
+        size_probe.connect_resize(move |_, _, _| {
+            let weak = weak.clone();
+            glib::idle_add_local_once(move || {
+                let Some(t) = weak.upgrade() else { return };
+                let size = (t.simple_map.width(), t.simple_map.height());
                 if size != t.last_size.get() {
                     t.last_size.set(size);
                     if !t.fitted.get() {
@@ -276,8 +302,7 @@ impl MapTab {
                     }
                     t.schedule_refresh();
                 }
-            }
-            glib::ControlFlow::Continue
+            });
         });
         // Выбор фото в списке — центрировать карту на нём.
         let weak = Rc::downgrade(&this);
@@ -468,7 +493,7 @@ impl MapTab {
     }
 
     pub fn first_photo_coords(&self) -> Option<(f64, f64)> {
-        self.photos.borrow().iter().find_map(Photo::coords)
+        self.photos.borrow().first().and_then(|o| o.borrow::<Photo>().coords())
     }
 
     /// Перечитать фото с координатами. Без `force` маркеры и список перестраиваются,
@@ -479,9 +504,18 @@ impl MapTab {
             eprintln!("БД: {e:#}");
             Vec::new()
         });
-        *self.photos.borrow_mut() = photos;
+        *self.points.borrow_mut() = photos
+            .iter()
+            .filter_map(|p| {
+                let (lat, lon) = p.coords()?;
+                let (x, y) = geo::project(lat, lon, 0.0);
+                Some(Point { id: p.id, x, y })
+            })
+            .collect();
+        *self.photos.borrow_mut() = photos.into_iter().map(glib::BoxedAnyObject::new).collect();
         if force {
-            self.cluster_sig.borrow_mut().clear();
+            self.layer.remove_all();
+            self.markers.borrow_mut().clear();
             self.visible_ids.borrow_mut().clear();
         }
         if !self.fitted.get() {
@@ -496,7 +530,8 @@ impl MapTab {
         if w < 2.0 || h < 2.0 {
             return;
         }
-        let pts: Vec<(f64, f64)> = self.photos.borrow().iter().filter_map(Photo::coords).collect();
+        let pts: Vec<(f64, f64)> =
+            self.photos.borrow().iter().filter_map(|o| o.borrow::<Photo>().coords()).collect();
         let Some((lat, lon)) = geo::center(&pts) else { return };
         let max = self.viewport.max_zoom_level() as f64;
         // Целый зум: на дробном у тайлов видны швы.
@@ -530,43 +565,67 @@ impl MapTab {
         let _t = trace::span(format!("map.refresh (zoom {zoom:.1})"));
         let view = geo::View::new(self.viewport.latitude(), self.viewport.longitude(), zoom, w, h);
         let photos = self.photos.borrow();
+        let points = self.points.borrow();
 
-        // Маркеры: точки с запасом за краем экрана, чтобы кластеры не появлялись рывком.
-        let near: Vec<&Photo> = photos
-            .iter()
-            .filter(|p| p.coords().is_some_and(|(la, lo)| view.contains(la, lo, CELL)))
-            .collect();
-        let pts: Vec<(f64, f64)> = near.iter().filter_map(|p| p.coords()).collect();
+        // Один проход по всем фото: `near` — для маркеров (с запасом за краем экрана,
+        // чтобы кластеры не появлялись рывком), `visible` — для списка справа.
+        let (mut near, mut visible) = (Vec::new(), Vec::new());
+        for (i, p) in points.iter().enumerate() {
+            if view.contains_world(p.x, p.y, CELL) {
+                near.push(i);
+                if view.contains_world(p.x, p.y, 0.0) {
+                    visible.push(i);
+                }
+            }
+        }
+        let pts: Vec<(f64, f64)> = near.iter().map(|&i| (points[i].x, points[i].y)).collect();
         let clusters = {
             let _t = trace::span(format!("  кластеризация {} точек", pts.len()));
-            geo::cluster(&pts, zoom, CELL)
+            geo::cluster_world(&pts, zoom, CELL)
         };
-        let sig: Vec<(i64, usize)> = clusters.iter().map(|c| (near[c.members[0]].id, c.members.len())).collect();
-        if *self.cluster_sig.borrow() != sig {
-            let _t = trace::span(format!("  маркеры: {}", clusters.len()));
-            self.layer.remove_all();
-            for c in &clusters {
-                let members: Vec<&Photo> = c.members.iter().map(|&i| near[i]).collect();
-                self.layer.add_marker(&self.make_marker(c.lat, c.lon, &members));
+        let keys: Vec<ClusterKey> = clusters
+            .iter()
+            .map(|c| {
+                let ids = c.members.iter().map(|&m| points[near[m]].id);
+                (points[near[c.members[0]]].id, c.members.len(), ids.fold(0, i64::wrapping_add))
+            })
+            .collect();
+        {
+            let mut markers = self.markers.borrow_mut();
+            if markers.len() != keys.len() || !keys.iter().all(|k| markers.contains_key(k)) {
+                let _t = trace::span(format!("  маркеры: {} (было {})", keys.len(), markers.len()));
+                let keep: HashSet<ClusterKey> = keys.iter().copied().collect();
+                markers.retain(|key, marker| {
+                    let stays = keep.contains(key);
+                    if !stays {
+                        self.layer.remove_marker(marker);
+                    }
+                    stays
+                });
+                for (c, key) in clusters.iter().zip(&keys) {
+                    if markers.contains_key(key) {
+                        continue;
+                    }
+                    let refs: Vec<Ref<Photo>> = c.members.iter().map(|&m| photos[near[m]].borrow()).collect();
+                    let members: Vec<&Photo> = refs.iter().map(|r| &**r).collect();
+                    let marker = self.make_marker(c.lat, c.lon, &members);
+                    self.layer.add_marker(&marker);
+                    markers.insert(*key, marker);
+                }
             }
-            *self.cluster_sig.borrow_mut() = sig;
         }
 
         // Правый список: только видимые, по дате.
-        let visible: Vec<Photo> = photos
-            .iter()
-            .filter(|p| p.coords().is_some_and(|(la, lo)| view.contains(la, lo, 0.0)))
-            .cloned()
-            .collect();
-        drop(photos);
-        let ids: Vec<i64> = visible.iter().map(|p| p.id).collect();
+        let ids: Vec<i64> = visible.iter().map(|&i| points[i].id).collect();
+        let visible_count = ids.len();
         if *self.visible_ids.borrow() != ids {
             let _t = trace::span(format!("  список: {} фото", ids.len()));
+            let objects: Vec<glib::BoxedAnyObject> = visible.iter().map(|&i| photos[i].clone()).collect();
             let selected = self.grid.selected_photo().map(|p| p.id);
             self.suppress_center.set(true);
             {
                 let _t = trace::span("    set_photos");
-                self.grid.set_photos(&visible);
+                self.grid.set_objects(objects);
             }
             if let Some(id) = selected {
                 let _t = trace::span("    select_id");
@@ -575,6 +634,8 @@ impl MapTab {
             self.suppress_center.set(false);
             *self.visible_ids.borrow_mut() = ids;
         }
+        drop(points);
+        drop(photos);
         // Фото из «Найти на карте» — выделить, как только оно в видимой области.
         if let Some(id) = self.pending_select.get().filter(|id| self.visible_ids.borrow().contains(id)) {
             self.suppress_center.set(true);
@@ -586,7 +647,7 @@ impl MapTab {
         self.info.set_text(&if total == 0 {
             i18n::no_geotagged().to_string()
         } else {
-            i18n::in_map_area(visible.len(), total)
+            i18n::in_map_area(visible_count, total)
         });
     }
 

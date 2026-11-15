@@ -183,14 +183,43 @@ pub fn build(app: &gtk::Application) {
         });
     }
 
-    let s = state.clone();
-    let settings_action = gio::ActionEntry::builder("settings").activate(move |_, _, _| open_settings(&s)).build();
+    // Обработчики на виджетах, которыми владеет `App`, держат его слабой ссылкой:
+    // сильная замкнула бы цикл App → виджет → обработчик → App, и при закрытии окна
+    // не освободились бы ни состояние, ни соединение с БД.
+    let s = Rc::downgrade(&state);
+    let settings_action = gio::ActionEntry::builder("settings")
+        .activate(move |_, _, _| {
+            if let Some(s) = s.upgrade() {
+                open_settings(&s);
+            }
+        })
+        .build();
     let about_action = gio::ActionEntry::builder("about")
         .activate(|w: &gtk::ApplicationWindow, _, _| about::show(w))
         .build();
     state.window.add_action_entries([settings_action, about_action]);
-    let s = state.clone();
-    rescan.connect_clicked(move |_| start_scan(&s));
+    let s = Rc::downgrade(&state);
+    rescan.connect_clicked(move |_| {
+        if let Some(s) = s.upgrade() {
+            start_scan(&s);
+        }
+    });
+
+    // Состоянием владеет окно: единственная сильная ссылка живёт в обработчике
+    // закрытия и отпускается в нём же — вместе с ней закрывается БД. Сигнал `destroy`
+    // для этого не годится: пока обработчик держит состояние, а оно — окно, окно
+    // не разрушается. Обработчик подключён после `init_map_view`, поэтому положение
+    // карты к этому моменту уже сохранено.
+    let owner = RefCell::new(Some(state.clone()));
+    state.window.connect_close_request(move |_| {
+        if let Some(state) = owner.borrow_mut().take() {
+            // Незачем досканировать библиотеку для закрытого окна.
+            if let Some(cancel) = state.cancel.borrow().as_ref() {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        }
+        glib::Propagation::Proceed
+    });
 
     state.window.present();
     reload(&state, true);
@@ -451,8 +480,9 @@ fn init_sort(state: &Rc<App>) {
         .bidirectional()
         .build();
     // Обе вкладки уже синхронизированы привязкой — реагируем на одну.
-    let s = state.clone();
+    let s = Rc::downgrade(state);
     state.dates.sort.connect_selected_notify(move |d| {
+        let Some(s) = s.upgrade() else { return };
         let order = SortOrder::from_index(d.selected());
         s.dates.set_order(order);
         s.map.set_order(order);
@@ -499,8 +529,9 @@ fn init_thumb_scale(state: &Rc<App>) {
     adj.set_value(percent as f64);
     state.dates.set_thumb_scale(percent);
     state.map.set_thumb_scale(percent);
-    let s = state.clone();
+    let s = Rc::downgrade(state);
     adj.connect_value_changed(move |adj| {
+        let Some(s) = s.upgrade() else { return };
         let percent = config::snap_thumb_scale(adj.value());
         if adj.value() != percent as f64 {
             // Перетаскивание даёт дробные значения — прилипаем к шагу.

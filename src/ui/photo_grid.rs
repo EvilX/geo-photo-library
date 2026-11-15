@@ -28,6 +28,9 @@ struct Handlers {
 /// Шаг кнопок «−»/«+» у слайдера масштаба миниатюр, %.
 const ZOOM_BUTTON_STEP: f64 = 10.0;
 
+/// С какого размера списка картинок ячеек вычищать из него уничтоженные.
+const IMAGES_PRUNE_AT: usize = 1024;
+
 /// Верхний предел колонок при уменьшенных миниатюрах (см. `set_scale`).
 const MAX_COLUMNS_LIMIT: u32 = 16;
 
@@ -79,7 +82,15 @@ impl PhotoGrid {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
             let image = gtk::Image::new();
             image.set_pixel_size(cur_size.get());
-            all_images.borrow_mut().push(image.downgrade());
+            {
+                // GridView при больших изменениях списка уничтожает ячейки и создаёт
+                // новые — без чистки список слабых ссылок рос бы всё время работы.
+                let mut images = all_images.borrow_mut();
+                if images.len() >= IMAGES_PRUNE_AT && images.len().is_power_of_two() {
+                    images.retain(|w| w.upgrade().is_some());
+                }
+                images.push(image.downgrade());
+            }
             image.add_css_class("photo-thumb");
             image.set_overflow(gtk::Overflow::Hidden);
             let label = gtk::Label::new(None);
@@ -201,8 +212,12 @@ impl PhotoGrid {
 
     /// `photos` — по возрастанию даты; показываются в текущем порядке сортировки.
     pub fn set_photos(&self, photos: &[Photo]) {
-        let mut objs: Vec<glib::BoxedAnyObject> =
-            photos.iter().cloned().map(glib::BoxedAnyObject::new).collect();
+        self.set_objects(photos.iter().cloned().map(glib::BoxedAnyObject::new).collect());
+    }
+
+    /// То же для готовых объектов с [`Photo`] внутри: карта создаёт их один раз при
+    /// загрузке и при каждом движении передаёт те же объекты, не копируя данные фото.
+    pub fn set_objects(&self, mut objs: Vec<glib::BoxedAnyObject>) {
         if self.order.get() == SortOrder::Newest {
             objs.reverse();
         }
@@ -243,7 +258,11 @@ impl PhotoGrid {
     /// Выделить фото с данным id и прокрутить к нему.
     pub fn select_id(&self, id: i64) -> bool {
         let n = self.store.n_items();
-        let Some(pos) = (0..n).find(|&i| self.photo(i).is_some_and(|p| p.id == id)) else {
+        // Сравниваем id на месте: `photo()` копировал бы каждое фото со строками.
+        let has_id = |i: &u32| {
+            self.store.item(*i).and_downcast::<glib::BoxedAnyObject>().is_some_and(|o| o.borrow::<Photo>().id == id)
+        };
+        let Some(pos) = (0..n).find(has_id) else {
             return false;
         };
         self.selection.set_selected(pos);
