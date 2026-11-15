@@ -28,5 +28,13 @@ pub const CSS: &str = "
 }
 .map-search { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
 .menu-item { padding: 4px 10px; min-height: 26px; margin: 0; font-weight: normal; }
+.my-location {
+    background: #3584e4;
+    border: 3px solid white;
+    border-radius: 999px;
+    min-width: 14px;
+    min-height: 14px;
+    box-shadow: 0 0 0 6px rgba(53, 132, 228, 0.25), 0 1px 4px rgba(0, 0, 0, 0.5);
+}
 .pane-title { font-weight: bold; padding: 6px 10px; }
 ";

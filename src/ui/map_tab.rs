@@ -9,7 +9,7 @@ use crate::{
     db::{Db, Photo},
     geo,
     geocode::{self, Place},
-    i18n, trace,
+    i18n, location, trace,
 };
 use gtk::{glib, prelude::*};
 use shumate::prelude::*;
@@ -29,6 +29,8 @@ const SEARCH_INTERVAL: Duration = Duration::from_secs(1);
 const PLACE_ZOOM: f64 = 15.0;
 /// Зум для пункта «Найти на карте» — уровень улиц.
 const PHOTO_ZOOM: f64 = 16.0;
+/// Предельный зум для текущего местоположения: точнее улицы не нужно.
+const LOCATION_MAX_ZOOM: f64 = 16.0;
 /// Предельный зум для найденного места: мелкий объект показывается с окрестностями.
 const PLACE_MAX_ZOOM: f64 = 17.0;
 
@@ -58,6 +60,9 @@ pub struct MapTab {
     fitted: Cell<bool>,
     last_size: Cell<(i32, i32)>,
     search: Search,
+    /// Кнопка «Моё местоположение» и слой с отметкой найденной точки.
+    locate: gtk::Button,
+    location_layer: shumate::MarkerLayer,
     /// Фото, которое выделить в списке, когда оно появится в видимой области
     /// (после перехода «Найти на карте»).
     pending_select: Cell<Option<i64>>,
@@ -80,10 +85,6 @@ impl Search {
         let entry = gtk::SearchEntry::new();
         entry.set_placeholder_text(Some(i18n::search_place()));
         entry.set_width_chars(30);
-        entry.set_halign(gtk::Align::Start);
-        entry.set_valign(gtk::Align::Start);
-        entry.set_margin_top(10);
-        entry.set_margin_start(10);
         entry.add_css_class("map-search");
 
         let list = gtk::ListBox::new();
@@ -159,6 +160,9 @@ impl MapTab {
         let viewport = simple_map.viewport().expect("SimpleMap без Viewport");
         let layer = shumate::MarkerLayer::new(&viewport);
         simple_map.add_overlay_layer(&layer);
+        // Отметка «я здесь» — поверх превью фото.
+        let location_layer = shumate::MarkerLayer::new(&viewport);
+        simple_map.add_overlay_layer(&location_layer);
 
         let grid = PhotoGrid::new(cache.clone(), 100, 4);
         let info = gtk::Label::new(None);
@@ -173,9 +177,20 @@ impl MapTab {
         right.set_size_request(260, -1);
 
         let search = Search::new();
+        let locate = gtk::Button::from_icon_name("find-location-symbolic");
+        locate.set_tooltip_text(Some(i18n::my_location()));
+        locate.add_css_class("map-search");
+        // Строка поиска и кнопка местоположения — в левом верхнем углу карты.
+        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        toolbar.set_halign(gtk::Align::Start);
+        toolbar.set_valign(gtk::Align::Start);
+        toolbar.set_margin_top(10);
+        toolbar.set_margin_start(10);
+        toolbar.append(&search.entry);
+        toolbar.append(&locate);
         let map_overlay = gtk::Overlay::new();
         map_overlay.set_child(Some(&simple_map));
-        map_overlay.add_overlay(&search.entry);
+        map_overlay.add_overlay(&toolbar);
 
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
         root.set_start_child(Some(&map_overlay));
@@ -204,7 +219,16 @@ impl MapTab {
             fitted: Cell::new(false),
             last_size: Cell::new((0, 0)),
             search,
+            locate,
+            location_layer,
             pending_select: Cell::new(None),
+        });
+
+        let weak = Rc::downgrade(&this);
+        this.locate.connect_clicked(move |_| {
+            if let Some(t) = weak.upgrade() {
+                t.locate_me();
+            }
         });
 
         // Поиск местности: запрос по Enter, переход по выбору из списка.
@@ -348,6 +372,65 @@ impl MapTab {
 
     pub fn set_thumb_scale(&self, percent: u32) {
         self.grid.set_scale(percent);
+    }
+
+    /// «Моё местоположение»: спросить у портала геолокации, перейти и отметить точку.
+    /// Пока идёт поиск, кнопка неактивна и вместо значка крутится индикатор.
+    pub fn locate_me(self: &Rc<Self>) {
+        let spinner = gtk::Spinner::new();
+        spinner.start();
+        self.locate.set_child(Some(&spinner));
+        self.locate.set_sensitive(false);
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let result = {
+                let _t = trace::span("местоположение");
+                location::current().await
+            };
+            let Some(t) = weak.upgrade() else { return };
+            t.locate.set_icon_name("find-location-symbolic");
+            t.locate.set_sensitive(true);
+            match result {
+                Ok(fix) => t.show_location(fix),
+                Err(e) => {
+                    eprintln!("Местоположение: {e}");
+                    let detail = match e {
+                        location::Error::Denied => i18n::location_denied(),
+                        location::Error::Unavailable(_) => i18n::location_unavailable(),
+                    };
+                    let dialog = gtk::AlertDialog::builder()
+                        .modal(true)
+                        .message(i18n::location_failed())
+                        .detail(detail)
+                        .buttons([i18n::ok()])
+                        .build();
+                    dialog.show(t.root.root().and_downcast_ref::<gtk::Window>());
+                }
+            }
+        });
+    }
+
+    /// Отметить найденное местоположение и показать его с окрестностями по точности.
+    fn show_location(&self, fix: location::Fix) {
+        let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        dot.add_css_class("my-location");
+        dot.set_tooltip_text(Some(i18n::my_location()));
+        let marker = shumate::Marker::new();
+        marker.set_child(Some(&dot));
+        marker.set_location(fix.lat, fix.lon);
+        self.location_layer.remove_all();
+        self.location_layer.add_marker(&marker);
+
+        // Круг точности целиком в кадре: 1° широты ≈ 111 км.
+        let d = fix.accuracy.max(50.0) / 111_320.0;
+        let d_lon = d / fix.lat.to_radians().cos().max(0.01);
+        let corners = [(fix.lat - d, fix.lon - d_lon), (fix.lat + d, fix.lon + d_lon)];
+        let (w, h) = (self.simple_map.width() as f64, self.simple_map.height() as f64);
+        let max = self.viewport.max_zoom_level() as f64;
+        let zoom = geo::fit_zoom(&corners, w, h, 40.0);
+        let zoom = if zoom.is_finite() { zoom.floor() } else { LOCATION_MAX_ZOOM }.clamp(3.0, LOCATION_MAX_ZOOM.min(max));
+        self.fitted.set(true);
+        self.map.go_to_full(fix.lat, fix.lon, zoom);
     }
 
     /// Перейти к месту съёмки фото и выделить его в списке. `false` — у фото нет координат.

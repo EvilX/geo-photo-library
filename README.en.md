@@ -14,6 +14,9 @@ map using GPS coordinates from EXIF.
   are remembered between launches.
 - **Place search** — a search box above the map: type a city, address or landmark and press
   Enter (Nominatim geocoder, requires internet). Several matches are shown as a list.
+- **My location** — a button next to the search box: the map jumps to your current location and
+  marks it with a dot (via the location portal; location services must be enabled in the system
+  settings).
 - **By date** — a year → month → day tree and a thumbnail grid.
 - **Information** — a panel on the right with file and EXIF data: camera, lens, shutter speed,
   aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo.
@@ -66,6 +69,7 @@ Packages:
 The Flatpak version keeps the same files separately, in `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
 
 The network is used only for OpenStreetMap tiles and place search; your photos are never uploaded.
+Your location is determined by the system (GeoClue) only when you press the button and is not stored.
 
 ## Development
 

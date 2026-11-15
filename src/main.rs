@@ -4,6 +4,7 @@ mod dng;
 mod geo;
 mod geocode;
 mod i18n;
+mod location;
 mod metadata;
 mod paths;
 mod scanner;

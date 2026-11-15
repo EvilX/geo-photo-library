@@ -213,6 +213,17 @@ pub fn build(app: &gtk::Application) {
     debug_switch(&state);
     debug_search(&state, &stack);
     debug_info(&state);
+    debug_locate(&state, &stack);
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_LOCATE=1` — через 2 с нажать «Моё местоположение».
+fn debug_locate(state: &Rc<App>, stack: &gtk::Stack) {
+    if std::env::var_os("GEO_PHOTO_LIBRARY_LOCATE").is_none() {
+        return;
+    }
+    stack.set_visible_child_name("map");
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(2, move || state.map.locate_me());
 }
 
 /// Панель «Информация»: открывается из меню фото или кнопкой в заголовке, показывает выбранное фото

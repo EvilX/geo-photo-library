@@ -333,6 +333,30 @@ pub fn place_search_failed() -> &'static str {
     )
 }
 
+pub fn my_location() -> &'static str {
+    tr("My location", "Моё местоположение", "Η τοποθεσία μου")
+}
+
+pub fn location_failed() -> &'static str {
+    tr("Location unavailable", "Местоположение не определено", "Η τοποθεσία δεν είναι διαθέσιμη")
+}
+
+pub fn location_unavailable() -> &'static str {
+    tr(
+        "Check that location services are turned on in the system settings and try again.",
+        "Проверьте, что службы геолокации включены в настройках системы, и повторите попытку.",
+        "Ελέγξτε ότι οι υπηρεσίες τοποθεσίας είναι ενεργές στις ρυθμίσεις συστήματος και δοκιμάστε ξανά.",
+    )
+}
+
+pub fn location_denied() -> &'static str {
+    tr(
+        "Access to your location was denied. You can allow it in the system privacy settings.",
+        "Доступ к местоположению запрещён. Разрешить его можно в настройках конфиденциальности системы.",
+        "Η πρόσβαση στην τοποθεσία σας απορρίφθηκε. Μπορείτε να την επιτρέψετε στις ρυθμίσεις απορρήτου του συστήματος.",
+    )
+}
+
 /// Код языка для внешних сервисов (названия мест в ответе геокодера).
 pub fn lang_code() -> &'static str {
     match lang() {
