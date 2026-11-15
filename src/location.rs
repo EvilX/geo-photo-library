@@ -82,14 +82,21 @@ pub async fn current() -> Result<Fix, Error> {
 
     let (tx, rx) = async_channel::unbounded::<Event>();
     let fix_tx = tx.clone();
+    // Сессия в сигнале — первым аргументом типа «путь объекта». Фильтр D-Bus `arg0`
+    // сравнивает только строки и такой сигнал молча отбрасывает, поэтому сессию
+    // сверяем сами.
+    let own_session = session.clone();
     let _updates = conn.subscribe_to_signal(
         Some(PORTAL),
         Some(LOCATION),
         Some("LocationUpdated"),
         Some(PORTAL_PATH),
-        Some(&session),
+        None,
         gio::DBusSignalFlags::NONE,
         move |s| {
+            if signal_session(s.parameters).as_deref() != Some(own_session.as_str()) {
+                return;
+            }
             if let Some(fix) = parse_location(s.parameters) {
                 let _ = fix_tx.try_send(Event::Fix(fix));
             }
@@ -155,6 +162,11 @@ fn object_path(reply: &glib::Variant) -> Option<String> {
     v.str().map(str::to_string)
 }
 
+/// Сессия, к которой относится сигнал `LocationUpdated`.
+fn signal_session(params: &glib::Variant) -> Option<String> {
+    params.try_child_value(0)?.str().map(str::to_string)
+}
+
 /// Разбор сигнала `LocationUpdated (o session, a{sv} location)`.
 fn parse_location(params: &glib::Variant) -> Option<Fix> {
     let dict = glib::VariantDict::new(Some(&params.try_child_value(1)?));
@@ -187,6 +199,8 @@ mod tests {
             ("Altitude", (-1.7976931348623157e308f64).to_variant()),
         ]));
         assert_eq!(fix, Some(Fix { lat: 34.68, lon: 32.96, accuracy: 25.0 }));
+        let sig = signal(&[]);
+        assert_eq!(signal_session(&sig).as_deref(), Some("/org/freedesktop/portal/desktop/session/1_2/t"));
     }
 
     #[test]
