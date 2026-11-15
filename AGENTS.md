@@ -139,6 +139,13 @@ root — агент её не выполняет, а даёт пользоват
 При выпуске версии синхронно менять: `version` в `Cargo.toml`, `Version`/`Release` и
 `%changelog` в spec, `<releases>` в metainfo.
 
+## GitHub Actions
+
+`.github/workflows/ci.yml` — на push в `main`, теги `v*` и pull request, в контейнере
+`fedora:45` с Rust из dnf: задача `test` (clippy с `-D warnings` и `cargo test`), затем
+`rpm` (`packaging/build-rpm.sh`, RPM выкладывается артефактом `geo-photo-library-fc45-rpm`).
+Локально то же самое можно повторить через `podman run fedora:45`.
+
 ## Flatpak
 
 ```sh
