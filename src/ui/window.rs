@@ -4,6 +4,7 @@ use super::{
     dates_tab::DatesTab,
     info_panel::InfoPanel,
     map_tab::MapTab,
+    menu::{icon_menu, Item},
     settings,
     textures::{self, TextureCache},
     CSS,
@@ -89,12 +90,13 @@ pub fn build(app: &gtk::Application) {
     let switcher = gtk::StackSwitcher::new();
     switcher.set_stack(Some(&stack));
 
-    let menu = gio::Menu::new();
-    menu.append(Some(i18n::settings()), Some("win.settings"));
-    menu.append(Some(i18n::about()), Some("win.about"));
+    let menu = icon_menu(vec![vec![
+        Item::new(i18n::settings(), "win.settings", "emblem-system-symbolic").accel("<Control>comma"),
+        Item::new(i18n::about(), "win.about", "help-about-symbolic"),
+    ]]);
     let menu_btn = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
-        .menu_model(&menu)
+        .popover(&menu)
         .primary(true)
         .tooltip_text(i18n::main_menu())
         .build();

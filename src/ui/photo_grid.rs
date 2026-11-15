@@ -1,4 +1,5 @@
 //! Сетка миниатюр, используется на обеих вкладках.
+use super::menu::{icon_menu, Item};
 use super::textures::{copy_to_clipboard, open_external, open_in_editor, set_thumbnail, TextureCache};
 use crate::{
     config::{self, SortOrder},
@@ -338,60 +339,20 @@ fn zoom_button(zoom: &gtk::Scale, icon: &str, tooltip: &str, step: f64) -> gtk::
     button
 }
 
-/// Пункты контекстного меню по разделам: (подпись, действие, иконка).
-fn context_menu_items() -> [Vec<(&'static str, &'static str, &'static str)>; 4] {
-    [
-        vec![(i18n::copy(), "photo.copy", "edit-copy-symbolic")],
-        vec![
-            (i18n::view(), "photo.view", "view-reveal-symbolic"),
-            (i18n::edit(), "photo.edit", "document-edit-symbolic"),
-        ],
-        vec![
-            (i18n::info(), "photo.info", "help-about-symbolic"),
-            (i18n::show_on_map(), "photo.show-on-map", "mark-location-symbolic"),
-        ],
-        vec![(i18n::delete(), "photo.trash", "user-trash-symbolic")],
-    ]
-}
-
 /// Контекстное меню фото с иконками у пунктов.
-///
-/// `PopoverMenu` в GTK4 не рисует иконки обычных пунктов, поэтому каждый пункт —
-/// свой виджет (атрибут `custom`), а разделы и разделители остаются от модели.
 fn context_menu() -> gtk::PopoverMenu {
-    let model = gio::Menu::new();
-    let mut custom = Vec::new();
-    for items in context_menu_items() {
-        let section = gio::Menu::new();
-        for (label, action, icon) in items {
-            let id = action.replace('.', "-");
-            let item = gio::MenuItem::new(Some(label), None);
-            item.set_attribute_value("custom", Some(&id.to_variant()));
-            section.append_item(&item);
-            custom.push((id, label, action, icon));
-        }
-        model.append_section(None, &section);
-    }
-    let popover = gtk::PopoverMenu::from_model(Some(&model));
-    for (id, label, action, icon) in custom {
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-        row.append(&gtk::Image::from_icon_name(icon));
-        let text = gtk::Label::new(Some(label));
-        text.set_xalign(0.0);
-        text.set_hexpand(true);
-        row.append(&text);
-        let button = gtk::Button::builder().child(&row).action_name(action).build();
-        button.add_css_class("flat");
-        button.add_css_class("photo-menu-item");
-        let pop = popover.downgrade();
-        button.connect_clicked(move |_| {
-            if let Some(p) = pop.upgrade() {
-                p.popdown();
-            }
-        });
-        popover.add_child(&button, &id);
-    }
-    popover
+    icon_menu(vec![
+        vec![Item::new(i18n::copy(), "photo.copy", "edit-copy-symbolic")],
+        vec![
+            Item::new(i18n::view(), "photo.view", "view-reveal-symbolic"),
+            Item::new(i18n::edit(), "photo.edit", "document-edit-symbolic"),
+        ],
+        vec![
+            Item::new(i18n::info(), "photo.info", "help-about-symbolic"),
+            Item::new(i18n::show_on_map(), "photo.show-on-map", "mark-location-symbolic"),
+        ],
+        vec![Item::new(i18n::delete(), "photo.trash", "user-trash-symbolic")],
+    ])
 }
 
 /// Действия контекстного меню (группа `photo`) над фото из `menu_photo`.
