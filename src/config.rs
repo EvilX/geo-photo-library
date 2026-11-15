@@ -27,6 +27,26 @@ impl SortOrder {
     }
 }
 
+/// Последнее положение карты: центр и зум.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MapView {
+    pub lat: f64,
+    pub lon: f64,
+    pub zoom: f64,
+}
+
+impl MapView {
+    /// Положение, если оно осмысленное (конфиг правят руками).
+    pub fn valid(self) -> Option<Self> {
+        let ok = self.lat.is_finite()
+            && self.lon.is_finite()
+            && self.zoom.is_finite()
+            && (-90.0..=90.0).contains(&self.lat)
+            && (-180.0..=180.0).contains(&self.lon);
+        ok.then_some(self)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Корневая папка библиотеки фотографий.
@@ -41,6 +61,9 @@ pub struct Config {
     pub viewer: Option<String>,
     /// Редактор фото: id `.desktop`-файла; `None` — найти графический редактор автоматически.
     pub editor: Option<String>,
+    /// Положение карты при закрытии окна; `None` — показать все фото.
+    /// Таблица TOML — должна идти после простых полей.
+    pub map_view: Option<MapView>,
 }
 
 pub const THUMB_SCALE_MIN: u32 = 50;
@@ -65,6 +88,7 @@ impl Default for Config {
             thumb_scale: default_thumb_scale(),
             viewer: None,
             editor: None,
+            map_view: None,
         }
     }
 }
@@ -104,6 +128,20 @@ mod tests {
         for o in SortOrder::ALL {
             assert_eq!(SortOrder::from_index(o.index()), o);
         }
+    }
+
+    #[test]
+    fn map_view() {
+        let mut c = Config { library_path: Some("/p".into()), ..Config::default() };
+        c.map_view = Some(MapView { lat: 34.68, lon: 32.96, zoom: 12.0 });
+        let text = toml::to_string_pretty(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.map_view, c.map_view);
+        assert_eq!(back.library_path, c.library_path);
+        // Старый конфиг без положения карты.
+        assert_eq!(toml::from_str::<Config>("thumb_scale = 100").unwrap().map_view, None);
+        assert!(MapView { lat: 91.0, lon: 0.0, zoom: 3.0 }.valid().is_none());
+        assert!(MapView { lat: 0.0, lon: 0.0, zoom: f64::NAN }.valid().is_none());
     }
 
     #[test]

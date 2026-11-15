@@ -9,7 +9,7 @@ use super::{
     CSS,
 };
 use crate::{
-    config::{self, Config, SortOrder},
+    config::{self, Config, MapView, SortOrder},
     db::{Db, Photo},
     i18n, paths, scanner, trace,
 };
@@ -160,6 +160,7 @@ pub fn build(app: &gtk::Application) {
 
     init_sort(&state);
     init_thumb_scale(&state);
+    init_map_view(&state);
     apply_preferred_apps(&state);
     for grid in [state.dates.grid(), state.map.grid()] {
         let s = Rc::downgrade(&state);
@@ -366,7 +367,10 @@ fn debug_screenshot(window: &gtk::ApplicationWindow, stack: &gtk::Stack) {
                 eprintln!("скриншот: {e}");
             }
         }
-        if let Some(app) = main.application() {
+        // Закрыть как пользователь (сохраняется положение карты), затем выйти.
+        let app = main.application();
+        main.close();
+        if let Some(app) = app {
             app.quit();
         }
     });
@@ -426,6 +430,31 @@ fn init_sort(state: &Rc<App>) {
 
 /// Масштаб миниатюр: один слайдер на обе вкладки (общий `Adjustment`),
 /// значение округляется до шага 5% и сохраняется в настройках.
+/// Положение карты: восстановить при запуске, запомнить при закрытии окна.
+fn init_map_view(state: &Rc<App>) {
+    if let Some(view) = state.config.borrow().map_view.and_then(MapView::valid) {
+        state.map.restore_view(view);
+    }
+    let s = Rc::downgrade(state);
+    state.window.connect_close_request(move |_| {
+        if let Some(s) = s.upgrade() {
+            save_map_view(&s);
+        }
+        glib::Propagation::Proceed
+    });
+}
+
+fn save_map_view(state: &App) {
+    let Some(view) = state.map.view().map(Some) else { return };
+    if state.config.borrow().map_view == view {
+        return;
+    }
+    state.config.borrow_mut().map_view = view;
+    if let Err(e) = state.config.borrow().save() {
+        eprintln!("Не удалось сохранить настройки: {e:#}");
+    }
+}
+
 fn init_thumb_scale(state: &Rc<App>) {
     let percent = config::snap_thumb_scale(state.config.borrow().thumb_scale as f64);
     let adj = state.dates.zoom.adjustment();

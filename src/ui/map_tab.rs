@@ -5,7 +5,7 @@ use super::{
     textures::{set_thumbnail, TextureCache},
 };
 use crate::{
-    config::SortOrder,
+    config::{MapView, SortOrder},
     db::{Db, Photo},
     geo,
     geocode::{self, Place},
@@ -348,6 +348,21 @@ impl MapTab {
     pub fn jump_to(&self, lat: f64, lon: f64, zoom: f64) {
         self.viewport.set_zoom_level(zoom);
         self.map.center_on(lat, lon);
+    }
+
+    /// Текущее положение карты — чтобы запомнить его при закрытии. `None`, пока карта
+    /// ещё не показана (окно без размера) — иначе запомнилась бы нулевая точка.
+    pub fn view(&self) -> Option<MapView> {
+        let v = &self.viewport;
+        self.fitted.get().then(|| MapView { lat: v.latitude(), lon: v.longitude(), zoom: v.zoom_level() })
+    }
+
+    /// Вернуть карту в запомненное положение вместо подгонки под все фото.
+    pub fn restore_view(&self, view: MapView) {
+        let (min, max) = (self.viewport.min_zoom_level() as f64, self.viewport.max_zoom_level() as f64);
+        // Целый зум: на дробном у тайлов видны швы.
+        self.jump_to(view.lat, view.lon, view.zoom.round().clamp(min, max));
+        self.fitted.set(true);
     }
 
     pub fn first_photo_coords(&self) -> Option<(f64, f64)> {

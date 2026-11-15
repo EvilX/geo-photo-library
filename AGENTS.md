@@ -109,7 +109,7 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 | Переменная | Действие |
 | --- | --- |
 | `GEO_PHOTO_LIBRARY_TRACE=1` | печатать длительность операций (`[trace] …`) |
-| `GEO_PHOTO_LIBRARY_SCREENSHOT=out.png` | через `GEO_PHOTO_LIBRARY_DELAY` с (по умолчанию 6) сохранить окно в PNG и выйти; если открыт диалог — его |
+| `GEO_PHOTO_LIBRARY_SCREENSHOT=out.png` | через `GEO_PHOTO_LIBRARY_DELAY` с (по умолчанию 6) сохранить окно в PNG, закрыть его (как пользователь — сохраняется положение карты) и выйти; если открыт диалог — снимается он |
 | `GEO_PHOTO_LIBRARY_ACTION=about` | при запуске выполнить пункт главного меню (`settings`, `about`) |
 | `GEO_PHOTO_LIBRARY_TAB=dates` | открыть вкладку дат (по умолчанию — карта, она первая) |
 | `GEO_PHOTO_LIBRARY_BENCH=1` | прогнать зумы карты 18…2 вокруг первого фото и выйти |
