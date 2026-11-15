@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod dng;
 mod geo;
+mod i18n;
 mod metadata;
 mod paths;
 mod scanner;
@@ -14,6 +15,7 @@ use gtk::prelude::*;
 use std::path::PathBuf;
 
 const APP_ID: &str = "io.github.EvilX.GeoPhotoLibrary";
+const APP_NAME: &str = "Geo photo library";
 
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -29,7 +31,7 @@ fn main() -> glib::ExitCode {
 /// Сканирование без GUI: `geo-photo-library --scan [папка]` (по умолчанию — папка из настроек).
 fn cli_scan(dir: Option<PathBuf>) -> glib::ExitCode {
     let Some(root) = dir.or_else(|| config::Config::load().library_path) else {
-        eprintln!("Укажите папку: geo-photo-library --scan <папка>");
+        eprintln!("{}", i18n::cli_usage());
         return glib::ExitCode::FAILURE;
     };
     let progress = |done: usize, total: usize| {
@@ -40,14 +42,11 @@ fn cli_scan(dir: Option<PathBuf>) -> glib::ExitCode {
     let cancel = std::sync::atomic::AtomicBool::new(false);
     match scanner::scan(&paths::db_path(), &root, &paths::thumbs_dir(), &progress, &cancel) {
         Ok(s) => {
-            println!(
-                "Найдено: {}, добавлено: {}, обновлено: {}, удалено: {}",
-                s.found, s.added, s.updated, s.removed
-            );
+            println!("{}", i18n::cli_summary(s.found, s.added, s.updated, s.removed));
             glib::ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("Ошибка: {e:#}");
+            eprintln!("{}: {e:#}", i18n::error());
             glib::ExitCode::FAILURE
         }
     }

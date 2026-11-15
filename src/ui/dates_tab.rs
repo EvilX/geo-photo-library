@@ -1,8 +1,12 @@
 //! Вкладка «По датам»: дерево год → месяц → день и сетка фото.
-use super::{photo_grid::PhotoGrid, textures::TextureCache};
+use super::{
+    photo_grid::{self, PhotoGrid},
+    textures::TextureCache,
+};
 use crate::{
+    config::SortOrder,
     db::{DateCount, Db},
-    trace,
+    i18n, trace,
 };
 use gtk::{gio, glib, prelude::*};
 use std::{
@@ -10,15 +14,6 @@ use std::{
     collections::HashSet,
     rc::Rc,
 };
-
-const MONTHS: [&str; 12] = [
-    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-];
-const MONTHS_GEN: [&str; 12] = [
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-];
 
 #[derive(Debug, Clone, Copy)]
 struct DateNode {
@@ -42,17 +37,17 @@ impl DateNode {
 
     fn label(&self) -> String {
         match (self.month, self.day) {
-            (Some(m), Some(d)) => format!("{d} {}", MONTHS_GEN[m as usize - 1]),
-            (Some(m), None) => MONTHS[m as usize - 1].to_string(),
+            (Some(m), Some(d)) => i18n::day(m, d),
+            (Some(m), None) => i18n::month(m).to_string(),
             _ => self.year.to_string(),
         }
     }
 
     fn title(&self) -> String {
         match (self.month, self.day) {
-            (Some(m), Some(d)) => format!("{d} {} {}", MONTHS_GEN[m as usize - 1], self.year),
-            (Some(m), None) => format!("{} {}", MONTHS[m as usize - 1], self.year),
-            _ => format!("{} год", self.year),
+            (Some(m), Some(d)) => i18n::full_day(self.year, m, d),
+            (Some(m), None) => format!("{} {}", i18n::month(m), self.year),
+            _ => i18n::year(self.year),
         }
     }
 }
@@ -102,6 +97,10 @@ fn children(counts: &[DateCount], node: DateNode) -> Option<gio::ListModel> {
 
 pub struct DatesTab {
     pub root: gtk::Paned,
+    /// Выбор сортировки в заголовке сетки.
+    pub sort: gtk::DropDown,
+    /// Масштаб миниатюр под сеткой.
+    pub zoom: gtk::Scale,
     db: Rc<Db>,
     counts: Rc<RefCell<Vec<DateCount>>>,
     years: gio::ListStore,
@@ -170,12 +169,14 @@ impl DatesTab {
 
         let grid = PhotoGrid::new(cache, 160, 12);
         let title = gtk::Label::new(None);
-        title.set_xalign(0.0);
-        title.add_css_class("pane-title");
+        let sort = photo_grid::sort_dropdown();
         let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        right.append(&title);
+        right.append(&photo_grid::pane_header(&title, &sort));
         right.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         right.append(&grid.root);
+        let zoom = photo_grid::zoom_scale();
+        right.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        right.append(&photo_grid::pane_footer(&zoom));
 
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
         root.set_start_child(Some(&tree_scroll));
@@ -186,6 +187,8 @@ impl DatesTab {
 
         let this = Rc::new(Self {
             root,
+            sort,
+            zoom,
             db,
             counts,
             years,
@@ -256,6 +259,18 @@ impl DatesTab {
         self.load_selected(force);
     }
 
+    pub fn set_order(&self, order: SortOrder) {
+        self.grid.set_order(order);
+    }
+
+    pub fn grid(&self) -> &PhotoGrid {
+        &self.grid
+    }
+
+    pub fn set_thumb_scale(&self, percent: u32) {
+        self.grid.set_scale(percent);
+    }
+
     fn selected_node(&self) -> Option<DateNode> {
         DateNode::of_row(&self.tree_selection.selected_item().and_downcast::<gtk::TreeListRow>()?)
     }
@@ -263,7 +278,7 @@ impl DatesTab {
     fn load_selected(&self, force: bool) {
         let Some(node) = self.selected_node() else {
             self.shown.set(None);
-            self.title.set_text("Нет фотографий");
+            self.title.set_text(i18n::no_photos());
             self.grid.set_photos(&[]);
             return;
         };
@@ -273,7 +288,7 @@ impl DatesTab {
         self.shown.set(Some((node.key(), node.count)));
         let _t = trace::span(format!("dates.load {}", node.title()));
         let photos = self.db.photos_by_date(node.year, node.month, node.day).unwrap_or_default();
-        self.title.set_text(&format!("{} — {} фото", node.title(), photos.len()));
+        self.title.set_text(&format!("{} — {}", node.title(), i18n::photos(photos.len())));
         self.grid.set_photos(&photos);
     }
 }

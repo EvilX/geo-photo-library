@@ -7,6 +7,8 @@
     <name>EvilX</name>
   </developer>
   <summary>Browse photos by date and on a world map</summary>
+  <summary xml:lang="ru">Просмотр фотографий по датам и на карте мира</summary>
+  <summary xml:lang="el">Περιήγηση φωτογραφιών ανά ημερομηνία και στον παγκόσμιο χάρτη</summary>
   <description>
     <p>
       Photo catalog that indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),

@@ -162,13 +162,134 @@ pub fn set_thumbnail(
     });
 }
 
-/// Открыть фото в системном просмотрщике.
+/// Программы, выбранные в настройках (id `.desktop`-файлов). Интерфейс однопоточный,
+/// поэтому выбор хранится в thread-local главного потока.
+#[derive(Debug, Clone, Default)]
+pub struct PreferredApps {
+    pub viewer: Option<String>,
+    pub editor: Option<String>,
+}
+
+thread_local! {
+    static PREFERRED: RefCell<PreferredApps> = RefCell::default();
+}
+
+pub fn set_preferred_apps(apps: PreferredApps) {
+    PREFERRED.with(|p| *p.borrow_mut() = apps);
+}
+
+fn app_by_id(id: Option<String>) -> Option<gio::AppInfo> {
+    gio::DesktopAppInfo::new(&id?).map(|a| a.upcast())
+}
+
+/// Запустить программу с файлом; `false`, если не получилось.
+fn launch_app(widget: &impl IsA<gtk::Widget>, app: &gio::AppInfo, path: &str) -> bool {
+    let ctx = widget.display().app_launch_context();
+    match app.launch(&[gio::File::for_path(path)], Some(&ctx)) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("не удалось запустить {}: {e}", app.name());
+            false
+        }
+    }
+}
+
+/// Открыть фото в просмотрщике из настроек, иначе — в программе по умолчанию для
+/// его типа. Если её нет, система сама предложит выбрать программу.
 pub fn open_external(widget: &impl IsA<gtk::Widget>, path: &str) {
+    let viewer = PREFERRED.with(|p| p.borrow().viewer.clone());
+    if app_by_id(viewer).is_some_and(|app| launch_app(widget, &app, path)) {
+        return;
+    }
+    launch_with_portal(widget, path, false);
+}
+
+/// Открыть фото в редакторе из настроек, иначе — в найденном графическом редакторе.
+/// Если ни один не запустился, показать окно выбора программы.
+pub fn open_in_editor(widget: &impl IsA<gtk::Widget>, path: &str) {
+    let editor = PREFERRED.with(|p| p.borrow().editor.clone());
+    for app in [app_by_id(editor), find_editor(path)].into_iter().flatten() {
+        if launch_app(widget, &app, path) {
+            return;
+        }
+    }
+    launch_with_portal(widget, path, true);
+}
+
+/// Программы, которые открывают фото (JPEG, HEIC, PNG), по имени; без этой программы.
+pub fn image_apps() -> Vec<gio::AppInfo> {
+    let own_id = format!("{}.desktop", crate::APP_ID);
+    let mut apps: Vec<gio::AppInfo> = Vec::new();
+    for t in ["image/jpeg", "image/heic", "image/png"] {
+        for app in gio::AppInfo::all_for_type(t) {
+            let Some(id) = app.id() else { continue };
+            if id != own_id && app.should_show() && !apps.iter().any(|a| a.id().as_ref() == Some(&id)) {
+                apps.push(app);
+            }
+        }
+    }
+    apps.sort_by_key(|a| a.name().to_lowercase());
+    apps
+}
+
+/// `always_ask` — показать окно выбора программы даже при наличии программы по умолчанию.
+fn launch_with_portal(widget: &impl IsA<gtk::Widget>, path: &str, always_ask: bool) {
     let parent = widget.root().and_downcast::<gtk::Window>();
     let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(path)));
+    launcher.set_always_ask(always_ask);
     launcher.launch(parent.as_ref(), gio::Cancellable::NONE, |res| {
         if let Err(e) = res {
             eprintln!("не удалось открыть файл: {e}");
         }
     });
+}
+
+/// Редактор изображений для файла: программа, зарегистрированная для его MIME-типа,
+/// из категорий RasterGraphics или Photography, но не просмотрщик (Viewer)
+/// и не эта программа. Раньше идут рекомендованные системой.
+fn find_editor(path: &str) -> Option<gio::AppInfo> {
+    let (content_type, _) = gio::content_type_guess(Some(path), None);
+    let own_id = format!("{}.desktop", crate::APP_ID);
+    gio::AppInfo::all_for_type(&content_type).into_iter().find(|app| {
+        if app.id().is_some_and(|id| id == own_id) {
+            return false;
+        }
+        let Some(categories) = app.downcast_ref::<gio::DesktopAppInfo>().and_then(|d| d.categories()) else {
+            return false;
+        };
+        is_editor_categories(&categories)
+    })
+}
+
+fn is_editor_categories(categories: &str) -> bool {
+    let has = |c: &str| categories.split(';').any(|x| x == c);
+    (has("RasterGraphics") || has("Photography")) && !has("Viewer")
+}
+
+/// Положить файл в буфер обмена: как файл (вставка в файловом менеджере) и как путь.
+pub fn copy_to_clipboard(widget: &impl IsA<gtk::Widget>, path: &str) {
+    let file = gio::File::for_path(path);
+    let uri = file.uri();
+    let providers = [
+        gdk::ContentProvider::for_value(&gdk::FileList::from_array(&[file]).to_value()),
+        gdk::ContentProvider::for_bytes(
+            "x-special/gnome-copied-files",
+            &glib::Bytes::from_owned(format!("copy\n{uri}")),
+        ),
+        gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &glib::Bytes::from_owned(path.to_owned())),
+    ];
+    widget.clipboard().set_content(Some(&gdk::ContentProvider::new_union(&providers))).ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editor_categories() {
+        assert!(is_editor_categories("Graphics;2DGraphics;RasterGraphics;GTK;")); // GIMP
+        assert!(is_editor_categories("Graphics;Photography;GTK;")); // darktable
+        assert!(!is_editor_categories("GNOME;GTK;Graphics;2DGraphics;RasterGraphics;Viewer;")); // Loupe
+        assert!(!is_editor_categories("Network;WebBrowser;"));
+    }
 }

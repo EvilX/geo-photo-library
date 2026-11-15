@@ -1,8 +1,21 @@
 //! Сетка миниатюр, используется на обеих вкладках.
-use super::textures::{open_external, set_thumbnail, TextureCache};
-use crate::db::Photo;
-use gtk::{gio, glib, pango, prelude::*};
-use std::rc::Rc;
+use super::textures::{copy_to_clipboard, open_external, open_in_editor, set_thumbnail, TextureCache};
+use crate::{
+    config::{self, SortOrder},
+    db::Photo,
+    i18n,
+};
+use gtk::{gdk, gio, glib, graphene, pango, prelude::*};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+/// Обработчик результата перемещения фото в корзину.
+type TrashedHandler = Box<dyn Fn(&Photo, Result<(), glib::Error>)>;
+
+/// Верхний предел колонок при уменьшенных миниатюрах (см. `set_scale`).
+const MAX_COLUMNS_LIMIT: u32 = 16;
 
 #[derive(Clone)]
 pub struct PhotoGrid {
@@ -10,10 +23,21 @@ pub struct PhotoGrid {
     pub view: gtk::GridView,
     pub selection: gtk::SingleSelection,
     store: gio::ListStore,
+    order: Rc<Cell<SortOrder>>,
+    /// Сторона миниатюры при масштабе 100%.
+    base_size: i32,
+    /// Текущая сторона миниатюры в пикселях.
+    size: Rc<Cell<i32>>,
+    /// Предел колонок при масштабе 100%.
+    base_max_columns: u32,
+    /// Картинки всех созданных ячеек — чтобы менять их размер без пересоздания.
+    images: Rc<RefCell<Vec<glib::WeakRef<gtk::Image>>>>,
+    on_trashed: Rc<RefCell<Option<TrashedHandler>>>,
 }
 
 impl PhotoGrid {
-    /// `size` — сторона миниатюры в логических пикселях, `max_columns` — предел колонок.
+    /// `size` — сторона миниатюры в логических пикселях при масштабе 100%,
+    /// `max_columns` — предел колонок.
     ///
     /// GridView держит виджеты примерно для `max_columns × 30` элементов, поэтому
     /// завышенный предел отключает виртуализацию: создаются ячейки для всех фото.
@@ -23,11 +47,25 @@ impl PhotoGrid {
         selection.set_autoselect(false);
         selection.set_can_unselect(true);
 
+        let base_size = size;
+        let size = Rc::new(Cell::new(base_size));
+        let images: Rc<RefCell<Vec<glib::WeakRef<gtk::Image>>>> = Rc::default();
+
+        // Контекстное меню: действия работают с фото, на котором нажали правую кнопку.
+        let menu_photo: Rc<RefCell<Option<Photo>>> = Rc::default();
+        let on_trashed: Rc<RefCell<Option<TrashedHandler>>> = Rc::default();
+        let popover = gtk::PopoverMenu::from_model(Some(&context_menu()));
+        popover.set_has_arrow(false);
+        popover.set_halign(gtk::Align::Start);
+
         let factory = gtk::SignalListItemFactory::new();
+        let (cur_size, all_images) = (size.clone(), images.clone());
+        let (pop, mp, sel) = (popover.clone(), menu_photo.clone(), selection.clone());
         factory.connect_setup(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
             let image = gtk::Image::new();
-            image.set_pixel_size(size);
+            image.set_pixel_size(cur_size.get());
+            all_images.borrow_mut().push(image.downgrade());
             image.add_css_class("photo-thumb");
             image.set_overflow(gtk::Overflow::Hidden);
             let label = gtk::Label::new(None);
@@ -40,6 +78,24 @@ impl PhotoGrid {
             b.append(&image);
             b.append(&label);
             item.set_child(Some(&b));
+
+            let click = gtk::GestureClick::new();
+            click.set_button(gdk::BUTTON_SECONDARY);
+            let (weak_item, pop, mp, sel) = (item.downgrade(), pop.clone(), mp.clone(), sel.clone());
+            click.connect_pressed(move |g, _, x, y| {
+                let Some(item) = weak_item.upgrade() else { return };
+                let Some(obj) = item.item().and_downcast::<glib::BoxedAnyObject>() else { return };
+                g.set_state(gtk::EventSequenceState::Claimed);
+                sel.set_selected(item.position());
+                *mp.borrow_mut() = Some(obj.borrow::<Photo>().clone());
+                let (Some(cell), Some(parent)) = (g.widget(), pop.parent()) else { return };
+                let at = cell
+                    .compute_point(&parent, &graphene::Point::new(x as f32, y as f32))
+                    .unwrap_or(graphene::Point::new(x as f32, y as f32));
+                pop.set_pointing_to(Some(&gdk::Rectangle::new(at.x() as i32, at.y() as i32, 1, 1)));
+                pop.popup();
+            });
+            b.add_controller(click);
         });
         factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
@@ -59,12 +115,19 @@ impl PhotoGrid {
         });
 
         let view = gtk::GridView::new(Some(selection.clone()), Some(factory));
+        popover.set_parent(&view);
+        view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photo, &on_trashed)));
         view.set_max_columns(max_columns);
         view.set_min_columns(1);
+        // Двойной щелчок или Enter — просмотр, с Ctrl — редактирование.
         view.connect_activate(|view, pos| {
             let model = view.model().unwrap();
-            if let Some(obj) = model.item(pos).and_downcast::<glib::BoxedAnyObject>() {
-                open_external(view, &obj.borrow::<Photo>().path);
+            let Some(obj) = model.item(pos).and_downcast::<glib::BoxedAnyObject>() else { return };
+            let path = obj.borrow::<Photo>().path.clone();
+            if ctrl_pressed(view) {
+                open_in_editor(view, &path);
+            } else {
+                open_external(view, &path);
             }
         });
 
@@ -74,13 +137,69 @@ impl PhotoGrid {
             .hexpand(true)
             .child(&view)
             .build();
-        Self { root, view, selection, store }
+        Self {
+            root,
+            view,
+            selection,
+            store,
+            order: Rc::default(),
+            base_size,
+            base_max_columns: max_columns,
+            size,
+            images,
+            on_trashed,
+        }
     }
 
+    /// Вызывается после попытки переместить фото в корзину из контекстного меню.
+    pub fn connect_trashed(&self, f: impl Fn(&Photo, Result<(), glib::Error>) + 'static) {
+        *self.on_trashed.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Масштаб миниатюр в процентах от исходного размера. Предел колонок меняется
+    /// обратно пропорционально, но не выше [`MAX_COLUMNS_LIMIT`] — иначе GridView
+    /// создаёт слишком много ячеек.
+    pub fn set_scale(&self, percent: u32) {
+        let size = (self.base_size as f64 * percent as f64 / 100.0).round() as i32;
+        if self.size.replace(size) == size {
+            return;
+        }
+        let columns = (self.base_max_columns as f64 * 100.0 / percent as f64).round() as u32;
+        self.view.set_max_columns(columns.clamp(1, MAX_COLUMNS_LIMIT));
+        self.images.borrow_mut().retain(|w| match w.upgrade() {
+            Some(image) => {
+                image.set_pixel_size(size);
+                true
+            }
+            None => false,
+        });
+    }
+
+    /// `photos` — по возрастанию даты; показываются в текущем порядке сортировки.
     pub fn set_photos(&self, photos: &[Photo]) {
-        let objs: Vec<glib::BoxedAnyObject> =
+        let mut objs: Vec<glib::BoxedAnyObject> =
             photos.iter().cloned().map(glib::BoxedAnyObject::new).collect();
+        if self.order.get() == SortOrder::Newest {
+            objs.reverse();
+        }
         self.store.splice(0, self.store.n_items(), &objs);
+    }
+
+    /// Сменить сортировку: показанные фото переставляются, выбранное остаётся
+    /// выбранным и прокручивается в видимую область, иначе — прокрутка в начало.
+    pub fn set_order(&self, order: SortOrder) {
+        if self.order.replace(order) == order {
+            return;
+        }
+        let selected = self.selected_photo().map(|p| p.id);
+        let mut objs: Vec<glib::BoxedAnyObject> = (0..self.store.n_items())
+            .filter_map(|i| self.store.item(i).and_downcast())
+            .collect();
+        objs.reverse();
+        self.store.splice(0, self.store.n_items(), &objs);
+        if !selected.is_some_and(|id| self.select_id(id)) && !objs.is_empty() {
+            self.view.scroll_to(0, gtk::ListScrollFlags::NONE, None);
+        }
     }
 
     pub fn photo(&self, pos: u32) -> Option<Photo> {
@@ -107,4 +226,112 @@ impl PhotoGrid {
         self.view.scroll_to(pos, gtk::ListScrollFlags::FOCUS, None);
         true
     }
+}
+
+/// Выпадающий список сортировки для заголовка панели с фото.
+pub fn sort_dropdown() -> gtk::DropDown {
+    let labels: Vec<&str> = SortOrder::ALL.iter().map(|&o| i18n::sort_label(o)).collect();
+    let dropdown = gtk::DropDown::from_strings(&labels);
+    dropdown.set_tooltip_text(Some(i18n::sort_tooltip()));
+    dropdown.set_valign(gtk::Align::Center);
+    dropdown.set_margin_end(6);
+    dropdown
+}
+
+/// Заголовок панели: подпись слева, выбор сортировки справа.
+pub fn pane_header(title: &gtk::Label, sort: &gtk::DropDown) -> gtk::Box {
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.set_ellipsize(pango::EllipsizeMode::End);
+    title.add_css_class("pane-title");
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    header.append(title);
+    header.append(sort);
+    header
+}
+
+/// Слайдер масштаба миниатюр (50…200%, шаг 5%) для нижней строки панели.
+pub fn zoom_scale() -> gtk::Scale {
+    let (min, max, step) = (
+        config::THUMB_SCALE_MIN as f64,
+        config::THUMB_SCALE_MAX as f64,
+        config::THUMB_SCALE_STEP as f64,
+    );
+    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, min, max, step);
+    scale.adjustment().set_page_increment(25.0);
+    scale.set_value(100.0);
+    scale.set_digits(0);
+    scale.set_draw_value(true);
+    scale.set_value_pos(gtk::PositionType::Right);
+    scale.set_format_value_func(|_, v| format!("{v:.0}%"));
+    // Отметка исходного размера.
+    scale.add_mark(100.0, gtk::PositionType::Bottom, None);
+    scale.set_size_request(160, -1);
+    scale.set_tooltip_text(Some(i18n::thumb_size_tooltip()));
+    scale
+}
+
+/// Нижняя строка панели: слайдер масштаба справа.
+pub fn pane_footer(zoom: &gtk::Scale) -> gtk::Box {
+    let footer = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    footer.set_halign(gtk::Align::End);
+    footer.set_margin_start(10);
+    footer.set_margin_end(10);
+    footer.append(zoom);
+    footer
+}
+
+fn context_menu() -> gio::Menu {
+    let open = gio::Menu::new();
+    open.append(Some(i18n::view()), Some("photo.view"));
+    open.append(Some(i18n::edit()), Some("photo.edit"));
+    let copy = gio::Menu::new();
+    copy.append(Some(i18n::copy()), Some("photo.copy"));
+    let delete = gio::Menu::new();
+    delete.append(Some(i18n::delete()), Some("photo.trash"));
+    let menu = gio::Menu::new();
+    menu.append_section(None, &copy);
+    menu.append_section(None, &open);
+    menu.append_section(None, &delete);
+    menu
+}
+
+/// Действия контекстного меню (группа `photo`) над фото из `menu_photo`.
+fn photo_actions(
+    view: &gtk::GridView,
+    menu_photo: &Rc<RefCell<Option<Photo>>>,
+    on_trashed: &Rc<RefCell<Option<TrashedHandler>>>,
+) -> gio::SimpleActionGroup {
+    let group = gio::SimpleActionGroup::new();
+    let add = |name: &str, f: fn(&gtk::GridView, &Photo, &Rc<RefCell<Option<TrashedHandler>>>)| {
+        let action = gio::SimpleAction::new(name, None);
+        let (view, mp, handler) = (view.downgrade(), menu_photo.clone(), on_trashed.clone());
+        action.connect_activate(move |_, _| {
+            let (Some(view), Some(photo)) = (view.upgrade(), mp.borrow().clone()) else { return };
+            f(&view, &photo, &handler);
+        });
+        group.add_action(&action);
+    };
+    add("copy", |v, p, _| copy_to_clipboard(v, &p.path));
+    add("view", |v, p, _| open_external(v, &p.path));
+    add("edit", |v, p, _| open_in_editor(v, &p.path));
+    add("trash", |_, p, handler| {
+        let (p, handler) = (p.clone(), handler.clone());
+        let file = gio::File::for_path(&p.path);
+        file.trash_async(glib::Priority::DEFAULT, gio::Cancellable::NONE, move |res| {
+            if let Some(f) = handler.borrow().as_ref() {
+                f(&p, res);
+            }
+        });
+    });
+    group
+}
+
+/// Зажат ли сейчас Ctrl (сигнал `activate` не передаёт событие).
+fn ctrl_pressed(widget: &impl IsA<gtk::Widget>) -> bool {
+    widget
+        .display()
+        .default_seat()
+        .and_then(|seat| seat.keyboard())
+        .is_some_and(|kb| kb.modifier_state().contains(gdk::ModifierType::CONTROL_MASK))
 }

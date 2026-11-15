@@ -1,3 +1,4 @@
+pub mod about;
 pub mod dates_tab;
 pub mod map_tab;
 pub mod photo_grid;

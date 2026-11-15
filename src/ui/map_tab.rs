@@ -1,12 +1,13 @@
 //! Вкладка «Карта»: OSM-карта с превью-маркерами (кластеризация) и список фото
 //! в видимой области, отсортированный по дате.
 use super::{
-    photo_grid::PhotoGrid,
+    photo_grid::{self, PhotoGrid},
     textures::{set_thumbnail, TextureCache},
 };
 use crate::{
+    config::SortOrder,
     db::{Db, Photo},
-    geo, trace,
+    geo, i18n, trace,
 };
 use gtk::{glib, prelude::*};
 use shumate::prelude::*;
@@ -23,6 +24,10 @@ const DEBOUNCE: Duration = Duration::from_millis(150);
 
 pub struct MapTab {
     pub root: gtk::Paned,
+    /// Выбор сортировки в заголовке списка.
+    pub sort: gtk::DropDown,
+    /// Масштаб миниатюр под списком.
+    pub zoom: gtk::Scale,
     simple_map: shumate::SimpleMap,
     map: shumate::Map,
     viewport: shumate::Viewport,
@@ -60,12 +65,14 @@ impl MapTab {
 
         let grid = PhotoGrid::new(cache.clone(), 100, 4);
         let info = gtk::Label::new(None);
-        info.set_xalign(0.0);
-        info.add_css_class("pane-title");
+        let sort = photo_grid::sort_dropdown();
         let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        right.append(&info);
+        right.append(&photo_grid::pane_header(&info, &sort));
         right.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         right.append(&grid.root);
+        let zoom = photo_grid::zoom_scale();
+        right.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        right.append(&photo_grid::pane_footer(&zoom));
         right.set_size_request(260, -1);
 
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
@@ -77,6 +84,8 @@ impl MapTab {
 
         let this = Rc::new(Self {
             root,
+            sort,
+            zoom,
             simple_map,
             map,
             viewport,
@@ -128,6 +137,21 @@ impl MapTab {
             }
         });
         this
+    }
+
+    /// Сменить сортировку списка, не сдвигая карту к выбранному фото.
+    pub fn set_order(&self, order: SortOrder) {
+        self.suppress_center.set(true);
+        self.grid.set_order(order);
+        self.suppress_center.set(false);
+    }
+
+    pub fn grid(&self) -> &PhotoGrid {
+        &self.grid
+    }
+
+    pub fn set_thumb_scale(&self, percent: u32) {
+        self.grid.set_scale(percent);
     }
 
     /// Мгновенно (без анимации) перейти к точке — для бенчмарка.
@@ -246,9 +270,9 @@ impl MapTab {
         }
         let total = self.photos.borrow().len();
         self.info.set_text(&if total == 0 {
-            "Нет фото с координатами".to_string()
+            i18n::no_geotagged().to_string()
         } else {
-            format!("В области карты: {} из {}", visible.len(), total)
+            i18n::in_map_area(visible.len(), total)
         });
     }
 
@@ -277,8 +301,8 @@ impl MapTab {
             format!("{}\n{}", cover.file_name(), cover.display_date())
         } else {
             format!(
-                "{} фото\n{} — {}",
-                members.len(),
+                "{}\n{} — {}",
+                i18n::photos(members.len()),
                 members[0].display_date(),
                 members[members.len() - 1].display_date()
             )
