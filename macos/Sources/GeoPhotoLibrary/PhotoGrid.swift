@@ -90,20 +90,35 @@ struct PhotoGrid: View {
     var onPick: (Photo) -> Void = { _ in }
     @Environment(AppModel.self) private var model
 
+    /// Промежуток между ячейками и отступ от краёв.
+    private static let spacing = 10.0
+
     var body: some View {
         let size = Self.baseSize * model.thumbScale / 100
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: size, maximum: size * 1.4), spacing: 10)], spacing: 10) {
-                    ForEach(photos) { photo in
-                        cell(photo)
+        // Колонки фиксированной ширины, их число — сколько влезает. С адаптивными колонками
+        // (`.adaptive`) ячейки растягиваются на всю ширину, и размер менялся только
+        // при смене числа колонок — слайдер масштаба работал скачками.
+        GeometryReader { geometry in
+            let available = geometry.size.width - 2 * Self.spacing
+            let count = max(1, Int((available + Self.spacing) / (size + Self.spacing)))
+            let cellWidth = min(size, available)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.fixed(cellWidth), spacing: Self.spacing), count: count),
+                        spacing: Self.spacing
+                    ) {
+                        ForEach(photos) { photo in
+                            cell(photo)
+                        }
                     }
+                    .padding(Self.spacing)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(10)
-            }
-            .onChange(of: selection?.id) { _, id in
-                if let id {
-                    withAnimation { proxy.scrollTo(id) }
+                .onChange(of: selection?.id) { _, id in
+                    if let id {
+                        withAnimation { proxy.scrollTo(id) }
+                    }
                 }
             }
         }
