@@ -1,4 +1,4 @@
-# Geo photo library
+# <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> Geo photo library
 
 [Русский](README.md) | **English**
 
