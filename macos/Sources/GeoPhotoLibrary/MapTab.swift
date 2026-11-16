@@ -209,8 +209,19 @@ struct MapSearchBar: View {
         HStack(spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(Core.text("search_place"), text: $finder.query)
+                // Подсказка своя: системная на подложке-материале рисуется «живой»
+                // (vibrancy) и выглядит размытой. Цвет из NSColor от фона не зависит.
+                TextField("", text: $finder.query)
                     .textFieldStyle(.plain)
+                    .accessibilityLabel(Core.text("search_place"))
+                    .background(alignment: .leading) {
+                        if finder.query.isEmpty {
+                            Text(Core.text("search_place"))
+                                .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                                .lineLimit(1)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .onSubmit { finder.search(model) }
             }
             .padding(.horizontal, 8)
