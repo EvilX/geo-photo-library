@@ -22,7 +22,8 @@
     <path d="M12 30C40 44 70 40 116 58" stroke="#ffc928" stroke-width="6" fill="none"/>
     <path d="M12 30C40 44 70 40 116 58" stroke="#fff" stroke-opacity="0.6" stroke-width="1" fill="none"/>
   </g>
-  <!-- Стопка фотографий -->
+  <!-- Стопка фотографий, увеличена вдвое -->
+  <g clip-path="url(#body)"><g transform="translate(64 74) scale(2) translate(-62 -82)">
   <g transform="rotate(10 66 82)" filter="url(#shadow)">
     <rect x="40" y="58" width="52" height="44" rx="4" fill="#fff"/>
     <rect x="44" y="62" width="44" height="32" rx="2" fill="url(#sky)"/>
@@ -34,8 +35,9 @@
     <circle cx="70" cy="72" r="4" fill="#fff6c2"/>
     <path d="M34 98L49 78L58 89L64 83L80 98Z" fill="#1f9d55"/>
   </g>
-  <!-- Метка геопозиции -->
-  <g filter="url(#shadow)">
+  </g></g>
+  <!-- Метка геопозиции, увеличена в полтора раза -->
+  <g transform="translate(80 40) scale(1.5) translate(-80 -37)" filter="url(#shadow)">
     <path d="M80 20C72.8 20 67 25.8 67 33C67 42.5 80 55 80 55S93 42.5 93 33C93 25.8 87.2 20 80 20Z" fill="url(#pin)"/>
     <circle cx="80" cy="33" r="5" fill="#fff"/>
   </g>
