@@ -43,6 +43,15 @@ GitHub Actions builds an RPM for Fedora 45 on every push to `main`: **Actions** 
 sudo dnf install ./geo-photo-library-*.fc45.x86_64.rpm
 ```
 
+A disk image for macOS (Apple silicon, macOS 14 or later) is built there too: the
+`geo-photo-library-macos-dmg` artifact. The app is not signed with a developer certificate
+and not notarized, so after dragging it to Applications remove the quarantine flag,
+otherwise macOS will refuse to open it:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Geo photo library.app"
+```
+
 ## Building (Fedora)
 
 ```sh
@@ -68,6 +77,7 @@ libheif are not needed — HEIC is decoded by the system.
 
 ```sh
 ./macos/build-app.sh --run   # → target/macos/Geo photo library.app
+./macos/build-dmg.sh         # → target/macos/Geo-photo-library-<version>-arm64.dmg
 ```
 
 The features are the same as on Linux, with the differences customary on macOS:
@@ -96,7 +106,8 @@ Your location is determined by the system (GeoClue) only when you press the butt
 
 ## Development
 
-- CI (`.github/workflows/ci.yml`): clippy and tests, then an RPM build — in a `fedora:45` container.
+- CI (`.github/workflows/ci.yml`): clippy and tests, then an RPM build — in a `fedora:45` container;
+  on macOS — core tests and a DMG build.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.
 - Instructions for AI agents and debug environment variables (in Russian) — [AGENTS.md](AGENTS.md).

@@ -1,6 +1,6 @@
-# CI: clippy и тесты, затем сборка RPM для Fedora 45.
-# Всё выполняется в контейнере fedora:45 — те же системные библиотеки
-# (gtk4, libshumate, libheif), что и у целевой системы.
+# CI: clippy и тесты, затем сборка RPM для Fedora 45 — в контейнере fedora:45, с теми же
+# системными библиотеками (gtk4, libshumate, libheif), что и у целевой системы.
+# Отдельно, на macOS: тесты ядра без GTK и образ диска (DMG) с нативным приложением.
 name: CI
 
 on:
@@ -71,4 +71,34 @@ jobs:
         with:
           name: geo-photo-library-fc45-rpm
           path: target/rpmbuild/RPMS/x86_64/*.rpm
+          if-no-files-found: error
+
+  dmg:
+    name: DMG (macOS)
+    # Раннеры macOS — на Apple silicon: приложение и образ собираются только для arm64.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Кэш Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: macos-cargo-
+
+      # Ядро без GTK и libheif — как оно собирается для приложения.
+      - name: Тесты ядра
+        run: cargo test --release --locked --no-default-features --features ffi --lib
+
+      - name: Сборка DMG
+        run: ./macos/build-dmg.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: geo-photo-library-macos-dmg
+          path: target/macos/*.dmg
           if-no-files-found: error

@@ -63,7 +63,7 @@ cargo test --release
 | `src/ui/menu.rs` | меню с иконками у пунктов (`icon_menu`) — главное и меню фото |
 | `src/ui/info_panel.rs` | панель «Информация» справа: файл и EXIF выбранного фото (чтение в фоне) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
-| `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `Info.plist` |
+| `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist` |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
 | `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
@@ -80,6 +80,7 @@ libshumate, libsoup — бинарник требует её), `heic` (libheif),
 
 ```sh
 ./macos/build-app.sh [--run]   # → target/macos/Geo photo library.app
+./macos/build-dmg.sh           # → target/macos/Geo-photo-library-<версия>-<архитектура>.dmg
 cargo test --release --no-default-features --features ffi --lib   # тесты ядра без GTK
 ```
 
@@ -266,6 +267,9 @@ root — агент её не выполняет, а даёт пользоват
 `.github/workflows/ci.yml` — на push в `main`, теги `v*` и pull request, в контейнере
 `fedora:45` с Rust из dnf: задача `test` (clippy с `-D warnings` и `cargo test`), затем
 `rpm` (`packaging/build-rpm.sh`, RPM выкладывается артефактом `geo-photo-library-fc45-rpm`).
+Независимо от них — задача `dmg` на `macos-latest`: тесты ядра без GTK и `macos/build-dmg.sh`
+(артефакт `geo-photo-library-macos-dmg`, только arm64; подпись ad-hoc, без нотаризации —
+для неё нужны сертификат Developer ID и секреты в репозитории).
 Локально то же самое можно повторить через `podman run fedora:45`.
 
 ## Flatpak

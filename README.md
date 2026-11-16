@@ -44,6 +44,15 @@ OpenStreetMap по GPS-координатам из EXIF. Для macOS есть �
 sudo dnf install ./geo-photo-library-*.fc45.x86_64.rpm
 ```
 
+Образ диска для macOS (Apple silicon, macOS 14 и новее) собирается там же: артефакт
+`geo-photo-library-macos-dmg`. Приложение не подписано сертификатом разработчика и не
+нотаризовано, поэтому после перетаскивания в «Программы» снимите карантин, иначе macOS
+откажется его открыть:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Geo photo library.app"
+```
+
 ## Сборка (Fedora)
 
 ```sh
@@ -69,6 +78,7 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 ```sh
 ./macos/build-app.sh --run   # → target/macos/Geo photo library.app
+./macos/build-dmg.sh         # → target/macos/Geo-photo-library-<версия>-arm64.dmg
 ```
 
 Возможности те же, что на Linux, с отличиями, принятыми в macOS:
@@ -98,7 +108,8 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 ## Разработка
 
-- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM — в контейнере `fedora:45`.
+- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM — в контейнере `fedora:45`;
+  на macOS — тесты ядра и сборка DMG.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.
 - Инструкции для ИИ-агентов и отладочные переменные окружения — в [AGENTS.md](AGENTS.md).
