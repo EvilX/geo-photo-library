@@ -3,7 +3,8 @@
 **Русский** | [English](README.en.md)
 
 Каталогизатор фотографий для Linux (Rust + GTK4 + SQLite) с поиском снимков на карте
-OpenStreetMap по GPS-координатам из EXIF.
+OpenStreetMap по GPS-координатам из EXIF. Для macOS есть нативный интерфейс (SwiftUI + MapKit)
+поверх того же ядра, см. [Сборка (macOS)](#сборка-macos).
 
 ![Вкладка «Карта»: превью фото на карте мира и список фото из видимой области](docs/screenshots/map-ru.png)
 
@@ -60,6 +61,25 @@ cargo run --release
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak-бандл `target/flatpak/geo-photo-library.flatpak`
   (SDK ставится в пользовательскую установку, root не нужен).
 
+## Сборка (macOS)
+
+Нативное приложение: ядро на Rust (сканер, база, миниатюры) собирается в статическую
+библиотеку, интерфейс — на SwiftUI с картой MapKit (`macos/`). Нужны Xcode и Rust (rustup);
+GTK и libheif не нужны — HEIC декодирует система.
+
+```sh
+./macos/build-app.sh --run   # → target/macos/Geo photo library.app
+```
+
+Возможности те же, что на Linux, с отличиями, принятыми в macOS:
+
+- карта и поиск местности — Apple (MapKit), а не OpenStreetMap и Nominatim;
+- «Моё местоположение» — через CoreLocation; при первом нажатии система спросит разрешение;
+- панель «Информация» — кнопка «i» в заголовке окна или ⌘I; пересканировать — ⌘R;
+- редактирование — ⌘ + двойной щелчок; в меню фото есть ещё «Показать в Finder»;
+- настройки (⌘,) применяются сразу; просмотрщик и редактор выбираются из установленных программ;
+- язык интерфейса и формат дат — из системных настроек.
+
 ## Данные
 
 | Что | Где |
@@ -69,6 +89,8 @@ cargo run --release
 | Миниатюры | `~/.cache/geo-photo-library/thumbs/` |
 
 Версия из Flatpak хранит те же файлы отдельно, в `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
+На macOS настройки и база лежат в `~/Library/Application Support/geo-photo-library/`,
+миниатюры — в `~/Library/Caches/geo-photo-library/thumbs/`.
 
 Сеть нужна только для тайлов карты OpenStreetMap и поиска местности; фотографии никуда
 не отправляются. Местоположение определяется системой (GeoClue) только по нажатию кнопки

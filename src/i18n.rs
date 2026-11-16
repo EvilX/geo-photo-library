@@ -21,6 +21,13 @@ pub fn lang() -> Lang {
     *LANG.get_or_init(|| detect(|k| std::env::var(k).ok()))
 }
 
+/// Задать язык явно (код `ru`, `el_GR`…) — до первого обращения к строкам.
+/// Для интерфейса macOS: там язык берётся из системных настроек, а не из `LANG`.
+/// Возвращает `false`, если язык уже выбран.
+pub fn set_lang(code: &str) -> bool {
+    LANG.set(parse(code).unwrap_or(Lang::En)).is_ok()
+}
+
 /// Язык по кодам локали `ru_RU.UTF-8`, `el_GR`, `en`…; `None` — не поддерживается.
 fn parse(locale: &str) -> Option<Lang> {
     let code = locale.split(['_', '.', '@', '-']).next()?.to_ascii_lowercase();
@@ -183,6 +190,11 @@ pub fn show_on_map() -> &'static str {
     tr("Show on map", "Найти на карте", "Εύρεση στον χάρτη")
 }
 
+/// Пункт меню фото в интерфейсе macOS.
+pub fn show_in_finder() -> &'static str {
+    tr("Show in Finder", "Показать в Finder", "Εμφάνιση στο Finder")
+}
+
 pub fn no_coordinates() -> &'static str {
     tr("No coordinates", "Координаты отсутствуют", "Δεν υπάρχουν συντεταγμένες")
 }
@@ -291,6 +303,25 @@ pub fn apps_hint() -> &'static str {
         "Used by double-click (Ctrl + double-click to edit) and the photo context menu.",
         "Используются при двойном щелчке (Ctrl + двойной щелчок — редактирование) и в контекстном меню фото.",
         "Χρησιμοποιούνται με διπλό κλικ (Ctrl + διπλό κλικ για επεξεργασία) και στο μενού της φωτογραφίας.",
+    )
+}
+
+/// То же для macOS: редактирование — с клавишей ⌘.
+pub fn apps_hint_mac() -> &'static str {
+    tr(
+        "Used by double-click (⌘ + double-click to edit) and the photo context menu.",
+        "Используются при двойном щелчке (⌘ + двойной щелчок — редактирование) и в контекстном меню фото.",
+        "Χρησιμοποιούνται με διπλό κλικ (⌘ + διπλό κλικ για επεξεργασία) και στο μενού της φωτογραφίας.",
+    )
+}
+
+/// Запрос доступа к геолокации в macOS показывает система; его текст — в
+/// `macos/Resources/*.lproj/InfoPlist.strings`, держать согласованным с этим.
+pub fn location_purpose() -> &'static str {
+    tr(
+        "Your location is used only to show it on the map when you press the button.",
+        "Местоположение нужно только для того, чтобы показать его на карте по нажатию кнопки.",
+        "Η τοποθεσία σας χρησιμοποιείται μόνο για να εμφανιστεί στον χάρτη όταν πατήσετε το κουμπί.",
     )
 }
 
@@ -588,15 +619,23 @@ pub fn year(y: i32) -> String {
 /// Дата и время снимка в подписи — по системной локали дат (`LC_TIME`):
 /// en_US «12/21/2025 01:03 PM», en_GB «21/12/25 13:03», de_DE «21.12.2025 13:03».
 /// При локали C/POSIX — по языку интерфейса (см. [`datetime_in`]).
+#[cfg(feature = "gtk-ui")]
 pub fn datetime(dt: &NaiveDateTime) -> String {
     locale_datetime_pattern()
         .and_then(|pattern| format_glib(dt, pattern))
         .unwrap_or_else(|| datetime_in(lang(), dt))
 }
 
+/// Без GLib — по языку интерфейса (интерфейс macOS форматирует даты сам, по системной локали).
+#[cfg(not(feature = "gtk-ui"))]
+pub fn datetime(dt: &NaiveDateTime) -> String {
+    datetime_in(lang(), dt)
+}
+
 /// Шаблон «дата время» из локали `LC_TIME` без секунд; `None` — локаль C/POSIX
 /// (не настроена) или её не прочитать. Читается один раз: локаль выставляет GTK
 /// при запуске (`setlocale(LC_ALL, "")`), до первой подписи с датой.
+#[cfg(feature = "gtk-ui")]
 fn locale_datetime_pattern() -> Option<&'static str> {
     static PATTERN: OnceLock<Option<String>> = OnceLock::new();
     PATTERN
@@ -617,11 +656,13 @@ fn locale_datetime_pattern() -> Option<&'static str> {
         .as_deref()
 }
 
+#[cfg(feature = "gtk-ui")]
 fn is_c_locale(name: &str) -> bool {
     name == "C" || name == "POSIX" || name.starts_with("C.")
 }
 
 /// Время из шаблона локали без секунд: «%T» → «%H:%M», «%r» → «%I:%M %p».
+#[cfg(feature = "gtk-ui")]
 fn time_without_seconds(fmt: &str) -> String {
     fmt.replace("%T", "%H:%M")
         .replace("%r", "%I:%M %p")
@@ -633,6 +674,7 @@ fn time_without_seconds(fmt: &str) -> String {
 }
 
 /// Формат через GLib: он, в отличие от chrono, берёт из локали названия месяцев и AM/PM.
+#[cfg(feature = "gtk-ui")]
 fn format_glib(dt: &NaiveDateTime, pattern: &str) -> Option<String> {
     use chrono::{Datelike, Timelike};
     let (y, mo, d) = (dt.year(), dt.month() as i32, dt.day() as i32);
@@ -707,6 +749,12 @@ mod tests {
         assert_eq!(datetime_in(Lang::En, &dt), "2023-07-14 12:30");
         assert_eq!(datetime_in(Lang::Ru, &dt), "14.07.2023 12:30");
         assert_eq!(datetime_in(Lang::El, &dt), "14/07/2023 12:30");
+    }
+
+    #[cfg(feature = "gtk-ui")]
+    #[test]
+    fn locale_patterns() {
+        let dt = NaiveDateTime::parse_from_str("2023-07-14 12:30:45", "%Y-%m-%d %H:%M:%S").unwrap();
         // Шаблоны локалей: en_US, ru_RU/en_GB, нестандартный с точкой.
         assert_eq!(time_without_seconds("%r"), "%I:%M %p");
         assert_eq!(time_without_seconds("%T"), "%H:%M");

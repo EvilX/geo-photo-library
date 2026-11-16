@@ -3,7 +3,8 @@
 [Русский](README.md) | **English**
 
 A photo catalog for Linux (Rust + GTK4 + SQLite) that places your photos on an OpenStreetMap
-map using GPS coordinates from EXIF.
+map using GPS coordinates from EXIF. macOS has a native interface (SwiftUI + MapKit) on top of
+the same core, see [Building (macOS)](#building-macos).
 
 ![Map tab: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
 
@@ -59,6 +60,25 @@ Packages:
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak bundle `target/flatpak/geo-photo-library.flatpak`
   (the SDK goes into the user installation, no root needed).
 
+## Building (macOS)
+
+A native app: the Rust core (scanner, database, thumbnails) is built as a static library, the
+interface is SwiftUI with a MapKit map (`macos/`). Requires Xcode and Rust (rustup); GTK and
+libheif are not needed — HEIC is decoded by the system.
+
+```sh
+./macos/build-app.sh --run   # → target/macos/Geo photo library.app
+```
+
+The features are the same as on Linux, with the differences customary on macOS:
+
+- the map and place search are Apple's (MapKit) instead of OpenStreetMap and Nominatim;
+- "My location" uses CoreLocation; the system asks for permission on first use;
+- the Information panel — the "i" button in the title bar or ⌘I; rescan — ⌘R;
+- editing — ⌘ + double-click; the photo menu also has "Show in Finder";
+- settings (⌘,) apply immediately; the viewer and editor are chosen from the installed apps;
+- the interface language and date format come from the system settings.
+
 ## Data
 
 | What | Where |
@@ -68,6 +88,8 @@ Packages:
 | Thumbnails | `~/.cache/geo-photo-library/thumbs/` |
 
 The Flatpak version keeps the same files separately, in `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
+On macOS the settings and database live in `~/Library/Application Support/geo-photo-library/`,
+thumbnails in `~/Library/Caches/geo-photo-library/thumbs/`.
 
 The network is used only for OpenStreetMap tiles and place search; your photos are never uploaded.
 Your location is determined by the system (GeoClue) only when you press the button and is not stored.

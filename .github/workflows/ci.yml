@@ -39,10 +39,11 @@ jobs:
           restore-keys: fedora45-cargo-
 
       - name: Clippy
-        run: cargo clippy --release --all-targets --locked -- -D warnings
+        run: cargo clippy --release --all-targets --locked --features ffi -- -D warnings
 
+      # Фича ffi — C-интерфейс ядра для приложения macOS: его тесты не зависят от системы.
       - name: Тесты
-        run: cargo test --release --locked
+        run: cargo test --release --locked --features ffi
 
   rpm:
     name: RPM (Fedora 45)

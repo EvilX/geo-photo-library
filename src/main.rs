@@ -1,16 +1,9 @@
-mod config;
-mod db;
-mod dng;
-mod geo;
 mod geocode;
-mod i18n;
 mod location;
-mod metadata;
-mod paths;
-mod scanner;
-mod thumbs;
-mod trace;
 mod ui;
+
+// Ядро — в библиотеке (src/lib.rs); здесь оно видно как `crate::db` и т. д.
+use geo_photo_library::{config, db, geo, i18n, metadata, paths, scanner, trace};
 
 use gtk::glib;
 use gtk::prelude::*;
