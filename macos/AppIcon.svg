@@ -20,8 +20,8 @@
     <path d="M12 30C40 44 70 40 116 58" stroke="#fff" stroke-opacity="0.6" stroke-width="1" fill="none"/>
   </g>
   <g transform="translate(64 64) scale(1.12) translate(-64 -64)">
-  <!-- Стопка фотографий, увеличена вдвое -->
-  <g><g transform="translate(64 74) scale(2) translate(-62 -82)">
+  <!-- Стопка фотографий, увеличена в 1,4 раза -->
+  <g><g transform="translate(64 74) scale(1.4) translate(-62 -82)">
   <g transform="rotate(10 66 82)" filter="url(#shadow)">
     <rect x="40" y="58" width="52" height="44" rx="4" fill="#fff"/>
     <rect x="44" y="62" width="44" height="32" rx="2" fill="url(#sky)"/>
