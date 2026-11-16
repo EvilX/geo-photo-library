@@ -63,7 +63,7 @@ cargo test --release
 | `src/ui/menu.rs` | меню с иконками у пунктов (`icon_menu`) — главное и меню фото |
 | `src/ui/info_panel.rs` | панель «Информация» справа: файл и EXIF выбранного фото (чтение в фоне) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
-| `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist` |
+| `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist`, `AppIcon.svg` (иконка на весь квадрат, рисунок как в `data/icons`) |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
 | `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
@@ -122,6 +122,9 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
 - **Не использовать `HSplitView`:** вкладки лежат друг на друге и живут постоянно, и
   разделитель скрытой вкладки продолжает управлять курсором (после перетаскивания он
   оставался «стрелками»). Панели делит свой `SplitPane` (`SplitPane.swift`).
+- **Иконка macOS — `macos/AppIcon.svg`, без полей и скругления:** форму накладывает система,
+  а иконку, не заполняющую квадрат, macOS 26 сажает на серую подложку. Меняя рисунок
+  в `data/icons/…svg` (Linux, со скруглением и полями), менять и его.
 - Enter в сетке фото не открывает просмотр (в GTK открывает) — только двойной щелчок.
 - Изменения ядра проверять и для GTK: на Mac — в контейнере
   (`docker run --rm -v "$PWD":/src:ro -e CARGO_TARGET_DIR=/target fedora:45 …`, зависимости как в CI).

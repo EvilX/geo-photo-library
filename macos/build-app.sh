@@ -33,7 +33,7 @@ sed "s/@VERSION@/$VERSION/" macos/Info.plist > "$APP/Contents/Info.plist"
 # Переводы строк Info.plist (запрос доступа к геолокации).
 cp -R macos/Resources/*.lproj "$APP/Contents/Resources/"
 
-# Иконка из того же SVG, что и на Linux.
+# Иконка: свой SVG на весь квадрат (рисунок тот же, что на Linux).
 ICONSET=target/macos/AppIcon.iconset
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
@@ -42,7 +42,7 @@ for size in 16 32 128 256 512; do
         px=$((size * scale))
         name="icon_${size}x${size}"
         [ $scale = 2 ] && name="${name}@2x"
-        sips -s format png -z $px $px data/icons/io.github.EvilX.GeoPhotoLibrary.svg \
+        sips -s format png -z $px $px macos/AppIcon.svg \
             --out "$ICONSET/$name.png" > /dev/null
     done
 done
