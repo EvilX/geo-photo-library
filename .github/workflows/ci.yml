@@ -1,5 +1,5 @@
-# CI: clippy и тесты, затем сборка RPM для Fedora 45 — в контейнере fedora:45, с теми же
-# системными библиотеками (gtk4, libshumate, libheif), что и у целевой системы.
+# CI: clippy и тесты, затем сборка RPM для Fedora 45 (x86_64 и aarch64) — в контейнере
+# fedora:45, с теми же системными библиотеками (gtk4, libshumate, libheif), что и у целевой системы.
 # Отдельно, на macOS: тесты ядра без GTK и образ диска (DMG) с нативным приложением.
 name: CI
 
@@ -46,9 +46,20 @@ jobs:
         run: cargo test --release --locked --features ffi
 
   rpm:
-    name: RPM (Fedora 45)
+    name: RPM (Fedora 45, ${{ matrix.arch }})
     needs: test
-    runs-on: ubuntu-latest
+    # Сборка нативная: образ fedora:45 есть для обеих архитектур, раннер задаёт нужную.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            artifact: geo-photo-library-fc45-rpm
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            artifact: geo-photo-library-fc45-aarch64-rpm
+    runs-on: ${{ matrix.runner }}
     container: fedora:45
     steps:
       - name: Системные зависимости
@@ -69,8 +80,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: geo-photo-library-fc45-rpm
-          path: target/rpmbuild/RPMS/x86_64/*.rpm
+          name: ${{ matrix.artifact }}
+          path: target/rpmbuild/RPMS/${{ matrix.arch }}/*.rpm
           if-no-files-found: error
 
   dmg:

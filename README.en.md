@@ -2,13 +2,19 @@
 
 [Русский](README.md) | **English**
 
-A photo catalog for Linux (Rust + GTK4 + SQLite) that places your photos on an OpenStreetMap
-map using GPS coordinates from EXIF. macOS has a native interface (SwiftUI + MapKit) on top of
-the same core, see [Building (macOS)](#building-macos).
+A photo catalog for Linux and macOS that places your photos on a map using GPS coordinates
+from EXIF. The Rust core (scanner, SQLite database, thumbnails) is shared; the interface is
+GTK4 with an OpenStreetMap map on Linux and a native SwiftUI one with a MapKit map on macOS
+(see [Building (macOS)](#building-macos)).
+
+The current version is 1.1: it adds the macOS version; nothing changed feature-wise on Linux.
 
 ![Map tab: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
 
 ## Features
+
+The description below is for Linux; the differences of the macOS version are listed in
+[Building (macOS)](#building-macos).
 
 - **Map** — photo previews on the map, clustered; on the right, the photos in the visible area
   sorted by date (newest or oldest first, the choice is remembered). The map position and zoom
@@ -37,10 +43,11 @@ the same core, see [Building (macOS)](#building-macos).
 ## Installation
 
 GitHub Actions builds an RPM for Fedora 45 on every push to `main`: **Actions** tab → latest
-**CI** run → `geo-photo-library-fc45-rpm` artifact.
+**CI** run → the `geo-photo-library-fc45-rpm` (x86_64) or `geo-photo-library-fc45-aarch64-rpm` (ARM)
+artifact.
 
 ```sh
-sudo dnf install ./geo-photo-library-*.fc45.x86_64.rpm
+sudo dnf install ./geo-photo-library-*.fc45.*.rpm
 ```
 
 A disk image for macOS (Apple silicon, macOS 14 or later) is built there too: the
@@ -65,15 +72,16 @@ Scan without the GUI: `geo-photo-library --scan <folder>`.
 
 Packages:
 
-- `./packaging/build-rpm.sh` — RPM in `target/rpmbuild/RPMS/x86_64/`;
+- `./packaging/build-rpm.sh` — RPM in `target/rpmbuild/RPMS/<arch>/`;
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak bundle `target/flatpak/geo-photo-library.flatpak`
   (the SDK goes into the user installation, no root needed).
 
 ## Building (macOS)
 
 A native app: the Rust core (scanner, database, thumbnails) is built as a static library, the
-interface is SwiftUI with a MapKit map (`macos/`). Requires Xcode and Rust (rustup); GTK and
-libheif are not needed — HEIC is decoded by the system.
+interface is SwiftUI with a MapKit map (`macos/`). Requires macOS 14 or later, Xcode with its
+license accepted (`sudo xcodebuild -license accept`) and Rust (rustup); GTK and libheif are not
+needed — HEIC is decoded by the system.
 
 ```sh
 ./macos/build-app.sh --run   # → target/macos/Geo photo library.app
@@ -87,7 +95,9 @@ The features are the same as on Linux, with the differences customary on macOS:
 - the Information panel — the "i" button in the title bar or ⌘I; rescan — ⌘R;
 - editing — ⌘ + double-click; the photo menu also has "Show in Finder";
 - settings (⌘,) apply immediately; the viewer and editor are chosen from the installed apps;
-- the interface language and date format come from the system settings.
+- the interface language and date format come from the system settings;
+- photos open on double-click (Enter in the photo grid does not work);
+- pane widths are not remembered between launches.
 
 ## Data
 
@@ -106,7 +116,7 @@ Your location is determined by the system (GeoClue) only when you press the butt
 
 ## Development
 
-- CI (`.github/workflows/ci.yml`): clippy and tests, then an RPM build — in a `fedora:45` container;
+- CI (`.github/workflows/ci.yml`): clippy and tests, then RPM builds for x86_64 and aarch64 — in a `fedora:45` container;
   on macOS — core tests and a DMG build.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.

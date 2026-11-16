@@ -2,13 +2,19 @@
 
 **Русский** | [English](README.en.md)
 
-Каталогизатор фотографий для Linux (Rust + GTK4 + SQLite) с поиском снимков на карте
-OpenStreetMap по GPS-координатам из EXIF. Для macOS есть нативный интерфейс (SwiftUI + MapKit)
-поверх того же ядра, см. [Сборка (macOS)](#сборка-macos).
+Каталогизатор фотографий для Linux и macOS с поиском снимков на карте по GPS-координатам
+из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux — GTK4 с
+картой OpenStreetMap, на macOS — нативный, SwiftUI с картой MapKit
+(см. [Сборка (macOS)](#сборка-macos)).
+
+Текущая версия — 1.1: в ней появилась версия для macOS; для Linux возможности не изменились.
 
 ![Вкладка «Карта»: превью фото на карте мира и список фото из видимой области](docs/screenshots/map-ru.png)
 
 ## Возможности
+
+Описание ниже — для Linux; отличия версии для macOS перечислены в разделе
+[Сборка (macOS)](#сборка-macos).
 
 - **Карта** — превью фотографий на карте с кластеризацией; справа — фото из видимой области,
   по дате (сначала новые или сначала старые, выбор запоминается). Положение и масштаб карты
@@ -38,10 +44,11 @@ OpenStreetMap по GPS-координатам из EXIF. Для macOS есть �
 ## Установка
 
 Готовый RPM для Fedora 45 собирает GitHub Actions при каждом push в `main`: вкладка **Actions** →
-последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm`.
+последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64) или
+`geo-photo-library-fc45-aarch64-rpm` (ARM).
 
 ```sh
-sudo dnf install ./geo-photo-library-*.fc45.x86_64.rpm
+sudo dnf install ./geo-photo-library-*.fc45.*.rpm
 ```
 
 Образ диска для macOS (Apple silicon, macOS 14 и новее) собирается там же: артефакт
@@ -66,14 +73,15 @@ cargo run --release
 
 Пакеты:
 
-- `./packaging/build-rpm.sh` — RPM в `target/rpmbuild/RPMS/x86_64/`;
+- `./packaging/build-rpm.sh` — RPM в `target/rpmbuild/RPMS/<архитектура>/`;
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak-бандл `target/flatpak/geo-photo-library.flatpak`
   (SDK ставится в пользовательскую установку, root не нужен).
 
 ## Сборка (macOS)
 
 Нативное приложение: ядро на Rust (сканер, база, миниатюры) собирается в статическую
-библиотеку, интерфейс — на SwiftUI с картой MapKit (`macos/`). Нужны Xcode и Rust (rustup);
+библиотеку, интерфейс — на SwiftUI с картой MapKit (`macos/`). Нужны macOS 14 или новее,
+Xcode с принятой лицензией (`sudo xcodebuild -license accept`) и Rust (rustup);
 GTK и libheif не нужны — HEIC декодирует система.
 
 ```sh
@@ -88,7 +96,9 @@ GTK и libheif не нужны — HEIC декодирует система.
 - панель «Информация» — кнопка «i» в заголовке окна или ⌘I; пересканировать — ⌘R;
 - редактирование — ⌘ + двойной щелчок; в меню фото есть ещё «Показать в Finder»;
 - настройки (⌘,) применяются сразу; просмотрщик и редактор выбираются из установленных программ;
-- язык интерфейса и формат дат — из системных настроек.
+- язык интерфейса и формат дат — из системных настроек;
+- просмотр открывается двойным щелчком (Enter в сетке фото не работает);
+- ширина панелей между запусками не запоминается.
 
 ## Данные
 
@@ -108,7 +118,7 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 ## Разработка
 
-- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM — в контейнере `fedora:45`;
+- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`;
   на macOS — тесты ядра и сборка DMG.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.

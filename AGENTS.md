@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Инструкции для ИИ-агентов, работающих с репозиторием **Geo photo library** —
-каталогизатором фотографий на Rust + GTK4 + SQLite с поиском снимков на карте OSM
-по GPS из EXIF. Пользовательское описание — в `README.md` (русский)
+каталогизатором фотографий с поиском снимков на карте по GPS из EXIF: ядро на Rust + SQLite,
+интерфейс GTK4 с картой OSM на Linux и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (русский)
 и `README.en.md` (английский).
 
 ## Язык и стиль
@@ -250,23 +250,27 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 ## Пакет RPM
 
 ```sh
-./packaging/build-rpm.sh   # → target/rpmbuild/RPMS/x86_64/geo-photo-library-<версия>.rpm
+./packaging/build-rpm.sh   # → target/rpmbuild/RPMS/<архитектура>/geo-photo-library-<версия>.rpm
 ```
 
 Скрипт берёт исходники из git (включая незакоммиченные изменения отслеживаемых файлов),
 вендорит зависимости Cargo (сборка без сети) и запускает `rpmbuild`; при Rust из rustup —
 с `--nodeps`. `%check` гоняет тесты и валидирует `.desktop`/metainfo. Установка требует
 root — агент её не выполняет, а даёт пользователю команду
-(`pkexec dnf install -y ./target/rpmbuild/RPMS/x86_64/*.rpm`).
+(`pkexec dnf install -y ./target/rpmbuild/RPMS/*/*.rpm`).
 
-При выпуске версии синхронно менять: `version` в `Cargo.toml`, `Version`/`Release` и
-`%changelog` в spec, `<releases>` в metainfo.
+При выпуске версии синхронно менять: `version` в `Cargo.toml` (и запись пакета в
+`Cargo.lock` — сборки идут с `--locked`), `Version`/`Release` и `%changelog` в spec,
+`<releases>` в metainfo. В Cargo версия трёхчастная (`1.1.0`), в spec и metainfo — как
+у выпуска (`1.1`). Версия приложения macOS и имя DMG берутся из `Cargo.toml`.
 
 ## GitHub Actions
 
 `.github/workflows/ci.yml` — на push в `main`, теги `v*` и pull request, в контейнере
 `fedora:45` с Rust из dnf: задача `test` (clippy с `-D warnings` и `cargo test`), затем
-`rpm` (`packaging/build-rpm.sh`, RPM выкладывается артефактом `geo-photo-library-fc45-rpm`).
+`rpm` (`packaging/build-rpm.sh`) — матрицей для x86_64 (`ubuntu-latest`, артефакт
+`geo-photo-library-fc45-rpm`) и aarch64 (`ubuntu-24.04-arm`, артефакт
+`geo-photo-library-fc45-aarch64-rpm`); сборка нативная, без эмуляции.
 Независимо от них — задача `dmg` на `macos-latest`: тесты ядра без GTK и `macos/build-dmg.sh`
 (артефакт `geo-photo-library-macos-dmg`, только arm64; подпись ad-hoc, без нотаризации —
 для неё нужны сертификат Developer ID и секреты в репозитории).
