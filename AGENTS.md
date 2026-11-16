@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Инструкции для ИИ-агентов, работающих с репозиторием **Geo photo library** —
+Инструкции для ИИ-агентов, работающих с репозиторием **GeoPhotoLibrary** —
 каталогизатором фотографий с поиском снимков на карте по GPS из EXIF: ядро на Rust + SQLite,
 интерфейс GTK4 с картой OSM на Linux и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (русский)
 и `README.en.md` (английский).
@@ -79,8 +79,8 @@ libshumate, libsoup — бинарник требует её), `heic` (libheif),
 Приложение macOS — `macos/`: Swift вызывает ядро через `src/ffi.rs`.
 
 ```sh
-./macos/build-app.sh [--run]   # → target/macos/Geo photo library.app
-./macos/build-dmg.sh           # → target/macos/Geo-photo-library-<версия>-<архитектура>.dmg
+./macos/build-app.sh [--run]   # → target/macos/GeoPhotoLibrary.app
+./macos/build-dmg.sh           # → target/macos/GeoPhotoLibrary-<версия>-<архитектура>.dmg
 cargo test --release --no-default-features --features ffi --lib   # тесты ядра без GTK
 ```
 
@@ -92,7 +92,7 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
   звать из любого потока; запросы и `gpl_scan` — не из главного.
 - Строки интерфейса и на macOS — только из `i18n.rs` (`gpl_text*`, в Swift — `Core.text`).
   Язык Swift берёт из системных настроек и передаёт в `gpl_init` (`i18n::set_lang`).
-  Проверить другой язык: `open -n "target/macos/Geo photo library.app" --args -AppleLanguages "(ru)"`.
+  Проверить другой язык: `open -n "target/macos/GeoPhotoLibrary.app" --args -AppleLanguages "(ru)"`.
   Даты под фото Swift форматирует сам по системной локали.
 - HEIC: libheif не используется, ядро вызывает декодер ImageIO из Swift
   (`thumbs::set_heif_decoder`, `HeifDecoder.swift`); поворот применяет ImageIO.

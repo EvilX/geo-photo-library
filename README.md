@@ -1,4 +1,4 @@
-# <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> Geo photo library
+# <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> GeoPhotoLibrary
 
 **Русский** | [English](README.en.md)
 
@@ -57,7 +57,7 @@ sudo dnf install ./geo-photo-library-*.fc45.*.rpm
 откажется его открыть:
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/Geo photo library.app"
+xattr -dr com.apple.quarantine "/Applications/GeoPhotoLibrary.app"
 ```
 
 ## Сборка (Fedora)
@@ -85,8 +85,8 @@ Xcode с принятой лицензией (`sudo xcodebuild -license accept`)
 GTK и libheif не нужны — HEIC декодирует система.
 
 ```sh
-./macos/build-app.sh --run   # → target/macos/Geo photo library.app
-./macos/build-dmg.sh         # → target/macos/Geo-photo-library-<версия>-arm64.dmg
+./macos/build-app.sh --run   # → target/macos/GeoPhotoLibrary.app
+./macos/build-dmg.sh         # → target/macos/GeoPhotoLibrary-<версия>-arm64.dmg
 ```
 
 Возможности те же, что на Linux, с отличиями, принятыми в macOS:

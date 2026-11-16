@@ -12,7 +12,7 @@ struct GeoPhotoLibraryApp: App {
     }
 
     var body: some Scene {
-        Window("Geo photo library", id: "main") {
+        Window("GeoPhotoLibrary", id: "main") {
             ContentView()
                 .environment(model)
                 .frame(minWidth: 900, minHeight: 540)

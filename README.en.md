@@ -1,4 +1,4 @@
-# <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> Geo photo library
+# <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> GeoPhotoLibrary
 
 [Русский](README.md) | **English**
 
@@ -56,7 +56,7 @@ and not notarized, so after dragging it to Applications remove the quarantine fl
 otherwise macOS will refuse to open it:
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/Geo photo library.app"
+xattr -dr com.apple.quarantine "/Applications/GeoPhotoLibrary.app"
 ```
 
 ## Building (Fedora)
@@ -84,8 +84,8 @@ license accepted (`sudo xcodebuild -license accept`) and Rust (rustup); GTK and 
 needed — HEIC is decoded by the system.
 
 ```sh
-./macos/build-app.sh --run   # → target/macos/Geo photo library.app
-./macos/build-dmg.sh         # → target/macos/Geo-photo-library-<version>-arm64.dmg
+./macos/build-app.sh --run   # → target/macos/GeoPhotoLibrary.app
+./macos/build-dmg.sh         # → target/macos/GeoPhotoLibrary-<version>-arm64.dmg
 ```
 
 The features are the same as on Linux, with the differences customary on macOS:

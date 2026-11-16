@@ -10,7 +10,7 @@ use gtk::prelude::*;
 use std::path::PathBuf;
 
 const APP_ID: &str = "io.github.EvilX.GeoPhotoLibrary";
-const APP_NAME: &str = "Geo photo library";
+const APP_NAME: &str = "GeoPhotoLibrary";
 
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Сборка приложения macOS: ядро на Rust (статическая библиотека) + интерфейс на Swift.
-# Результат — target/macos/Geo photo library.app (подпись ad-hoc, для этой машины).
+# Результат — target/macos/GeoPhotoLibrary.app (подпись ad-hoc, для этой машины).
 #   ./macos/build-app.sh          собрать
 #   ./macos/build-app.sh --run    собрать и запустить
 set -eu
@@ -25,7 +25,7 @@ cargo rustc --release --locked --lib --no-default-features --features ffi --crat
 swift build -c release --package-path macos
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-APP="target/macos/Geo photo library.app"
+APP="target/macos/GeoPhotoLibrary.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp macos/.build/release/GeoPhotoLibrary "$APP/Contents/MacOS/"

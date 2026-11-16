@@ -25,7 +25,7 @@ BuildRequires:  appstream
 Requires:       hicolor-icon-theme
 
 %description
-Geo photo library indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),
+GeoPhotoLibrary indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),
 shows them in a year/month/day tree and places them on an OpenStreetMap map
 using GPS coordinates from EXIF metadata.
 

@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github.EvilX.GeoPhotoLibrary</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <name>Geo photo library</name>
+  <name>GeoPhotoLibrary</name>
   <developer id="io.github.evilx">
     <name>EvilX</name>
   </developer>

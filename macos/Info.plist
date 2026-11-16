@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Geo photo library</string>
+    <string>GeoPhotoLibrary</string>
     <key>CFBundleDisplayName</key>
-    <string>Geo photo library</string>
+    <string>GeoPhotoLibrary</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.EvilX.GeoPhotoLibrary</string>
     <key>CFBundleExecutable</key>

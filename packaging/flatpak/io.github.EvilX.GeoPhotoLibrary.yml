@@ -1,4 +1,4 @@
-# Flatpak-манифест Geo photo library. Собирать скриптом packaging/flatpak/build-flatpak.sh:
+# Flatpak-манифест GeoPhotoLibrary. Собирать скриптом packaging/flatpak/build-flatpak.sh:
 # он готовит архивы исходников и вендоренных зависимостей Cargo в target/flatpak/
 # (сборка внутри flatpak-builder идёт без сети).
 id: io.github.EvilX.GeoPhotoLibrary
