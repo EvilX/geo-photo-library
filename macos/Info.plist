@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Geo photo library</string>
+    <key>CFBundleDisplayName</key>
+    <string>Geo photo library</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.EvilX.GeoPhotoLibrary</string>
+    <key>CFBundleExecutable</key>
+    <string>GeoPhotoLibrary</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <!-- Языки интерфейса: по ним система переводит и стандартные меню. -->
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ru</string>
+        <string>el</string>
+    </array>
+    <!-- Текст запроса доступа к геолокации; переводы — в Resources/*.lproj/InfoPlist.strings,
+         согласованы с i18n::location_purpose. -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Your location is used only to show it on the map when you press the button.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>Your location is used only to show it on the map when you press the button.</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.photography</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>

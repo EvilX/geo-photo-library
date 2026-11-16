@@ -16,6 +16,7 @@ use std::{
 
 pub const THUMB_SIZE: u32 = 320;
 /// Минимальная короткая сторона встроенной HEIC-миниатюры, которую ещё можно использовать.
+#[cfg(feature = "heic")]
 const MIN_EMBEDDED_SIDE: u32 = 200;
 
 pub fn thumb_path(dir: &Path, photo: &Path) -> PathBuf {
@@ -68,8 +69,25 @@ fn square(img: DynamicImage) -> DynamicImage {
     }
 }
 
+/// Внешний декодер HEIC: `(файл, минимальная короткая сторона)` → уже повёрнутое
+/// изображение и размеры оригинала (после поворота).
+pub type HeifDecoder = fn(&Path, u32) -> Result<(RgbImage, (u32, u32))>;
+
+static HEIF_DECODER: std::sync::OnceLock<HeifDecoder> = std::sync::OnceLock::new();
+
+/// Подключить системный декодер HEIC вместо libheif: на macOS это ImageIO
+/// (интерфейс на Swift передаёт его через `ffi`), и libheif в сборке не нужен.
+/// Возвращает `false`, если декодер уже задан.
+pub fn set_heif_decoder(decoder: HeifDecoder) -> bool {
+    HEIF_DECODER.set(decoder).is_ok()
+}
+
 fn decode(src: &Path) -> Result<Decoded> {
     if has_ext(src, &["heic", "heif"]) {
+        if let Some(decoder) = HEIF_DECODER.get() {
+            let (img, dims) = decoder(src, THUMB_SIZE)?;
+            return Ok(Decoded { img: DynamicImage::ImageRgb8(img), dims, oriented: true });
+        }
         return decode_heif(src);
     }
     if has_ext(src, &["dng"]) {

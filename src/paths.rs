@@ -1,17 +1,35 @@
-//! XDG-пути приложения.
-use gtk::glib;
+//! Пути приложения: XDG на Linux (через GLib), `~/Library` на macOS.
 use std::path::PathBuf;
 
 const DIR: &str = "geo-photo-library";
 
+#[cfg(feature = "gtk-ui")]
+fn dirs() -> (PathBuf, PathBuf, PathBuf) {
+    use gtk::glib;
+    (glib::user_config_dir(), glib::user_data_dir(), glib::user_cache_dir())
+}
+
+/// Без GLib (нативный интерфейс macOS): настройки и БД — в `Application Support`,
+/// миниатюры — в `Caches`. `GEO_PHOTO_LIBRARY_HOME` подменяет оба каталога (для тестов,
+/// чтобы не трогать данные пользователя).
+#[cfg(not(feature = "gtk-ui"))]
+fn dirs() -> (PathBuf, PathBuf, PathBuf) {
+    if let Some(dir) = std::env::var_os("GEO_PHOTO_LIBRARY_HOME").map(PathBuf::from) {
+        return (dir.join("config"), dir.join("data"), dir.join("cache"));
+    }
+    let library = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Library");
+    let support = library.join("Application Support");
+    (support.clone(), support, library.join("Caches"))
+}
+
 pub fn config_file() -> PathBuf {
-    glib::user_config_dir().join(DIR).join("config.toml")
+    dirs().0.join(DIR).join("config.toml")
 }
 
 pub fn db_path() -> PathBuf {
-    glib::user_data_dir().join(DIR).join("library.db")
+    dirs().1.join(DIR).join("library.db")
 }
 
 pub fn thumbs_dir() -> PathBuf {
-    glib::user_cache_dir().join(DIR).join("thumbs")
+    dirs().2.join(DIR).join("thumbs")
 }

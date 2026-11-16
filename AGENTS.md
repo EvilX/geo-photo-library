@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Инструкции для ИИ-агентов, работающих с репозиторием **Geo photo library** —
-каталогизатором фотографий на Rust + GTK4 + SQLite с поиском снимков на карте OSM
-по GPS из EXIF. Пользовательское описание — в `README.md` (русский)
+каталогизатором фотографий с поиском снимков на карте по GPS из EXIF: ядро на Rust + SQLite,
+интерфейс GTK4 с картой OSM на Linux и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (русский)
 и `README.en.md` (английский).
 
 ## Язык и стиль
@@ -18,7 +18,8 @@
 - Не запускать `cargo fmt`: код не отформатирован rustfmt (длинные строки), и он
   переформатирует весь крейт. Править оформление вручную.
 - Коммиты: заголовок-суть, пустая строка, тело «что и почему» (см. `git log`).
-- Перед коммитом: `cargo clippy --release --all-targets` без предупреждений и `cargo test --release`.
+- Перед коммитом: `cargo clippy --release --all-targets --features ffi` без предупреждений
+  и `cargo test --release --features ffi`.
 
 ## Сборка и окружение (Fedora)
 
@@ -39,7 +40,10 @@ cargo test --release
 
 | Файл | Назначение |
 | --- | --- |
+| `src/lib.rs` | ядро как библиотека: всё, кроме `main.rs`, `geocode.rs`, `location.rs` и `ui/` |
 | `src/main.rs` | запуск GTK-приложения; CLI-режим `--scan <папка>` без GUI |
+| `src/ffi.rs` | C-интерфейс ядра для приложения macOS (фича `ffi`) |
+| `src/paths.rs` | каталоги данных: XDG через GLib, без GTK — `~/Library` |
 | `src/scanner.rs` | инкрементальное сканирование (size+mtime), rayon, пачки по 64, отмена через `AtomicBool` |
 | `src/metadata.rs` | EXIF (kamadak-exif): дата, GPS, ориентация, камера; подробности для панели «Информация» |
 | `src/thumbs.rs` | квадратные миниатюры 320×320: JPEG через mozjpeg с IDCT-масштабом, HEIC — встроенная миниатюра, DNG — встроенное JPEG-превью |
@@ -59,6 +63,7 @@ cargo test --release
 | `src/ui/menu.rs` | меню с иконками у пунктов (`icon_menu`) — главное и меню фото |
 | `src/ui/info_panel.rs` | панель «Информация» справа: файл и EXIF выбранного фото (чтение в фоне) |
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
+| `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist` |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
 | `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
@@ -66,6 +71,60 @@ cargo test --release
 
 Данные пользователя: `~/.config/geo-photo-library/config.toml`,
 `~/.local/share/geo-photo-library/library.db`, `~/.cache/geo-photo-library/thumbs/`.
+
+## macOS
+
+Крейт разделён на библиотеку-ядро и бинарник GTK. Фичи: `gtk-ui` (по умолчанию; GTK,
+libshumate, libsoup — бинарник требует её), `heic` (libheif), `ffi` (C-интерфейс).
+Приложение macOS — `macos/`: Swift вызывает ядро через `src/ffi.rs`.
+
+```sh
+./macos/build-app.sh [--run]   # → target/macos/Geo photo library.app
+./macos/build-dmg.sh           # → target/macos/Geo-photo-library-<версия>-<архитектура>.dmg
+cargo test --release --no-default-features --features ffi --lib   # тесты ядра без GTK
+```
+
+- Нужен полный Xcode с принятой лицензией (в Command Line Tools нет макросов SwiftUI);
+  скрипт сам берёт `/Applications/Xcode.app`, если выбран CLT. Rust — из rustup.
+- **`src/ffi.rs` и `macos/Sources/CGeoPhotoCore/include/gpl.h` править вместе:** заголовок
+  написан вручную, несовпадение сигнатур компилятор не заметит.
+- Интерфейс C без общего состояния: каждый запрос сам открывает БД, поэтому функции можно
+  звать из любого потока; запросы и `gpl_scan` — не из главного.
+- Строки интерфейса и на macOS — только из `i18n.rs` (`gpl_text*`, в Swift — `Core.text`).
+  Язык Swift берёт из системных настроек и передаёт в `gpl_init` (`i18n::set_lang`).
+  Проверить другой язык: `open -n "target/macos/Geo photo library.app" --args -AppleLanguages "(ru)"`.
+  Даты под фото Swift форматирует сам по системной локали.
+- HEIC: libheif не используется, ядро вызывает декодер ImageIO из Swift
+  (`thumbs::set_heif_decoder`, `HeifDecoder.swift`); поворот применяет ImageIO.
+- Карта — MapKit. Зум Web Mercator считается по ширине видимой области
+  (`20 + log2(ширина вида / ширина visibleMapRect)`), поэтому наклон и поворот карты выключены.
+  Кластеры считает ядро (`gpl_map_view`), маркеры пересоздаются только изменившиеся —
+  те же правила, что у `MapTab::refresh` в GTK.
+- Данные: `~/Library/Application Support/geo-photo-library/` (настройки, БД),
+  `~/Library/Caches/geo-photo-library/thumbs/`. В `viewer`/`editor` конфига на macOS лежат
+  идентификаторы пакетов приложений, а не id `.desktop`.
+- Поиск местности — `MKLocalSearch` (не Nominatim), местоположение — разовый запрос
+  CoreLocation; точка рисуется своей аннотацией, `showsUserLocation` не включать — он держит
+  геолокацию постоянно. Текст системного запроса доступа — в `macos/Info.plist` и
+  `macos/Resources/*.lproj/InfoPlist.strings`, согласован с `i18n::location_purpose`.
+- Панель «Информация»: содержимое готовит ядро (`gpl_photo_info`, JSON), Swift только рисует.
+- **Чтения БД идут параллельно и могут ждать сканер** — результат применяется, только если
+  он от последнего запрошенного чтения (`reloadGeneration` в `AppModel`), иначе устаревший
+  ответ затирает свежие данные.
+- MapKit не отдаляет карту дальше примерно зума 3 при обычном размере окна: подгонка под фото
+  со всего мира показывает только часть.
+- Проверка без человека — запускать бинарник из `.app` напрямую с `GEO_PHOTO_LIBRARY_HOME=<каталог>`
+  (подменяет каталоги данных). Работают `GEO_PHOTO_LIBRARY_SCREENSHOT`, `_DELAY`, `_TAB`,
+  `_ACTION`, `_INFO`, `_SEARCH`, `_LOCATE` с тем же смыслом, что на Linux, и
+  `GEO_PHOTO_LIBRARY_PHOTO_ACTION=copy|show-on-map|trash` — пункт меню для первого фото вкладки
+  (`trash` действительно перемещает файл в Корзину). `_LOCATE` покажет пользователю системный
+  запрос доступа — без спроса не запускать. Язык: аргумент `-AppleLanguages "(ru)"`.
+- **Не использовать `HSplitView`:** вкладки лежат друг на друге и живут постоянно, и
+  разделитель скрытой вкладки продолжает управлять курсором (после перетаскивания он
+  оставался «стрелками»). Панели делит свой `SplitPane` (`SplitPane.swift`).
+- Enter в сетке фото не открывает просмотр (в GTK открывает) — только двойной щелчок.
+- Изменения ядра проверять и для GTK: на Mac — в контейнере
+  (`docker run --rm -v "$PWD":/src:ro -e CARGO_TARGET_DIR=/target fedora:45 …`, зависимости как в CI).
 
 ## Важные инварианты и грабли
 
@@ -191,23 +250,30 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 ## Пакет RPM
 
 ```sh
-./packaging/build-rpm.sh   # → target/rpmbuild/RPMS/x86_64/geo-photo-library-<версия>.rpm
+./packaging/build-rpm.sh   # → target/rpmbuild/RPMS/<архитектура>/geo-photo-library-<версия>.rpm
 ```
 
 Скрипт берёт исходники из git (включая незакоммиченные изменения отслеживаемых файлов),
 вендорит зависимости Cargo (сборка без сети) и запускает `rpmbuild`; при Rust из rustup —
 с `--nodeps`. `%check` гоняет тесты и валидирует `.desktop`/metainfo. Установка требует
 root — агент её не выполняет, а даёт пользователю команду
-(`pkexec dnf install -y ./target/rpmbuild/RPMS/x86_64/*.rpm`).
+(`pkexec dnf install -y ./target/rpmbuild/RPMS/*/*.rpm`).
 
-При выпуске версии синхронно менять: `version` в `Cargo.toml`, `Version`/`Release` и
-`%changelog` в spec, `<releases>` в metainfo.
+При выпуске версии синхронно менять: `version` в `Cargo.toml` (и запись пакета в
+`Cargo.lock` — сборки идут с `--locked`), `Version`/`Release` и `%changelog` в spec,
+`<releases>` в metainfo. В Cargo версия всегда трёхчастная (`1.1.0` для выпуска 1.1), в spec
+и metainfo — как у выпуска (`1.1`, `1.1.1`). Версия приложения macOS и имя DMG берутся из `Cargo.toml`.
 
 ## GitHub Actions
 
 `.github/workflows/ci.yml` — на push в `main`, теги `v*` и pull request, в контейнере
 `fedora:45` с Rust из dnf: задача `test` (clippy с `-D warnings` и `cargo test`), затем
-`rpm` (`packaging/build-rpm.sh`, RPM выкладывается артефактом `geo-photo-library-fc45-rpm`).
+`rpm` (`packaging/build-rpm.sh`) — матрицей для x86_64 (`ubuntu-latest`, артефакт
+`geo-photo-library-fc45-rpm`) и aarch64 (`ubuntu-24.04-arm`, артефакт
+`geo-photo-library-fc45-aarch64-rpm`); сборка нативная, без эмуляции.
+Независимо от них — задача `dmg` на `macos-latest`: тесты ядра без GTK и `macos/build-dmg.sh`
+(артефакт `geo-photo-library-macos-dmg`, только arm64; подпись ad-hoc, без нотаризации —
+для неё нужны сертификат Developer ID и секреты в репозитории).
 Локально то же самое можно повторить через `podman run fedora:45`.
 
 ## Flatpak

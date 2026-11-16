@@ -2,12 +2,19 @@
 
 **Русский** | [English](README.en.md)
 
-Каталогизатор фотографий для Linux (Rust + GTK4 + SQLite) с поиском снимков на карте
-OpenStreetMap по GPS-координатам из EXIF.
+Каталогизатор фотографий для Linux и macOS с поиском снимков на карте по GPS-координатам
+из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux — GTK4 с
+картой OpenStreetMap, на macOS — нативный, SwiftUI с картой MapKit
+(см. [Сборка (macOS)](#сборка-macos)).
+
+Версия для macOS появилась в 1.1; для Linux возможности с 1.0 не изменились.
 
 ![Вкладка «Карта»: превью фото на карте мира и список фото из видимой области](docs/screenshots/map-ru.png)
 
 ## Возможности
+
+Описание ниже — для Linux; отличия версии для macOS перечислены в разделе
+[Сборка (macOS)](#сборка-macos).
 
 - **Карта** — превью фотографий на карте с кластеризацией; справа — фото из видимой области,
   по дате (сначала новые или сначала старые, выбор запоминается). Положение и масштаб карты
@@ -37,10 +44,20 @@ OpenStreetMap по GPS-координатам из EXIF.
 ## Установка
 
 Готовый RPM для Fedora 45 собирает GitHub Actions при каждом push в `main`: вкладка **Actions** →
-последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm`.
+последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64) или
+`geo-photo-library-fc45-aarch64-rpm` (ARM).
 
 ```sh
-sudo dnf install ./geo-photo-library-*.fc45.x86_64.rpm
+sudo dnf install ./geo-photo-library-*.fc45.*.rpm
+```
+
+Образ диска для macOS (Apple silicon, macOS 14 и новее) собирается там же: артефакт
+`geo-photo-library-macos-dmg`. Приложение не подписано сертификатом разработчика и не
+нотаризовано, поэтому после перетаскивания в «Программы» снимите карантин, иначе macOS
+откажется его открыть:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Geo photo library.app"
 ```
 
 ## Сборка (Fedora)
@@ -56,9 +73,32 @@ cargo run --release
 
 Пакеты:
 
-- `./packaging/build-rpm.sh` — RPM в `target/rpmbuild/RPMS/x86_64/`;
+- `./packaging/build-rpm.sh` — RPM в `target/rpmbuild/RPMS/<архитектура>/`;
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak-бандл `target/flatpak/geo-photo-library.flatpak`
   (SDK ставится в пользовательскую установку, root не нужен).
+
+## Сборка (macOS)
+
+Нативное приложение: ядро на Rust (сканер, база, миниатюры) собирается в статическую
+библиотеку, интерфейс — на SwiftUI с картой MapKit (`macos/`). Нужны macOS 14 или новее,
+Xcode с принятой лицензией (`sudo xcodebuild -license accept`) и Rust (rustup);
+GTK и libheif не нужны — HEIC декодирует система.
+
+```sh
+./macos/build-app.sh --run   # → target/macos/Geo photo library.app
+./macos/build-dmg.sh         # → target/macos/Geo-photo-library-<версия>-arm64.dmg
+```
+
+Возможности те же, что на Linux, с отличиями, принятыми в macOS:
+
+- карта и поиск местности — Apple (MapKit), а не OpenStreetMap и Nominatim;
+- «Моё местоположение» — через CoreLocation; при первом нажатии система спросит разрешение;
+- панель «Информация» — кнопка «i» в заголовке окна или ⌘I; пересканировать — ⌘R;
+- редактирование — ⌘ + двойной щелчок; в меню фото есть ещё «Показать в Finder»;
+- настройки (⌘,) применяются сразу; просмотрщик и редактор выбираются из установленных программ;
+- язык интерфейса и формат дат — из системных настроек;
+- просмотр открывается двойным щелчком (Enter в сетке фото не работает);
+- ширина панелей между запусками не запоминается.
 
 ## Данные
 
@@ -69,6 +109,8 @@ cargo run --release
 | Миниатюры | `~/.cache/geo-photo-library/thumbs/` |
 
 Версия из Flatpak хранит те же файлы отдельно, в `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
+На macOS настройки и база лежат в `~/Library/Application Support/geo-photo-library/`,
+миниатюры — в `~/Library/Caches/geo-photo-library/thumbs/`.
 
 Сеть нужна только для тайлов карты OpenStreetMap и поиска местности; фотографии никуда
 не отправляются. Местоположение определяется системой (GeoClue) только по нажатию кнопки
@@ -76,7 +118,8 @@ cargo run --release
 
 ## Разработка
 
-- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM — в контейнере `fedora:45`.
+- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`;
+  на macOS — тесты ядра и сборка DMG.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.
 - Инструкции для ИИ-агентов и отладочные переменные окружения — в [AGENTS.md](AGENTS.md).
