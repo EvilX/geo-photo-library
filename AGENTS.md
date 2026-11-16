@@ -261,8 +261,8 @@ root — агент её не выполняет, а даёт пользоват
 
 При выпуске версии синхронно менять: `version` в `Cargo.toml` (и запись пакета в
 `Cargo.lock` — сборки идут с `--locked`), `Version`/`Release` и `%changelog` в spec,
-`<releases>` в metainfo. В Cargo версия трёхчастная (`1.1.0`), в spec и metainfo — как
-у выпуска (`1.1`). Версия приложения macOS и имя DMG берутся из `Cargo.toml`.
+`<releases>` в metainfo. В Cargo версия всегда трёхчастная (`1.1.0` для выпуска 1.1), в spec
+и metainfo — как у выпуска (`1.1`, `1.1.1`). Версия приложения macOS и имя DMG берутся из `Cargo.toml`.
 
 ## GitHub Actions
 

@@ -169,11 +169,16 @@ struct PaneHeader: View {
         HStack {
             Text(title).font(.headline).lineLimit(1).truncationMode(.tail)
             Spacer()
-            Picker("", selection: $model.newestFirst) {
-                Text(Core.text("sort_newest")).tag(true)
-                Text(Core.text("sort_oldest")).tag(false)
+            // Меню с явной подписью: выпадающий список (`Picker`) в этой строке временами
+            // сжимался до одной буквы.
+            Menu(Core.text(model.newestFirst ? "sort_newest" : "sort_oldest")) {
+                Picker("", selection: $model.newestFirst) {
+                    Text(Core.text("sort_newest")).tag(true)
+                    Text(Core.text("sort_oldest")).tag(false)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
-            .labelsHidden()
             .fixedSize()
             .help(Core.text("sort_tooltip"))
         }

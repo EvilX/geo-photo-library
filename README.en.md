@@ -7,7 +7,7 @@ from EXIF. The Rust core (scanner, SQLite database, thumbnails) is shared; the i
 GTK4 with an OpenStreetMap map on Linux and a native SwiftUI one with a MapKit map on macOS
 (see [Building (macOS)](#building-macos)).
 
-The current version is 1.1: it adds the macOS version; nothing changed feature-wise on Linux.
+The macOS version was added in 1.1; nothing has changed feature-wise on Linux since 1.0.
 
 ![Map tab: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
 

@@ -94,12 +94,15 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
-            ToolbarItem {
+            // Вкладки — по центру заголовка, кнопки — у правого края окна: без растяжки
+            // система ставит их вплотную к вкладкам.
+            ToolbarItem(placement: .primaryAction) {
+                Spacer()
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button(Core.text("rescan"), systemImage: "arrow.clockwise") { model.rescan() }
                     .help(Core.text("rescan"))
                     .disabled(model.libraryPath == nil)
-            }
-            ToolbarItem {
                 Toggle(isOn: $model.infoOpen) {
                     Label(Core.text("info"), systemImage: "info.circle")
                 }

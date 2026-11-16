@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.1
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
@@ -62,6 +62,11 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Mon Nov 16 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.1-1
+- Версия для macOS: кнопки «Пересканировать» и «Информация» — у правого края заголовка окна
+- Версия для macOS: выбор сортировки над сеткой больше не сжимается до одной буквы
+- Для Linux изменений нет
+
 * Mon Nov 16 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1-1
 - Ядро (сканер, база, миниатюры, EXIF) выделено в библиотеку, интерфейс GTK — её клиент
 - Нативная версия для macOS на том же ядре (SwiftUI + MapKit), распространяется отдельно (DMG)
