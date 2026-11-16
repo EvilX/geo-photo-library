@@ -29,7 +29,8 @@ The description below is for Linux; the differences of the macOS version are lis
   aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo.
   Open it with the “i” button in the window header or from the photo menu; close it with the same
   button or the cross.
-- **Photo menu** (right click): copy the file, view, edit, information, show on map (jumps to
+- **Photo menu** (right click): copy the file, view, edit, show in folder (the file manager opens
+  the folder with the file selected), information, show on map (jumps to
   where the photo was taken; warns if EXIF has no coordinates), move to trash.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen
   in Settings (by default, the app for the file type and a detected image editor).

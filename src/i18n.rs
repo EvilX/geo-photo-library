@@ -178,6 +178,10 @@ pub fn edit() -> &'static str {
     tr("Edit", "Редактирование", "Επεξεργασία")
 }
 
+pub fn show_in_folder() -> &'static str {
+    tr("Show in Folder", "Показать на диске", "Εμφάνιση στον φάκελο")
+}
+
 pub fn delete() -> &'static str {
     tr("Delete", "Удалить", "Διαγραφή")
 }

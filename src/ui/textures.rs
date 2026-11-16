@@ -216,6 +216,21 @@ pub fn open_in_editor(widget: &impl IsA<gtk::Widget>, path: &str) {
     launch_with_portal(widget, path, true);
 }
 
+/// Открыть папку с фото в файловом менеджере и выделить в ней файл.
+///
+/// GTK вызывает `org.freedesktop.FileManager1.ShowItems` (Nautilus, Dolphin, Nemo,
+/// Caja, Thunar), во Flatpak — портал OpenURI; если ни того ни другого нет, просто
+/// открывает папку.
+pub fn show_in_folder(widget: &impl IsA<gtk::Widget>, path: &str) {
+    let parent = widget.root().and_downcast::<gtk::Window>();
+    let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(path)));
+    launcher.open_containing_folder(parent.as_ref(), gio::Cancellable::NONE, |res| {
+        if let Err(e) = res {
+            eprintln!("не удалось показать файл в папке: {e}");
+        }
+    });
+}
+
 /// Программы, которые открывают фото (JPEG, HEIC, PNG), по имени; без этой программы.
 pub fn image_apps() -> Vec<gio::AppInfo> {
     let own_id = format!("{}.desktop", crate::APP_ID);

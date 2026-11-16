@@ -1,6 +1,6 @@
 //! Сетка миниатюр, используется на обеих вкладках.
 use super::menu::{icon_menu, Item};
-use super::textures::{copy_to_clipboard, open_external, open_in_editor, set_thumbnail, TextureCache};
+use super::textures::{copy_to_clipboard, open_external, open_in_editor, set_thumbnail, show_in_folder, TextureCache};
 use crate::{
     config::{self, SortOrder},
     db::Photo,
@@ -369,6 +369,7 @@ fn context_menu() -> gtk::PopoverMenu {
         vec![
             Item::new(i18n::view(), "photo.view", "view-reveal-symbolic"),
             Item::new(i18n::edit(), "photo.edit", "document-edit-symbolic"),
+            Item::new(i18n::show_in_folder(), "photo.show-in-folder", "folder-open-symbolic"),
         ],
         vec![
             Item::new(i18n::info(), "photo.info", "help-about-symbolic"),
@@ -397,6 +398,7 @@ fn photo_actions(
     add("copy", |v, p, _| copy_to_clipboard(v, &p.path));
     add("view", |v, p, _| open_external(v, &p.path));
     add("edit", |v, p, _| open_in_editor(v, &p.path));
+    add("show-in-folder", |v, p, _| show_in_folder(v, &p.path));
     add("info", |_, p, handlers| {
         if let Some(f) = handlers.info.borrow().as_ref() {
             f(p);
