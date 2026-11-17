@@ -12,7 +12,9 @@ VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 APP="target/macos/GeoPhotoLibrary.app"
 DMG="target/macos/GeoPhotoLibrary-$VERSION-$(uname -m).dmg"
 STAGE=target/macos/dmg
-rm -rf "$STAGE" "$DMG"
+# Все прежние образы, не только этой версии: в CI каталог восстанавливается из кэша,
+# и под маску *.dmg попали бы образы старых версий.
+rm -rf "$STAGE" target/macos/*.dmg
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"

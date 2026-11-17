@@ -92,6 +92,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Собранное приложение и образы (target/macos) не кэшировать: иначе в артефакт
+      # и релиз попадают DMG всех прошлых версий.
       - name: Кэш Cargo
         uses: actions/cache@v6
         with:
@@ -99,6 +101,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
+            !target/macos
           key: macos-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: macos-cargo-
 
