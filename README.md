@@ -120,7 +120,7 @@ GTK и libheif не нужны — HEIC декодирует система.
 ## Разработка
 
 - CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`;
-  на macOS — тесты ядра и сборка DMG.
+  на macOS — тесты ядра и сборка DMG. На теге `v*` пакеты и DMG прикладываются к релизу GitHub.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.
 - Инструкции для ИИ-агентов и отладочные переменные окружения — в [AGENTS.md](AGENTS.md).

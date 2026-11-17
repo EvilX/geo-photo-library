@@ -118,7 +118,7 @@ Your location is determined by the system (GeoClue) only when you press the butt
 ## Development
 
 - CI (`.github/workflows/ci.yml`): clippy and tests, then RPM builds for x86_64 and aarch64 — in a `fedora:45` container;
-  on macOS — core tests and a DMG build.
+  on macOS — core tests and a DMG build. On a `v*` tag the packages and the DMG are attached to the GitHub release.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.
 - Instructions for AI agents and debug environment variables (in Russian) — [AGENTS.md](AGENTS.md).
