@@ -7,6 +7,14 @@ struct GeoPhotoLibraryApp: App {
     @State private var model: AppModel
 
     init() {
+        // Меню «Правка» — только то, что нужно строке поиска: AppKit сам добавляет в него
+        // автозаполнение, диктовку и «Эмодзи и символы», а вводить здесь нечего, кроме
+        // названия места. Ключи читаются при запуске, поэтому — до создания меню.
+        UserDefaults.standard.register(defaults: [
+            "NSAutoFillSystemInsertMenuEnabled": false,
+            "NSDisabledDictationMenuItem": true,
+            "NSDisabledCharacterPaletteMenuItem": true,
+        ])
         Core.start()
         _model = State(initialValue: AppModel())
     }
@@ -29,6 +37,8 @@ struct GeoPhotoLibraryApp: App {
                 Button(Core.text("info")) { model.infoOpen.toggle() }
                     .keyboardShortcut("i")
             }
+            // Справки у приложения нет: системный пункт открыл бы пустое окно.
+            CommandGroup(replacing: .help) {}
         }
 
         Settings {
