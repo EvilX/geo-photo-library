@@ -206,6 +206,7 @@ struct SettingsView: View {
 /// `SCREENSHOT=out.png` — через `DELAY` секунд (по умолчанию 6) сохранить окно в PNG и выйти;
 /// `ACTION=settings|about`, `INFO=1`, `SEARCH=<запрос>`, `LOCATE=1` — как в версии GTK;
 /// `PHOTO_ACTION=copy|show-on-map|trash` — через 3 с выполнить пункт меню для первого фото вкладки.
+/// `APPEARANCE=dark|light` — оформление окна независимо от системного.
 @MainActor
 enum DebugHooks {
     /// Поиск вкладки карты (регистрируется ею самой).
@@ -216,6 +217,11 @@ enum DebugHooks {
         guard !installed else { return }
         installed = true
         let env = ProcessInfo.processInfo.environment
+        switch env["GEO_PHOTO_LIBRARY_APPEARANCE"] {
+        case "dark": NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         let after = { (delay: Double, action: @escaping @MainActor () -> Void) in
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { action() }
         }

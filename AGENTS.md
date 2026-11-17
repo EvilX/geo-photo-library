@@ -117,7 +117,8 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
   (подменяет каталоги данных). Работают `GEO_PHOTO_LIBRARY_SCREENSHOT`, `_DELAY`, `_TAB`,
   `_ACTION`, `_INFO`, `_SEARCH`, `_LOCATE` с тем же смыслом, что на Linux, и
   `GEO_PHOTO_LIBRARY_PHOTO_ACTION=copy|show-on-map|trash` — пункт меню для первого фото вкладки
-  (`trash` действительно перемещает файл в Корзину). `_LOCATE` покажет пользователю системный
+  (`trash` действительно перемещает файл в Корзину). `GEO_PHOTO_LIBRARY_APPEARANCE=dark|light` — тёмное
+  или светлое оформление независимо от системного (аргумент `-AppleInterfaceStyle` не действует). `_LOCATE` покажет пользователю системный
   запрос доступа — без спроса не запускать. Язык: аргумент `-AppleLanguages "(ru)"`.
 - **Не использовать `HSplitView`:** вкладки лежат друг на друге и живут постоянно, и
   разделитель скрытой вкладки продолжает управлять курсором (после перетаскивания он
@@ -125,6 +126,12 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
 - **Иконка macOS — `macos/AppIcon.svg`, без полей и скругления:** форму накладывает система,
   а иконку, не заполняющую квадрат, macOS 26 сажает на серую подложку. Меняя рисунок
   в `data/icons/…svg` (Linux, со скруглением и полями), менять и его.
+- **Тёмный вариант иконки** — `macos/AppIcon-dark.svg` (тот же рисунок, ночная карта). `build-app.sh`
+  собирает из обеих картинок `AppIcon.icon` (формат Icon Composer) и через `actool` кладёт
+  `Assets.car` в пакет (`CFBundleIconName`); `.icns` остаётся для macOS 14–15. В `.appiconset`
+  тёмные картинки для macOS `actool` молча выбрасывает. Обе картинки — только в
+  `image-name-specializations`: при отдельном `image-name` тёмная тоже пропадает. Проверка:
+  `xcrun assetutil --info …/Assets.car` — должны быть `AppIcon_Assets/light` и `…/dark`.
 - Enter в сетке фото не открывает просмотр (в GTK открывает) — только двойной щелчок.
 - Изменения ядра проверять и для GTK: на Mac — в контейнере
   (`docker run --rm -v "$PWD":/src:ro -e CARGO_TARGET_DIR=/target fedora:45 …`, зависимости как в CI).

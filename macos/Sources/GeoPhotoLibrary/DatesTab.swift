@@ -1,5 +1,20 @@
 // Вкладка «По датам»: дерево год → месяц → день и сетка фото выбранного периода.
+import AppKit
 import SwiftUI
+
+/// Серый полупрозрачный фон боковой панели, как в Finder. Сам по себе стиль списка
+/// `.sidebar` его не рисует: дерево лежит не в `NavigationSplitView`, а в своём `SplitPane`.
+struct SidebarBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
 
 struct DatesTab: View {
     @Environment(AppModel.self) private var model
@@ -20,13 +35,19 @@ struct DatesTab: View {
                 ThumbScaleBar()
             }
         } sidePane: {
+            // Как боковая панель Finder: без линий между строками, выделение — плашкой,
+            // фон — системный материал боковой панели вместо белого.
             List(model.dates, children: \.children, selection: $selected) { node in
                 HStack {
                     Text(node.label)
                     Spacer()
                     Text(String(node.count)).foregroundStyle(.secondary).monospacedDigit()
                 }
+                .padding(.vertical, 3)
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(SidebarBackground())
         }
         // Смена периода и изменения в БД (идёт сканирование) перечитывают список.
         .task(id: Query(node: selected, revision: model.revision)) {

@@ -33,7 +33,7 @@ sed "s/@VERSION@/$VERSION/" macos/Info.plist > "$APP/Contents/Info.plist"
 # Переводы строк Info.plist (запрос доступа к геолокации).
 cp -R macos/Resources/*.lproj "$APP/Contents/Resources/"
 
-# Иконка: свой SVG на весь квадрат (рисунок тот же, что на Linux).
+# Иконка для macOS 14–15 (.icns): свой SVG на весь квадрат (рисунок тот же, что на Linux).
 ICONSET=target/macos/AppIcon.iconset
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
@@ -47,6 +47,46 @@ for size in 16 32 128 256 512; do
     done
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+
+# Тёмный вариант иконки (macOS 26+): только в формате Icon Composer (.icon), собранном
+# actool в Assets.car (в обычном каталоге .appiconset тёмные картинки для macOS
+# actool выбрасывает). Один слой на весь квадрат, для тёмного оформления — своя картинка.
+# Обе картинки — только в image-name-specializations: при отдельном image-name тёмная
+# молча пропадает.
+# Старый Xcode .icon не знает — тогда без тёмного варианта, остаётся .icns.
+ICON=target/macos/AppIcon.icon
+rm -rf "$ICON" target/macos/actool
+mkdir -p "$ICON/Assets" target/macos/actool
+sips -s format png -z 1024 1024 macos/AppIcon.svg --out "$ICON/Assets/light.png" > /dev/null
+sips -s format png -z 1024 1024 macos/AppIcon-dark.svg --out "$ICON/Assets/dark.png" > /dev/null
+cat > "$ICON/icon.json" <<'JSON'
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name-specializations" : [
+            { "value" : "light.png" },
+            { "appearance" : "dark", "value" : "dark.png" }
+          ],
+          "name" : "icon"
+        }
+      ],
+      "shadow" : { "kind" : "none", "opacity" : 0 },
+      "translucency" : { "enabled" : false, "value" : 0 }
+    }
+  ],
+  "supported-platforms" : { "squares" : [ "macOS" ] }
+}
+JSON
+if xcrun actool --compile target/macos/actool --platform macosx --minimum-deployment-target 14.0 \
+        --app-icon AppIcon --output-partial-info-plist target/macos/actool/partial.plist \
+        "$ICON" > /dev/null 2>&1 && [ -f target/macos/actool/Assets.car ]; then
+    cp target/macos/actool/Assets.car "$APP/Contents/Resources/"
+else
+    echo "actool не собрал AppIcon.icon (нужен Xcode 26+) — иконка без тёмного варианта" >&2
+fi
 
 codesign --force --sign - "$APP"
 echo "$APP"

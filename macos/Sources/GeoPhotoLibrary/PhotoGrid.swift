@@ -216,7 +216,12 @@ struct ThumbScaleBar: View {
             }
             .disabled(model.thumbScale <= range.lowerBound)
             .help(Core.text("thumbs_smaller"))
-            Slider(value: $model.thumbScale, in: range, step: AppModel.thumbScaleStep) { editing in
+            // Без `step:`: с ним macOS рисует под слайдером отметки. Значение округляется
+            // до шага здесь.
+            Slider(value: Binding(
+                get: { model.thumbScale },
+                set: { model.thumbScale = ($0 / AppModel.thumbScaleStep).rounded() * AppModel.thumbScaleStep }
+            ), in: range) { editing in
                 if !editing {
                     model.saveThumbScale()
                 }
