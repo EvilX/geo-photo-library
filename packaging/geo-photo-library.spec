@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.1.2
+Version:        1.1.3
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
@@ -63,6 +63,12 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Tue Nov 17 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.3-1
+- Лицензия Apache 2.0
+- Пакеты RPM и образ DMG прикладываются к релизам GitHub
+- macOS: дерево дат в стиле боковой панели Finder, слайдер масштаба без отметок,
+  тёмный вариант иконки
+
 * Mon Nov 16 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.2-1
 - Название программы в одно слово: GeoPhotoLibrary
 - Пункт «Показать на диске» в меню фото: файловый менеджер открывает папку и выделяет файл
