@@ -7,7 +7,7 @@ Version:        1.1.2
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 # TODO: лицензия проекта не выбрана.
-License:        LicenseRef-Unspecified
+License:        Apache-2.0
 URL:            https://github.com/EvilX/geo-photo-library
 Source0:        %{name}-%{version}.tar.gz
 # Зависимости Cargo (cargo vendor), чтобы собирать без сети.
@@ -55,6 +55,7 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xm
 cargo test --release --offline --locked
 
 %files
+%license LICENSE
 %doc README.md
 %{_bindir}/%{name}
 %{_datadir}/applications/%{app_id}.desktop

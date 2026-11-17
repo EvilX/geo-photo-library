@@ -124,3 +124,9 @@ GTK и libheif не нужны — HEIC декодирует система.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.
 - Инструкции для ИИ-агентов и отладочные переменные окружения — в [AGENTS.md](AGENTS.md).
+
+## Лицензия
+
+Copyright 2026 Leonid Nasedkin.
+
+Распространяется по лицензии [Apache 2.0](LICENSE).

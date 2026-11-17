@@ -3,6 +3,8 @@ name = "geo-photo-library"
 version = "1.1.2"
 edition = "2021"
 description = "Каталогизатор фотографий с поиском по карте"
+license = "Apache-2.0"
+repository = "https://github.com/EvilX/geo-photo-library"
 
 [features]
 default = ["gtk-ui", "heic"]

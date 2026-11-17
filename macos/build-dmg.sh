@@ -1,6 +1,6 @@
 #!/bin/sh
 # Образ диска с приложением macOS: target/macos/GeoPhotoLibrary-<версия>-<архитектура>.dmg.
-# Внутри — приложение и ссылка на «Программы» для установки перетаскиванием.
+# Внутри — приложение, ссылка на «Программы» для установки перетаскиванием и лицензия.
 # Подпись ad-hoc, без нотаризации: скачанное из сети приложение Gatekeeper сам не откроет
 # (см. README, раздел про macOS).
 set -eu
@@ -16,6 +16,7 @@ rm -rf "$STAGE" "$DMG"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
+cp LICENSE "$STAGE/LICENSE.txt"
 hdiutil create -quiet -volname "GeoPhotoLibrary" -srcfolder "$STAGE" -format UDZO -ov "$DMG"
 rm -rf "$STAGE"
 echo "$DMG"

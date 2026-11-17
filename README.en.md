@@ -122,3 +122,9 @@ Your location is determined by the system (GeoClue) only when you press the butt
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.
 - Instructions for AI agents and debug environment variables (in Russian) — [AGENTS.md](AGENTS.md).
+
+## License
+
+Copyright 2026 Leonid Nasedkin.
+
+Licensed under the [Apache License 2.0](LICENSE).
