@@ -2,6 +2,8 @@
 
 [Русский](README.md) | **English**
 
+[![Latest release](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
+
 A photo catalog for Linux and macOS that places your photos on a map using GPS coordinates
 from EXIF. The Rust core (scanner, SQLite database, thumbnails) is shared; the interface is
 GTK4 with an OpenStreetMap map on Linux and a native SwiftUI one with a MapKit map on macOS
@@ -43,17 +45,19 @@ The description below is for Linux; the differences of the macOS version are lis
 
 ## Installation
 
-GitHub Actions builds an RPM for Fedora 45 on every push to `main`: **Actions** tab → latest
-**CI** run → the `geo-photo-library-fc45-rpm` (x86_64) or `geo-photo-library-fc45-aarch64-rpm` (ARM)
-artifact.
+Ready-made packages are in the [latest release](https://github.com/EvilX/geo-photo-library/releases/latest):
+RPMs for Fedora 45 (x86_64 and aarch64) and a disk image for macOS.
 
 ```sh
 sudo dnf install ./geo-photo-library-*.fc45.*.rpm
 ```
 
-A disk image for macOS (Apple silicon, macOS 14 or later) is built there too: the
-`geo-photo-library-macos-dmg` artifact. The app is not signed with a developer certificate
-and not notarized, so after dragging it to Applications remove the quarantine flag,
+Builds of the current `main` are made by GitHub Actions on every push: **Actions** tab → latest
+**CI** run → the `geo-photo-library-fc45-rpm` (x86_64), `geo-photo-library-fc45-aarch64-rpm` (ARM)
+or `geo-photo-library-macos-dmg` artifact (downloading artifacts requires signing in to GitHub).
+
+The macOS disk image is for Apple silicon, macOS 14 or later. The app is not signed with
+a developer certificate and not notarized, so after dragging it to Applications remove the quarantine flag,
 otherwise macOS will refuse to open it:
 
 ```sh

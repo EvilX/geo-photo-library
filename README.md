@@ -2,6 +2,8 @@
 
 **Русский** | [English](README.en.md)
 
+[![Последний релиз](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
+
 Каталогизатор фотографий для Linux и macOS с поиском снимков на карте по GPS-координатам
 из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux — GTK4 с
 картой OpenStreetMap, на macOS — нативный, SwiftUI с картой MapKit
@@ -44,17 +46,20 @@
 
 ## Установка
 
-Готовый RPM для Fedora 45 собирает GitHub Actions при каждом push в `main`: вкладка **Actions** →
-последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64) или
-`geo-photo-library-fc45-aarch64-rpm` (ARM).
+Готовые пакеты — в [последнем релизе](https://github.com/EvilX/geo-photo-library/releases/latest):
+RPM для Fedora 45 (x86_64 и aarch64) и образ диска для macOS.
 
 ```sh
 sudo dnf install ./geo-photo-library-*.fc45.*.rpm
 ```
 
-Образ диска для macOS (Apple silicon, macOS 14 и новее) собирается там же: артефакт
-`geo-photo-library-macos-dmg`. Приложение не подписано сертификатом разработчика и не
-нотаризовано, поэтому после перетаскивания в «Программы» снимите карантин, иначе macOS
+Сборки из текущего `main` GitHub Actions делает при каждом push: вкладка **Actions** →
+последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64),
+`geo-photo-library-fc45-aarch64-rpm` (ARM) или `geo-photo-library-macos-dmg`
+(скачивание артефактов доступно только после входа в GitHub).
+
+Образ диска для macOS — для Apple silicon, macOS 14 и новее. Приложение не подписано
+сертификатом разработчика и не нотаризовано, поэтому после перетаскивания в «Программы» снимите карантин, иначе macOS
 откажется его открыть:
 
 ```sh
