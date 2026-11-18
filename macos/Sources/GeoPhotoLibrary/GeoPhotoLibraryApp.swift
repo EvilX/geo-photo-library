@@ -7,7 +7,7 @@ struct GeoPhotoLibraryApp: App {
     @State private var model: AppModel
 
     init() {
-        // Меню «Правка» — только то, что нужно строке поиска: AppKit сам добавляет в него
+        // Меню «Правка» — только действия с фото: AppKit сам добавляет в него
         // автозаполнение, диктовку и «Эмодзи и символы», а вводить здесь нечего, кроме
         // названия места. Ключи читаются при запуске, поэтому — до создания меню.
         UserDefaults.standard.register(defaults: [
@@ -16,6 +16,7 @@ struct GeoPhotoLibraryApp: App {
             "NSDisabledCharacterPaletteMenuItem": true,
         ])
         Core.start()
+        TextEditKeys.install()
         _model = State(initialValue: AppModel())
     }
 
@@ -30,6 +31,27 @@ struct GeoPhotoLibraryApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button(Core.text("about")) { showAbout() }
             }
+            // Меню «Правка» — действия с выбранным фото, как в его контекстном меню.
+            // Правку текста в строке поиска без этих пунктов обслуживает TextEditKeys.
+            CommandGroup(replacing: .undoRedo) {}
+            CommandGroup(replacing: .pasteboard) {
+                let photo = model.selectedPhoto
+                Button(Core.text("copy")) { photo.map(model.copy) }
+                    .keyboardShortcut("c")
+                    .disabled(photo == nil)
+                Button(Core.text("delete")) { photo.map(model.trash) }
+                    .keyboardShortcut(.delete)
+                    .disabled(photo == nil)
+                Divider()
+                Button(Core.text("view")) { photo.map(model.open) }
+                    .keyboardShortcut("o")
+                    .disabled(photo == nil)
+                Button(Core.text("edit")) { photo.map(model.edit) }
+                    .keyboardShortcut("e")
+                    .disabled(photo == nil)
+                Button(Core.text("show_in_finder")) { photo.map(model.showInFinder) }
+                    .disabled(photo == nil)
+            }
             CommandGroup(after: .toolbar) {
                 Button(Core.text("rescan")) { model.rescan() }
                     .keyboardShortcut("r")
@@ -43,6 +65,40 @@ struct GeoPhotoLibraryApp: App {
 
         Settings {
             SettingsView().environment(model)
+        }
+    }
+}
+
+/// Сочетания правки текста для строки поиска. В меню «Правка» нет пунктов «Вырезать»,
+/// «Вставить», «Отменить» и т. п., а без них AppKit не передаёт ⌘X/⌘V/⌘Z полю ввода;
+/// ⌘C и ⌘⌫ в меню заняты действиями с фото. Поэтому, пока ввод идёт в текстовое поле,
+/// эти сочетания перехватываются до меню и отдаются ему.
+@MainActor
+enum TextEditKeys {
+    static func install() {
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let text = NSApplication.shared.keyWindow?.firstResponder as? NSTextView, text.isEditable else {
+                return event
+            }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let shift = flags == [.command, .shift]
+            guard flags == .command || shift else { return event }
+            let action: Selector
+            switch (event.charactersIgnoringModifiers?.lowercased(), shift) {
+            case ("x", false): action = #selector(NSText.cut(_:))
+            case ("c", false): action = #selector(NSText.copy(_:))
+            case ("v", false): action = #selector(NSText.paste(_:))
+            case ("a", false): action = #selector(NSText.selectAll(_:))
+            case ("z", false): action = Selector(("undo:"))
+            case ("z", true): action = Selector(("redo:"))
+            default:
+                // ⌘⌫ — удалить до начала строки, как обычно в поле ввода.
+                guard event.keyCode == 51, !shift else { return event }
+                text.doCommand(by: #selector(NSResponder.deleteToBeginningOfLine(_:)))
+                return nil
+            }
+            NSApplication.shared.sendAction(action, to: text, from: nil)
+            return nil
         }
     }
 }

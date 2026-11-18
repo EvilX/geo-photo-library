@@ -8,6 +8,21 @@ struct InfoPanel: View {
     @State private var allTagsOpen = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            // Заголовок панели — на одной высоте с заголовком сетки фото слева.
+            Text(Core.text("info"))
+                .font(.headline)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(minHeight: 28)
+            Divider()
+            content
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             if let info, photo != nil {
                 VStack(alignment: .leading, spacing: 16) {
