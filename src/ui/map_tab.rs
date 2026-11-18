@@ -340,6 +340,19 @@ impl MapTab {
             }
         });
 
+        // Щелчок по карте закрывает панель фильтра по датам. Фаза захвата — чтобы
+        // увидеть щелчок раньше карты и маркеров; событие не поглощается. При сдвиге
+        // мыши (перетаскивание карты) щелчок не засчитывается.
+        let click = gtk::GestureClick::new();
+        click.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let weak = Rc::downgrade(&this);
+        click.connect_released(move |_, _, _, _| {
+            if let Some(t) = weak.upgrade() {
+                t.filter_button.set_active(false);
+            }
+        });
+        this.simple_map.add_controller(click);
+
         // Любое изменение зума/центра — пересчитать (с задержкой).
         let weak = Rc::downgrade(&this);
         this.viewport.connect_notify_local(None, move |_, _| {

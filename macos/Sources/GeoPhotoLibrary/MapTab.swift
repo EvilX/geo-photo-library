@@ -493,6 +493,11 @@ struct PhotoMap: NSViewRepresentable {
         map.register(ClusterView.self, forAnnotationViewWithReuseIdentifier: ClusterView.reuseID)
         map.register(LocationView.self, forAnnotationViewWithReuseIdentifier: LocationView.reuseID)
         map.onResize = { [weak coordinator = context.coordinator] in coordinator?.resized() }
+        // Щелчок по карте закрывает панель фильтра по датам; перетаскивание — нет
+        // (распознаватель щелчка не срабатывает при сдвиге). События карте не мешает.
+        let click = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.mapClicked))
+        click.delaysPrimaryMouseButtonEvents = false
+        map.addGestureRecognizer(click)
         context.coordinator.map = map
         model.map = context.coordinator
         return map
@@ -689,6 +694,10 @@ struct PhotoMap: NSViewRepresentable {
                 model.mapSelection = photo
                 pendingSelect = nil
             }
+        }
+
+        @objc func mapClicked() {
+            model.mapFilterOpen = false
         }
 
         // MARK: MKMapViewDelegate
