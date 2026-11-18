@@ -66,7 +66,7 @@ cargo test --release
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist`, `AppIcon.svg` (иконка на весь квадрат, рисунок как в `data/icons`) |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
-| `packaging/` | RPM spec и `build-rpm.sh`; `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
+| `packaging/` | RPM spec и `build-rpm.sh`, `build-deb.sh` (DEB для Ubuntu); `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
 | `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` |
 
@@ -269,6 +269,22 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 сканирование ~18 с, повторное ~0,1 с; JPEG 12 Мп ~45 мс, HEIC со встроенной миниатюрой
 ~12 мс на файл.
 
+## Пакет DEB (Ubuntu 24.04, 26.04)
+
+`./packaging/build-deb.sh` → `target/deb/geo-photo-library_<версия>-1~ubuntu<выпуск>_<архитектура>.deb`.
+Скрипт собирает бинарник из текущего дерева (`cargo build/test --locked`), раскладывает файлы
+`data/`, проверяет `.desktop` и metainfo, зависимости библиотек считает `dpkg-shlibdeps`
+и собирает пакет `dpkg-deb` (без debhelper). Собирать в системе того же выпуска, для
+которого пакет (CI — контейнеры `ubuntu:24.04`, `ubuntu:26.04`). Rust в Ubuntu 24.04 (1.75)
+слишком старый — нужен rustup.
+
+- **libheif:** `libheif-rs` подключён с `default-features = false, features = ["v1_17"]` — по
+  умолчанию он требует новейшую libheif (1.21), а в Ubuntu 24.04 — 1.17. Новые функции libheif
+  в коде — только вместе с поднятием этой планки (и без Ubuntu 24.04).
+- Декодер HEVC в Ubuntu — отдельный пакет `libheif-plugin-libde265`, он в `Recommends`.
+- Проверка без человека: в контейнере `ubuntu:<выпуск>` поставить пакет и `xvfb`, запустить
+  с `GEO_PHOTO_LIBRARY_SCREENSHOT` под `dbus-run-session` (как в разделе о проверке интерфейса).
+
 ## Пакет RPM
 
 ```sh
@@ -292,12 +308,15 @@ root — агент её не выполняет, а даёт пользоват
 `fedora:45` с Rust из dnf: задача `test` (clippy с `-D warnings` и `cargo test`), затем
 `rpm` (`packaging/build-rpm.sh`) — матрицей для x86_64 (`ubuntu-latest`, артефакт
 `geo-photo-library-fc45-rpm`) и aarch64 (`ubuntu-24.04-arm`, артефакт
-`geo-photo-library-fc45-aarch64-rpm`); сборка нативная, без эмуляции.
+`geo-photo-library-fc45-aarch64-rpm`); сборка нативная, без эмуляции. После `test` — и `deb`
+(`packaging/build-deb.sh`) матрицей Ubuntu 24.04/26.04 × amd64/arm64 в контейнерах `ubuntu:<выпуск>`
+с Rust из rustup; пакет ставится в тот же контейнер (`apt-get install ./…deb`), артефакты
+`geo-photo-library-ubuntu<выпуск>-<архитектура>-deb`.
 Независимо от них — задача `dmg` на `macos-latest`: тесты ядра без GTK и `macos/build-dmg.sh`
 (артефакт `geo-photo-library-macos-dmg`, только arm64; подпись ad-hoc, без нотаризации —
 для неё нужны сертификат Developer ID и секреты в репозитории).
-На теге `v*` задача `release` (после `rpm` и `dmg`) проверяет, что тег равен версии из
-`Cargo.toml` (`v1.1.2` ↔ `1.1.2`, `v1.1` ↔ `1.1.0`), и прикладывает оба RPM и DMG к релизу
+На теге `v*` задача `release` (после `rpm`, `deb` и `dmg`) проверяет, что тег равен версии из
+`Cargo.toml` (`v1.1.2` ↔ `1.1.2`, `v1.1` ↔ `1.1.0`), и прикладывает RPM, DEB и DMG к релизу
 GitHub: если релиз уже создан в интерфейсе — догружает файлы, если запушен только тег —
 создаёт релиз с автоописанием. Выпуск: поднять версию (см. «Пакет RPM»), запушить в `main`,
 затем создать релиз с тегом `v<версия>` на GitHub или `git tag v<версия> && git push origin v<версия>`.

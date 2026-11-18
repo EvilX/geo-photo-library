@@ -51,15 +51,18 @@
 ## Установка
 
 Готовые пакеты — в [последнем релизе](https://github.com/EvilX/geo-photo-library/releases/latest):
-RPM для Fedora 45 (x86_64 и aarch64) и образ диска для macOS.
+RPM для Fedora 45 (x86_64 и aarch64), DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) и образ
+диска для macOS.
 
 ```sh
-sudo dnf install ./geo-photo-library-*.fc45.*.rpm
+sudo dnf install ./geo-photo-library-*.fc45.*.rpm                # Fedora
+sudo apt install ./geo-photo-library_*~ubuntu24.04_amd64.deb     # Ubuntu: свой выпуск и архитектура
 ```
 
 Сборки из текущего `main` GitHub Actions делает при каждом push: вкладка **Actions** →
 последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64),
-`geo-photo-library-fc45-aarch64-rpm` (ARM) или `geo-photo-library-macos-dmg`
+`geo-photo-library-fc45-aarch64-rpm` (ARM), `geo-photo-library-ubuntu<выпуск>-<архитектура>-deb`
+или `geo-photo-library-macos-dmg`
 (скачивание артефактов доступно только после входа в GitHub).
 
 Образ диска для macOS — для Apple silicon, macOS 14 и новее. Приложение не подписано
@@ -84,6 +87,8 @@ cargo run --release
 Пакеты:
 
 - `./packaging/build-rpm.sh` — RPM в `target/rpmbuild/RPMS/<архитектура>/`;
+- `./packaging/build-deb.sh` — DEB в `target/deb/` (в Ubuntu: нужны `libgtk-4-dev libshumate-dev
+  libsoup-3.0-dev libheif-dev dpkg-dev desktop-file-utils appstream` и Rust из rustup);
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak-бандл `target/flatpak/geo-photo-library.flatpak`
   (SDK ставится в пользовательскую установку, root не нужен).
 
@@ -130,7 +135,8 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 ## Разработка
 
-- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`;
+- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`,
+  и DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) — в контейнерах этих выпусков;
   на macOS — тесты ядра и сборка DMG. На теге `v*` пакеты и DMG прикладываются к релизу GitHub.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.

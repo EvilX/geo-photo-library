@@ -50,15 +50,17 @@ The description below is for Linux; the differences of the macOS version are lis
 ## Installation
 
 Ready-made packages are in the [latest release](https://github.com/EvilX/geo-photo-library/releases/latest):
-RPMs for Fedora 45 (x86_64 and aarch64) and a disk image for macOS.
+RPMs for Fedora 45 (x86_64 and aarch64), DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64) and
+a disk image for macOS.
 
 ```sh
-sudo dnf install ./geo-photo-library-*.fc45.*.rpm
+sudo dnf install ./geo-photo-library-*.fc45.*.rpm                # Fedora
+sudo apt install ./geo-photo-library_*~ubuntu24.04_amd64.deb     # Ubuntu: your release and architecture
 ```
 
 Builds of the current `main` are made by GitHub Actions on every push: **Actions** tab → latest
-**CI** run → the `geo-photo-library-fc45-rpm` (x86_64), `geo-photo-library-fc45-aarch64-rpm` (ARM)
-or `geo-photo-library-macos-dmg` artifact (downloading artifacts requires signing in to GitHub).
+**CI** run → the `geo-photo-library-fc45-rpm` (x86_64), `geo-photo-library-fc45-aarch64-rpm` (ARM),
+`geo-photo-library-ubuntu<release>-<arch>-deb` or `geo-photo-library-macos-dmg` artifact (downloading artifacts requires signing in to GitHub).
 
 The macOS disk image is for Apple silicon, macOS 14 or later. The app is not signed with
 a developer certificate and not notarized, so after dragging it to Applications remove the quarantine flag,
@@ -82,6 +84,8 @@ Scan without the GUI: `geo-photo-library --scan <folder>`.
 Packages:
 
 - `./packaging/build-rpm.sh` — RPM in `target/rpmbuild/RPMS/<arch>/`;
+- `./packaging/build-deb.sh` — DEB in `target/deb/` (on Ubuntu: needs `libgtk-4-dev libshumate-dev
+  libsoup-3.0-dev libheif-dev dpkg-dev desktop-file-utils appstream` and Rust from rustup);
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak bundle `target/flatpak/geo-photo-library.flatpak`
   (the SDK goes into the user installation, no root needed).
 
@@ -127,7 +131,8 @@ Your location is determined by the system (GeoClue) only when you press the butt
 
 ## Development
 
-- CI (`.github/workflows/ci.yml`): clippy and tests, then RPM builds for x86_64 and aarch64 — in a `fedora:45` container;
+- CI (`.github/workflows/ci.yml`): clippy and tests, then RPM builds for x86_64 and aarch64 — in a `fedora:45` container,
+  and DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64) — in containers of those releases;
   on macOS — core tests and a DMG build. On a `v*` tag the packages and the DMG are attached to the GitHub release.
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.

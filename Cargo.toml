@@ -24,7 +24,8 @@ gtk = { package = "gtk4", version = "0.10", features = ["v4_14"], optional = tru
 shumate = { package = "libshumate", version = "0.7", optional = true }
 rusqlite = { version = "0.37", features = ["bundled"] }
 kamadak-exif = "0.6"
-libheif-rs = { version = "2", optional = true }
+# Нужны только функции libheif 1.17 — так собирается и в Ubuntu 24.04 (по умолчанию крейт требует новейшую).
+libheif-rs = { version = "2", default-features = false, features = ["v1_17"], optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "rayon"] }
 walkdir = "2"
 rayon = "1"

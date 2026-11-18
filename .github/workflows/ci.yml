@@ -1,7 +1,8 @@
 # CI: clippy и тесты, затем сборка RPM для Fedora 45 (x86_64 и aarch64) — в контейнере
 # fedora:45, с теми же системными библиотеками (gtk4, libshumate, libheif), что и у целевой системы.
+# После тестов — и пакеты deb для Ubuntu 24.04 и 26.04 (amd64 и arm64), в контейнерах этих выпусков.
 # Отдельно, на macOS: тесты ядра без GTK и образ диска (DMG) с нативным приложением.
-# На теге v* собранные RPM и DMG прикладываются к релизу GitHub (задача release).
+# На теге v* собранные RPM, DEB и DMG прикладываются к релизу GitHub (задача release).
 name: CI
 
 on:
@@ -85,6 +86,68 @@ jobs:
           path: target/rpmbuild/RPMS/${{ matrix.arch }}/*.rpm
           if-no-files-found: error
 
+  deb:
+    name: DEB (Ubuntu ${{ matrix.ubuntu }}, ${{ matrix.arch }})
+    needs: test
+    # Сборка нативная в контейнере нужного выпуска Ubuntu: зависимости пакета (dpkg-shlibdeps)
+    # берутся из его библиотек.
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['24.04', '26.04']
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:${{ matrix.ubuntu }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Системные зависимости
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential pkg-config \
+            libgtk-4-dev libshumate-dev libsoup-3.0-dev libheif-dev \
+            dpkg-dev desktop-file-utils appstream
+
+      # Rust в Ubuntu 24.04 (1.75) слишком старый для зависимостей — ставится через rustup.
+      - name: Rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v7
+
+      - name: Кэш Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            !target/deb
+          key: ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}-cargo-
+
+      - name: Сборка DEB
+        run: ./packaging/build-deb.sh
+
+      # Пакет ставится в ту же систему: проверка зависимостей и запуска.
+      - name: Установка
+        run: |
+          apt-get install -y ./target/deb/*.deb
+          geo-photo-library --scan /nonexistent || true
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: geo-photo-library-ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}-deb
+          path: target/deb/*.deb
+          if-no-files-found: error
+
   dmg:
     name: DMG (macOS)
     # Раннеры macOS — на Apple silicon: приложение и образ собираются только для arm64.
@@ -120,7 +183,7 @@ jobs:
 
   release:
     name: Файлы к релизу
-    needs: [rpm, dmg]
+    needs: [rpm, deb, dmg]
     # Только для тегов v*: на push в main и в pull request задача пропускается.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
