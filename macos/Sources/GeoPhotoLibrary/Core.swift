@@ -120,6 +120,12 @@ final class PhotoList: @unchecked Sendable {
     }
 
     /// Центр и зум, при которых все фото помещаются в область; `nil` — список пуст.
+    /// Число фото списка в видимой области карты по дням — дерево фильтра карты по датам.
+    func visibleDateCounts(lat: Double, lon: Double, zoom: Double, size: CGSize) -> [DateCount] {
+        var n = 0
+        return Core.dateCounts(gpl_visible_date_counts(raw, lat, lon, zoom, size.width, size.height, &n), n)
+    }
+
     func fit(size: CGSize, pad: Double, maxZoom: Double) -> (lat: Double, lon: Double, zoom: Double)? {
         var (lat, lon, zoom) = (0.0, 0.0, 0.0)
         guard gpl_photos_fit(raw, size.width, size.height, pad, maxZoom, &lat, &lon, &zoom) else { return nil }
@@ -286,7 +292,11 @@ enum Core {
 
     static func dateCounts() -> [DateCount] {
         var n = 0
-        let raw = gpl_db_date_counts(&n)
+        return dateCounts(gpl_db_date_counts(&n), n)
+    }
+
+    /// Счётчики из ядра; память освобождается здесь.
+    static func dateCounts(_ raw: UnsafeMutablePointer<GplDateCount>?, _ n: Int) -> [DateCount] {
         defer { gpl_date_counts_free(raw, n) }
         return UnsafeBufferPointer(start: raw, count: n).map {
             DateCount(year: $0.year, month: $0.month, day: $0.day, count: $0.count)
@@ -297,8 +307,9 @@ enum Core {
         PhotoList(gpl_db_photos_by_date(year, month, day)).photos
     }
 
-    static func geotagged() -> PhotoList {
-        PhotoList(gpl_db_geotagged())
+    /// Фото с координатами за период узла дерева дат; `nil` — за всё время.
+    static func geotagged(_ period: DatePeriod?) -> PhotoList {
+        PhotoList(gpl_db_geotagged(period?.year ?? 0, period?.month ?? 0, period?.day ?? 0))
     }
 
     // MARK: Сканирование

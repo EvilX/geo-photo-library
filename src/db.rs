@@ -45,6 +45,12 @@ pub struct Photo {
 }
 
 impl Photo {
+    /// День съёмки из `taken_at` — тот же, что в столбцах year/month/day.
+    pub fn day(&self) -> Option<Day> {
+        let d = chrono::NaiveDate::parse_from_str(self.taken_at.get(..10)?, "%Y-%m-%d").ok()?;
+        Some((d.year(), d.month(), d.day()))
+    }
+
     fn from_row(r: &Row) -> rusqlite::Result<Self> {
         Ok(Self {
             id: r.get(0)?,
@@ -95,6 +101,20 @@ pub struct DateCount {
     pub month: u32,
     pub day: u32,
     pub count: u32,
+}
+
+/// День съёмки: (год, месяц, день).
+pub type Day = (i32, u32, u32);
+
+impl DateCount {
+    /// Число фото по дням, по возрастанию даты — для фильтра карты по фото в её видимой области.
+    pub fn tally(days: impl IntoIterator<Item = Day>) -> Vec<DateCount> {
+        let mut counts = std::collections::BTreeMap::<Day, u32>::new();
+        for d in days {
+            *counts.entry(d).or_default() += 1;
+        }
+        counts.into_iter().map(|((year, month, day), count)| DateCount { year, month, day, count }).collect()
+    }
 }
 
 pub struct Db {
@@ -237,12 +257,18 @@ impl Db {
 
     /// Все фото с координатами, по дате.
     pub fn geotagged(&self) -> Result<Vec<Photo>> {
+        self.geotagged_by_date(None, None, None)
+    }
+
+    /// Фото с координатами за год, месяц или день (`year == None` — за всё время), по дате.
+    pub fn geotagged_by_date(&self, year: Option<i32>, month: Option<u32>, day: Option<u32>) -> Result<Vec<Photo>> {
         let sql = format!(
             "SELECT {PHOTO_COLS} FROM photos WHERE lat IS NOT NULL AND lon IS NOT NULL
+             AND (?1 IS NULL OR year = ?1) AND (?2 IS NULL OR month = ?2) AND (?3 IS NULL OR day = ?3)
              ORDER BY taken_at, path"
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], Photo::from_row)?;
+        let rows = stmt.query_map(params![year, month, day], Photo::from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 }
@@ -292,6 +318,17 @@ mod tests {
         let geo = db.geotagged().unwrap();
         assert_eq!(geo.len(), 2);
         assert_eq!(geo[0].coords(), Some((55.7, 37.6)));
+
+        // фильтр карты по датам: фото с координатами за период, дни съёмки и их счётчики
+        assert_eq!(geo.iter().map(Photo::day).collect::<Vec<_>>(), [Some((2023, 7, 14)), Some((2023, 8, 1))]);
+        assert_eq!(
+            DateCount::tally([(2023, 8, 1), (2023, 7, 14), (2023, 8, 1)]),
+            [DateCount { year: 2023, month: 7, day: 14, count: 1 }, DateCount { year: 2023, month: 8, day: 1, count: 2 }]
+        );
+        assert_eq!(db.geotagged_by_date(Some(2023), None, None).unwrap().len(), 2);
+        let aug = db.geotagged_by_date(Some(2023), Some(8), None).unwrap();
+        assert_eq!(aug.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), ["/c.jpg"]);
+        assert!(db.geotagged_by_date(Some(2024), None, None).unwrap().is_empty());
 
         // повторная вставка того же пути — обновление
         db.upsert(&[np("/a.jpg", "2020-01-01 00:00:00", None)]).unwrap();

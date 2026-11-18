@@ -368,6 +368,14 @@ pub fn place_search_failed() -> &'static str {
     )
 }
 
+pub fn all_time() -> &'static str {
+    tr("All time", "Всё время", "Όλο το διάστημα")
+}
+
+pub fn filter_by_date() -> &'static str {
+    tr("Filter by date", "Фильтр по датам", "Φιλτράρισμα κατά ημερομηνία")
+}
+
 pub fn my_location() -> &'static str {
     tr("My location", "Моё местоположение", "Η τοποθεσία μου")
 }

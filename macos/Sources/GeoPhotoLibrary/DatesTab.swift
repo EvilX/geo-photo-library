@@ -61,15 +61,7 @@ struct DatesTab: View {
     }
 
     private func find(_ id: DateNode.ID?) -> DateNode? {
-        guard let id else { return nil }
-        for year in model.dates {
-            if year.id == id { return year }
-            for month in year.children ?? [] {
-                if month.id == id { return month }
-                if let day = month.children?.first(where: { $0.id == id }) { return day }
-            }
-        }
-        return nil
+        DateNode.find(id, in: model.dates)
     }
 
     private func load() async {

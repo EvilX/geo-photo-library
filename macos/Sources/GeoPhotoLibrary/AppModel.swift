@@ -12,6 +12,15 @@ enum AppTab: String, CaseIterable {
     }
 }
 
+/// Период: год, месяц (`day == 0`) или день; `month == 0` — весь год.
+struct DatePeriod: Hashable {
+    let year: Int32
+    var month: UInt32 = 0
+    var day: UInt32 = 0
+
+    var id: String { "\(year)-\(month)-\(day)" }
+}
+
 /// Узел дерева дат: год → месяц → день.
 struct DateNode: Identifiable, Hashable {
     let year: Int32
@@ -20,7 +29,8 @@ struct DateNode: Identifiable, Hashable {
     var count: UInt32
     var children: [DateNode]?
 
-    var id: String { "\(year)-\(month)-\(day)" }
+    var period: DatePeriod { DatePeriod(year: year, month: month, day: day) }
+    var id: String { period.id }
     var label: String { Core.dateLabel(year: year, month: month, day: day) }
     var title: String { Core.dateTitle(year: year, month: month, day: day) }
 
@@ -42,6 +52,19 @@ struct DateNode: Identifiable, Hashable {
         // Годы — от новых к старым, как в версии GTK; месяцы и дни — по порядку.
         return years.reversed()
     }
+
+    /// Узел дерева `nodes` с идентификатором `id`.
+    static func find(_ id: ID?, in nodes: [DateNode]) -> DateNode? {
+        guard let id else { return nil }
+        for year in nodes {
+            if year.id == id { return year }
+            for month in year.children ?? [] {
+                if month.id == id { return month }
+                if let day = month.children?.first(where: { $0.id == id }) { return day }
+            }
+        }
+        return nil
+    }
 }
 
 /// Сообщение в окне: заголовок и пояснение.
@@ -62,6 +85,8 @@ protocol MapController: AnyObject {
     func go(lat: Double, lon: Double, radius: Double?, maxZoom: Double)
     /// Отметить текущее местоположение точкой.
     func markLocation(lat: Double, lon: Double)
+    /// Показать все фото списка (после смены фильтра по датам).
+    func fit(_ photos: PhotoList)
 }
 
 @MainActor
@@ -82,7 +107,26 @@ final class AppModel {
     private(set) var scanning = false
 
     private(set) var dates: [DateNode] = []
+    /// Фото с координатами на карте — за период фильтра `mapPeriod`.
     private(set) var geotagged = PhotoList.empty
+    /// Все фото с координатами, без фильтра: по ним считается дерево фильтра.
+    private(set) var allGeotagged = PhotoList.empty
+    /// Дерево фильтра карты: даты фото с координатами в видимой области карты
+    /// (без учёта фильтра — иначе в нём остался бы один выбранный период).
+    private(set) var mapDates: [DateNode] = []
+    /// Фильтр карты по датам; `nil` — всё время. Смена перечитывает фото карты
+    /// и подгоняет её под них.
+    var mapPeriod: DatePeriod? {
+        didSet {
+            if mapPeriod != oldValue {
+                fitMapPending = true
+                reload(keepStatus: true)
+            }
+        }
+    }
+    /// Панель фильтра по датам слева от карты открыта.
+    var mapFilterOpen = false
+    private var fitMapPending = false
     /// Растёт при каждом изменении данных в БД — вкладки перечитывают по нему свои списки.
     private(set) var revision = 0
 
@@ -120,6 +164,7 @@ final class AppModel {
     private var rescanPending = false
     private var reloadTimer: Timer?
     private var dateCounts: [DateCount] = []
+    private var mapDateCounts: [DateCount] = []
     /// Номер последнего запрошенного чтения БД.
     private var reloadGeneration = 0
 
@@ -222,31 +267,58 @@ final class AppModel {
     func reload(keepStatus: Bool = false) {
         reloadGeneration += 1
         let generation = reloadGeneration
+        let period = mapPeriod
         Task.detached(priority: .userInitiated) {
             let counts = Core.dateCounts()
-            let geotagged = Core.geotagged()
+            let all = Core.geotagged(nil)
+            let geotagged = period == nil ? all : Core.geotagged(period)
             let total = Core.count()
-            await MainActor.run { self.apply(generation, counts, geotagged, total, keepStatus) }
+            await MainActor.run {
+                self.apply(generation, Loaded(counts: counts, all: all, geo: geotagged, total: total), keepStatus)
+            }
         }
     }
 
-    private func apply(_ generation: Int, _ counts: [DateCount], _ geo: PhotoList, _ total: Int, _ keepStatus: Bool) {
+    private struct Loaded: Sendable {
+        let counts: [DateCount]
+        let all: PhotoList
+        let geo: PhotoList
+        let total: Int
+    }
+
+    /// Даты фото в видимой области карты — пересчитываются при каждом её обновлении.
+    /// Выбранный период остаётся, даже если его фото ушли из видимой области.
+    func setMapDateCounts(_ counts: [DateCount]) {
+        guard counts != mapDateCounts else { return }
+        mapDateCounts = counts
+        mapDates = DateNode.tree(counts)
+    }
+
+    private func apply(_ generation: Int, _ loaded: Loaded, _ keepStatus: Bool) {
         // Чтения идут параллельно и могут ждать сканер: результат более раннего, пришедший
         // после более позднего, затёр бы свежие данные (например, пустой БД до первого скана).
         guard generation == reloadGeneration else { return }
         var changed = false
-        if counts != dateCounts {
-            dateCounts = counts
-            dates = DateNode.tree(counts)
+        if loaded.counts != dateCounts {
+            dateCounts = loaded.counts
+            dates = DateNode.tree(loaded.counts)
             changed = true
         }
-        if geo.photos != geotagged.photos {
-            geotagged = geo
+        if loaded.all.photos != allGeotagged.photos {
+            allGeotagged = loaded.all
+        }
+        if loaded.geo.photos != geotagged.photos {
+            geotagged = loaded.geo
             changed = true
+        }
+        if fitMapPending {
+            fitMapPending = false
+            map?.fit(loaded.geo)
         }
         if changed {
             revision += 1
         }
+        let total = loaded.total
         if !scanning, !keepStatus {
             status = Core.photos(total)
         }

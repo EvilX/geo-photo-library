@@ -1,12 +1,13 @@
 //! Вкладка «Карта»: OSM-карта с превью-маркерами (кластеризация) и список фото
 //! в видимой области, отсортированный по дате.
 use super::{
+    date_tree::{DateTree, NodeKey},
     photo_grid::{self, PhotoGrid},
     textures::{set_thumbnail, TextureCache},
 };
 use crate::{
     config::{MapView, SortOrder},
-    db::{Db, Photo},
+    db::{DateCount, Day, Db, Photo},
     geo,
     geocode::{self, Place},
     i18n, location, trace,
@@ -83,6 +84,17 @@ pub struct MapTab {
     /// Фото, которое выделить в списке, когда оно появится в видимой области
     /// (после перехода «Найти на карте»).
     pending_select: Cell<Option<i64>>,
+    /// Фильтр по датам: дерево в выдвижной панели слева, кнопка над картой с подписью
+    /// выбранного периода и сам период (`None` — всё время).
+    filter: Rc<DateTree>,
+    filter_button: gtk::ToggleButton,
+    filter_label: gtk::Label,
+    period: Cell<Option<NodeKey>>,
+    /// Все фото с координатами (без фильтра): проекция на зум 0 и день съёмки — по ним
+    /// дерево фильтра показывает даты фото в видимой области карты.
+    all_days: RefCell<Vec<(f64, f64, Day)>>,
+    /// Счётчики, показанные в дереве фильтра, — чтобы не перестраивать его без изменений.
+    shown_counts: RefCell<Vec<DateCount>>,
 }
 
 /// Поиск местности: строка над картой и всплывающий список найденного.
@@ -198,6 +210,32 @@ impl MapTab {
         right.set_size_request(260, -1);
 
         let search = Search::new();
+        // Фильтр по датам: кнопка открывает панель слева, на ней же — выбранный период.
+        // Панель плавает над картой под строкой поиска: открытие не сдвигает карту.
+        let filter = DateTree::new(true);
+        filter.root.set_size_request(240, -1);
+        filter.root.add_css_class("map-filter");
+        filter.root.set_overflow(gtk::Overflow::Hidden);
+        // Под строкой поиска: её отступ 10 + высота ~34 + зазор.
+        filter.root.set_margin_top(52);
+        filter.root.set_margin_bottom(10);
+        filter.root.set_margin_start(10);
+        filter.root.set_margin_end(10);
+        let filter_panel = gtk::Revealer::builder()
+            .transition_type(gtk::RevealerTransitionType::SlideRight)
+            .child(&filter.root)
+            .halign(gtk::Align::Start)
+            .build();
+        let filter_label = gtk::Label::new(None);
+        filter_label.set_visible(false);
+        let filter_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        filter_content.append(&gtk::Image::from_icon_name("x-office-calendar-symbolic"));
+        filter_content.append(&filter_label);
+        let filter_button = gtk::ToggleButton::new();
+        filter_button.set_child(Some(&filter_content));
+        filter_button.set_tooltip_text(Some(i18n::filter_by_date()));
+        filter_button.add_css_class("map-search");
+        filter_button.bind_property("active", &filter_panel, "reveal-child").sync_create().build();
         let locate = gtk::Button::from_icon_name("find-location-symbolic");
         locate.set_tooltip_text(Some(i18n::my_location()));
         locate.add_css_class("map-search");
@@ -207,14 +245,18 @@ impl MapTab {
         toolbar.set_valign(gtk::Align::Start);
         toolbar.set_margin_top(10);
         toolbar.set_margin_start(10);
+        toolbar.append(&filter_button);
         toolbar.append(&search.entry);
         toolbar.append(&locate);
+        // Панель — отдельным слоем во всю высоту: скрытая, она нулевой ширины и не
+        // перехватывает щелчки по карте.
         let map_overlay = gtk::Overlay::new();
         map_overlay.set_child(Some(&simple_map));
-        map_overlay.add_overlay(&toolbar);
         let size_probe = gtk::DrawingArea::new();
         size_probe.set_can_target(false);
         map_overlay.add_overlay(&size_probe);
+        map_overlay.add_overlay(&filter_panel);
+        map_overlay.add_overlay(&toolbar);
 
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
         root.set_start_child(Some(&map_overlay));
@@ -247,6 +289,23 @@ impl MapTab {
             locate,
             location_layer,
             pending_select: Cell::new(None),
+            filter,
+            filter_button,
+            filter_label,
+            period: Cell::new(None),
+            all_days: RefCell::default(),
+            shown_counts: RefCell::default(),
+        });
+
+        // Смена периода — перечитать фото и показать их все.
+        let weak = Rc::downgrade(&this);
+        this.filter.connect_changed(move || {
+            let Some(t) = weak.upgrade() else { return };
+            if t.sync_period() {
+                t.set_photos(t.period_photos(), false);
+                t.fit_all();
+                t.schedule_refresh();
+            }
         });
 
         let weak = Rc::downgrade(&this);
@@ -500,14 +559,71 @@ impl MapTab {
         self.photos.borrow().first().and_then(|o| o.borrow::<Photo>().coords())
     }
 
-    /// Перечитать фото с координатами. Без `force` маркеры и список перестраиваются,
-    /// только если изменился их состав.
+    /// Перечитать фото с координатами: все (для дерева фильтра) и за выбранный период
+    /// (на карту). Без `force` маркеры и список перестраиваются, только если изменился их состав.
     pub fn reload(self: &Rc<Self>, force: bool) {
         let _t = trace::span("map.reload");
-        let photos = self.db.geotagged().unwrap_or_else(|e| {
+        let all = self.db.geotagged().unwrap_or_else(|e| {
             eprintln!("БД: {e:#}");
             Vec::new()
         });
+        *self.all_days.borrow_mut() = all
+            .iter()
+            .filter_map(|p| {
+                let (lat, lon) = p.coords()?;
+                let (x, y) = geo::project(lat, lon, 0.0);
+                Some((x, y, p.day()?))
+            })
+            .collect();
+        // Без фильтра на карте те же фото — второй запрос не нужен.
+        let photos = if self.period.get().is_none() { all } else { self.period_photos() };
+        self.set_photos(photos, force);
+        if !self.fitted.get() {
+            self.fit_all();
+        }
+        self.schedule_refresh();
+    }
+
+    /// Запомнить период, выбранный в дереве фильтра, и показать его на кнопке.
+    /// `true` — период изменился.
+    fn sync_period(&self) -> bool {
+        let node = self.filter.selected().filter(|n| !n.is_all_time());
+        self.filter_label.set_visible(node.is_some());
+        if let Some(n) = node {
+            self.filter_label.set_text(&n.title());
+            self.filter_button.add_css_class("suggested-action");
+        } else {
+            self.filter_button.remove_css_class("suggested-action");
+        }
+        let period = node.map(|n| n.key());
+        let changed = period != self.period.get();
+        self.period.set(period);
+        changed
+    }
+
+    /// Открыть фильтр по датам и выбрать год (отладочный хук).
+    pub fn open_date_filter(&self, year: Option<i32>) {
+        self.filter_button.set_active(true);
+        if let Some(year) = year {
+            self.filter.select((year, None, None));
+        }
+    }
+
+    /// Фото с координатами за выбранный период.
+    fn period_photos(&self) -> Vec<Photo> {
+        let (year, month, day) = match self.period.get() {
+            Some((y, m, d)) => (Some(y), m, d),
+            None => (None, None, None),
+        };
+        self.db.geotagged_by_date(year, month, day).unwrap_or_else(|e| {
+            eprintln!("БД: {e:#}");
+            Vec::new()
+        })
+    }
+
+    /// Фото на карте и в списке. Без `force` маркеры и список перестраиваются,
+    /// только если изменился их состав.
+    fn set_photos(&self, photos: Vec<Photo>, force: bool) {
         *self.points.borrow_mut() = photos
             .iter()
             .filter_map(|p| {
@@ -522,13 +638,9 @@ impl MapTab {
             self.markers.borrow_mut().clear();
             self.visible_ids.borrow_mut().clear();
         }
-        if !self.fitted.get() {
-            self.fit_all();
-        }
-        self.schedule_refresh();
     }
 
-    /// Показать все фото с координатами. Работает, когда виджет уже имеет размер.
+    /// Показать все фото с координатами (за период фильтра). Работает, когда виджет уже имеет размер.
     fn fit_all(&self) {
         let (w, h) = (self.simple_map.width() as f64, self.simple_map.height() as f64);
         if w < 2.0 || h < 2.0 {
@@ -646,6 +758,14 @@ impl MapTab {
             self.grid.select_id(id);
             self.suppress_center.set(false);
             self.pending_select.set(None);
+        }
+        // Дерево фильтра: даты всех фото с координатами в видимой области.
+        let counts = DateCount::tally(
+            self.all_days.borrow().iter().filter(|&&(x, y, _)| view.contains_world(x, y, 0.0)).map(|&(_, _, d)| d),
+        );
+        if *self.shown_counts.borrow() != counts {
+            *self.shown_counts.borrow_mut() = counts.clone();
+            self.filter.set_counts(counts);
         }
         let total = self.photos.borrow().len();
         self.info.set_text(&if total == 0 {

@@ -273,6 +273,7 @@ struct SettingsView: View {
 /// `ACTION=settings|about`, `INFO=1`, `SEARCH=<запрос>`, `LOCATE=1` — как в версии GTK;
 /// `PHOTO_ACTION=copy|show-on-map|trash` — через 3 с выполнить пункт меню для первого фото вкладки.
 /// `APPEARANCE=dark|light` — оформление окна независимо от системного.
+/// `DATE_FILTER=open|<год>` — через 3 с открыть фильтр карты по датам (и выбрать год).
 @MainActor
 enum DebugHooks {
     /// Поиск вкладки карты (регистрируется ею самой).
@@ -323,6 +324,14 @@ enum DebugHooks {
             after(2) {
                 finder?.query = query
                 finder?.search(model)
+            }
+        }
+        if let filter = env["GEO_PHOTO_LIBRARY_DATE_FILTER"] {
+            after(3) {
+                model.mapFilterOpen = true
+                if let year = Int32(filter) {
+                    model.mapPeriod = DatePeriod(year: year)
+                }
             }
         }
         if env["GEO_PHOTO_LIBRARY_LOCATE"] != nil {

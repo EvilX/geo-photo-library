@@ -57,8 +57,9 @@ cargo test --release
 | `src/ui/window.rs` | окно, вкладки, главное меню, фоновое сканирование, отладочные хуки |
 | `src/ui/settings.rs` | диалог настроек (папка библиотеки) |
 | `src/ui/about.rs` | окно «О программе» |
-| `src/ui/dates_tab.rs` | дерево год → месяц → день (`TreeListModel`) + сетка |
-| `src/ui/map_tab.rs` | карта libshumate, строка поиска местности, маркеры-кластеры, список фото в видимой области |
+| `src/ui/date_tree.rs` | дерево год → месяц → день (`TreeListModel`) со счётчиками: вкладка дат и фильтр карты («Всё время» первой строкой) |
+| `src/ui/dates_tab.rs` | дерево дат + сетка фото выбранного периода |
+| `src/ui/map_tab.rs` | карта libshumate, строка поиска местности, фильтр по датам (плавающая панель), маркеры-кластеры, список фото в видимой области |
 | `src/ui/photo_grid.rs` | общая сетка миниатюр (`GridView`) и контекстное меню фото |
 | `src/ui/menu.rs` | меню с иконками у пунктов (`icon_menu`) — главное и меню фото |
 | `src/ui/info_panel.rs` | панель «Информация» справа: файл и EXIF выбранного фото (чтение в фоне) |
@@ -117,7 +118,8 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
   (подменяет каталоги данных). Работают `GEO_PHOTO_LIBRARY_SCREENSHOT`, `_DELAY`, `_TAB`,
   `_ACTION`, `_INFO`, `_SEARCH`, `_LOCATE` с тем же смыслом, что на Linux, и
   `GEO_PHOTO_LIBRARY_PHOTO_ACTION=copy|show-on-map|trash` — пункт меню для первого фото вкладки
-  (`trash` действительно перемещает файл в Корзину). `GEO_PHOTO_LIBRARY_APPEARANCE=dark|light` — тёмное
+  (`trash` действительно перемещает файл в Корзину). `GEO_PHOTO_LIBRARY_DATE_FILTER=open|<год>` —
+  открыть фильтр карты по датам (и выбрать год). `GEO_PHOTO_LIBRARY_APPEARANCE=dark|light` — тёмное
   или светлое оформление независимо от системного (аргумент `-AppleInterfaceStyle` не действует). `_LOCATE` покажет пользователю системный
   запрос доступа — без спроса не запускать. Язык: аргумент `-AppleLanguages "(ru)"`.
 - **Не использовать `HSplitView`:** вкладки лежат друг на друге и живут постоянно, и
@@ -133,6 +135,15 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
   `image-name-specializations`: при отдельном `image-name` тёмная тоже пропадает. Проверка:
   `xcrun assetutil --info …/Assets.car` — должны быть `AppIcon_Assets/light` и `…/dark`.
 - Enter в сетке фото не открывает просмотр (в GTK открывает) — только двойной щелчок.
+- **Фильтр карты по датам:** `AppModel.mapPeriod` (`nil` — всё время), фото карты —
+  `gpl_db_geotagged(год, месяц, день)`. В дереве — только даты фото в видимой области карты:
+  счётчики по всем фото с координатами (без учёта фильтра) пересчитываются при каждом
+  обновлении карты (`gpl_visible_date_counts`, в GTK — `MapTab::refresh`). Выбранный период
+  при этом не сбрасывается, даже если его узел пропал из дерева. Смена периода перечитывает
+  список и подгоняет карту (`MapController.fit`).
+  Панель плавает над картой (overlay) — её открытие не меняет размер карты.
+- **Меню «Правка»** — действия с выбранным фото, без пунктов правки текста; ⌘X/⌘V/⌘Z/⌘A, а в поле
+  ввода и ⌘C/⌘⌫ отдаёт строке поиска `TextEditKeys` (локальный монитор клавиш).
 - Изменения ядра проверять и для GTK: на Mac — в контейнере
   (`docker run --rm -v "$PWD":/src:ro -e CARGO_TARGET_DIR=/target fedora:45 …`, зависимости как в CI).
 
@@ -222,6 +233,7 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 | `GEO_PHOTO_LIBRARY_INFO=1` | через 3 с выделить первое фото на открытой вкладке и открыть панель «Информация» |
 | `GEO_PHOTO_LIBRARY_LOCATE=1` | через 2 с нажать «Моё местоположение» на карте |
 | `GEO_PHOTO_LIBRARY_SEARCH=<запрос>` | через 2 с найти место на карте (одно найденное — переход, несколько — список) |
+| `GEO_PHOTO_LIBRARY_DATE_FILTER=open\|<год>` | через 3 с открыть фильтр карты по датам (и выбрать год) |
 
 Скан без GUI: `geo-photo-library --scan <папка>`.
 Бенчмарк миниатюр: `cargo run --release --example bench_thumbs -- <папка> [N]`.

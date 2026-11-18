@@ -13,7 +13,7 @@
 
 use crate::{
     config::{snap_thumb_scale, Config, MapView, SortOrder},
-    db::{Db, Photo},
+    db::{DateCount, Day, Db, Photo},
     geo, i18n, metadata, paths, scanner, thumbs, trace,
 };
 use image::RgbImage;
@@ -110,6 +110,8 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "place_not_found" => i18n::place_not_found(),
         "place_search_failed" => i18n::place_search_failed(),
         "my_location" => i18n::my_location(),
+        "all_time" => i18n::all_time(),
+        "filter_by_date" => i18n::filter_by_date(),
         "location_failed" => i18n::location_failed(),
         "location_unavailable" => i18n::location_unavailable(),
         "location_denied" => i18n::location_denied(),
@@ -391,6 +393,8 @@ pub struct GplPhotos {
     _strings: Vec<CString>,
     /// Проекция на зум 0 — считается один раз, чтобы обновление карты шло без тригонометрии.
     points: Vec<(f64, f64)>,
+    /// День съёмки каждого фото — для дерева фильтра карты по датам.
+    days: Vec<Option<Day>>,
 }
 
 impl GplPhotos {
@@ -418,7 +422,8 @@ impl GplPhotos {
             })
             .collect();
         let points = rows.iter().map(|r| geo::project(r.lat, r.lon, 0.0)).collect();
-        Self { rows, _strings: strings, points }
+        let days = photos.iter().map(Photo::day).collect();
+        Self { rows, _strings: strings, points, days }
     }
 }
 
@@ -442,7 +447,11 @@ pub extern "C" fn gpl_db_count() -> i64 {
 /// Число фото по дням, по возрастанию даты. Освобождать `gpl_date_counts_free`.
 #[no_mangle]
 pub unsafe extern "C" fn gpl_db_date_counts(len: *mut usize) -> *mut GplDateCount {
-    let counts: Box<[GplDateCount]> = query("даты", Db::date_counts)
+    date_counts_out(query("даты", Db::date_counts), len)
+}
+
+unsafe fn date_counts_out(counts: Vec<DateCount>, len: *mut usize) -> *mut GplDateCount {
+    let counts: Box<[GplDateCount]> = counts
         .into_iter()
         .map(|c| GplDateCount { year: c.year, month: c.month, day: c.day, count: c.count })
         .collect();
@@ -465,10 +474,14 @@ pub extern "C" fn gpl_db_photos_by_date(year: i32, month: u32, day: u32) -> *mut
     Box::into_raw(Box::new(GplPhotos::new(photos)))
 }
 
-/// Все фото с координатами, по дате съёмки.
+/// Фото с координатами за год, месяц (`day == 0`) или день (`month == 0` — весь год),
+/// `year == 0` — за всё время; по дате съёмки.
 #[no_mangle]
-pub extern "C" fn gpl_db_geotagged() -> *mut GplPhotos {
-    Box::into_raw(Box::new(GplPhotos::new(query("фото с координатами", Db::geotagged))))
+pub extern "C" fn gpl_db_geotagged(year: i32, month: u32, day: u32) -> *mut GplPhotos {
+    let some = |v: u32| (v != 0).then_some(v);
+    let year = (year != 0).then_some(year);
+    let photos = query("фото с координатами", |db| db.geotagged_by_date(year, some(month), some(day)));
+    Box::into_raw(Box::new(GplPhotos::new(photos)))
 }
 
 /// Убрать из БД фото, перемещённое в корзину, вместе с его миниатюрой.
@@ -631,6 +644,27 @@ pub unsafe extern "C" fn gpl_map_view(
             .collect();
     }
     Box::into_raw(Box::new(out))
+}
+
+/// Число фото списка в видимой области карты по дням, по возрастанию даты — дерево
+/// фильтра карты по датам. Освобождать `gpl_date_counts_free`.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_visible_date_counts(
+    photos: *const GplPhotos,
+    lat: f64,
+    lon: f64,
+    zoom: f64,
+    width: f64,
+    height: f64,
+    len: *mut usize,
+) -> *mut GplDateCount {
+    let Some(photos) = photos.as_ref() else {
+        *len = 0;
+        return ptr::null_mut();
+    };
+    let view = geo::View::new(lat, lon, zoom, width, height);
+    let days = photos.points.iter().zip(&photos.days).filter_map(|(&(x, y), &d)| d.filter(|_| view.contains_world(x, y, 0.0)));
+    date_counts_out(DateCount::tally(days), len)
 }
 
 #[no_mangle]

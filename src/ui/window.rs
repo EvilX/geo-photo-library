@@ -248,6 +248,7 @@ pub fn build(app: &gtk::Application) {
     debug_bench(&state, &stack);
     debug_switch(&state);
     debug_search(&state, &stack);
+    debug_date_filter(&state, &stack);
     debug_info(&state);
     debug_locate(&state, &stack);
 }
@@ -362,6 +363,15 @@ fn debug_info(state: &Rc<App>) {
         state.info.open();
         update_info(&state);
     });
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_DATE_FILTER=open|<год>` — через 3 с открыть фильтр карты
+/// по датам (и выбрать год).
+fn debug_date_filter(state: &Rc<App>, stack: &gtk::Stack) {
+    let Ok(value) = std::env::var("GEO_PHOTO_LIBRARY_DATE_FILTER") else { return };
+    stack.set_visible_child_name("map");
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(3, move || state.map.open_date_filter(value.parse().ok()));
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_SEARCH=<запрос>` — через 2 с найти место на карте.

@@ -33,9 +33,23 @@ struct MapTab: View {
         @Bindable var model = model
         SplitPane(side: .trailing, width: $listWidth, sideRange: 300...900, minMain: 380) {
             PhotoMap(photos: model.geotagged)
+                // Фильтр по датам плавает над картой под строкой поиска: открытие
+                // не сдвигает и не сжимает карту.
+                .overlay(alignment: .topLeading) {
+                    if model.mapFilterOpen {
+                        MapDateFilter()
+                            .frame(width: 240)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .shadow(color: .black.opacity(0.3), radius: 4, y: 1)
+                            .padding(EdgeInsets(top: 48, leading: 10, bottom: 10, trailing: 0))
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     MapSearchBar(finder: finder).padding(10)
                 }
+                .clipped()
+                .animation(.easeInOut(duration: 0.2), value: model.mapFilterOpen)
         } sidePane: {
             VStack(spacing: 0) {
                 PaneHeader(title: model.mapInfo)
@@ -49,6 +63,47 @@ struct MapTab: View {
             }
         }
         .onAppear { DebugHooks.finder = finder }
+    }
+}
+
+// MARK: Фильтр по датам
+
+/// Плавающая панель фильтра карты: «Всё время», под ним дерево год → месяц → день, как на вкладке дат.
+/// В дереве — только даты фото в видимой области карты (`AppModel.mapDates`).
+struct MapDateFilter: View {
+    @Environment(AppModel.self) private var model
+    private static let allID = "all"
+
+    var body: some View {
+        let selection = Binding<String?>(
+            get: { model.mapPeriod?.id ?? Self.allID },
+            set: { id in
+                // Щелчок мимо строк снимает выделение — фильтр остаётся прежним.
+                guard let id else { return }
+                model.mapPeriod = DateNode.find(id, in: model.mapDates)?.period
+            }
+        )
+        List(selection: selection) {
+            row(Core.text("all_time"), model.mapDates.reduce(0) { $0 + $1.count })
+                .tag(Self.allID)
+            OutlineGroup(model.mapDates, children: \.children) { node in
+                row(node.label, node.count)
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        // Материал над картой: фон боковой панели (`SidebarBackground`) просвечивает
+        // то, что за окном, а не карту.
+        .background(.regularMaterial)
+    }
+
+    private func row(_ label: String, _ count: UInt32) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(String(count)).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .padding(.vertical, 3)
     }
 }
 
@@ -207,6 +262,27 @@ struct MapSearchBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Фильтр по датам: открывает панель слева; выбранный период виден на кнопке.
+            Button {
+                model.mapFilterOpen.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "calendar")
+                    if let period = model.mapPeriod {
+                        Text(Core.dateTitle(year: period.year, month: period.month, day: period.day))
+                            .lineLimit(1)
+                    }
+                }
+                .foregroundStyle(model.mapPeriod == nil ? Color.primary : Color.accentColor)
+                .padding(.horizontal, 7)
+                .frame(minWidth: 28, minHeight: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+            .help(Core.text("filter_by_date"))
+
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 // Подсказка своя: системная на подложке-материале рисуется «живой»
@@ -561,6 +637,12 @@ struct PhotoMap: NSViewRepresentable {
             move(lat: lat, lon: lon, zoom: min(max(target, 3), maxZoom), animated: true)
         }
 
+        func fit(_ list: PhotoList) {
+            guard let map, hasSize, let fit = list.fit(size: map.bounds.size, pad: 60, maxZoom: fitMaxZoom) else { return }
+            positioned = true
+            move(lat: fit.lat, lon: fit.lon, zoom: fit.zoom, animated: true)
+        }
+
         func markLocation(lat: Double, lon: Double) {
             guard let map else { return }
             if let location {
@@ -596,6 +678,9 @@ struct PhotoMap: NSViewRepresentable {
             added.forEach { markers[$0.cluster.key] = $0 }
             map.addAnnotations(added)
 
+            model.setMapDateCounts(model.allGeotagged.visibleDateCounts(
+                lat: center.latitude, lon: center.longitude, zoom: zoom, size: map.bounds.size
+            ))
             let total = photos.photos.count
             model.mapInfo = total == 0 ? Core.text("no_geotagged") : Core.inMapArea(snapshot.visible.count, total)
             if snapshot.visible != visible {

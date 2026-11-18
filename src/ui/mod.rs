@@ -1,4 +1,5 @@
 pub mod about;
+pub mod date_tree;
 pub mod dates_tab;
 pub mod info_panel;
 pub mod map_tab;
@@ -27,6 +28,11 @@ pub const CSS: &str = "
     font-size: smaller;
 }
 .map-search { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+.map-filter {
+    background: @window_bg_color;
+    border-radius: 10px;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}
 .menu-item { padding: 4px 10px; min-height: 26px; margin: 0; font-weight: normal; }
 .my-location {
     background: #3584e4;

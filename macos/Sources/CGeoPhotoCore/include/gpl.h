@@ -106,8 +106,9 @@ typedef struct GplPhotos GplPhotos;
 
 // Фото за год, месяц (day == 0) или день; month == 0 — весь год. По дате съёмки.
 GplPhotos *gpl_db_photos_by_date(int32_t year, uint32_t month, uint32_t day);
-// Все фото с координатами, по дате съёмки.
-GplPhotos *gpl_db_geotagged(void);
+// Фото с координатами за год, месяц (day == 0) или день (month == 0 — весь год);
+// year == 0 — за всё время. По дате съёмки.
+GplPhotos *gpl_db_geotagged(int32_t year, uint32_t month, uint32_t day);
 // Убрать из БД фото, перемещённое в корзину, вместе с миниатюрой.
 void gpl_db_remove(int64_t id);
 // Данные панели «Информация» в JSON (формат — в src/ffi.rs). Читает файл.
@@ -132,6 +133,10 @@ typedef struct GplMapView GplMapView;
 // размер области в пикселях, размер ячейки кластеризации.
 GplMapView *gpl_map_view(const GplPhotos *photos, double lat, double lon, double zoom,
                          double width, double height, double cell);
+// Число фото списка в видимой области карты по дням, по возрастанию даты (фильтр карты
+// по датам). Освобождать gpl_date_counts_free.
+GplDateCount *gpl_visible_date_counts(const GplPhotos *photos, double lat, double lon, double zoom,
+                                      double width, double height, size_t *len);
 const GplCluster *gpl_map_view_clusters(const GplMapView *view, size_t *len);
 // Индексы фото в видимой области, по возрастанию.
 const uint32_t *gpl_map_view_visible(const GplMapView *view, size_t *len);

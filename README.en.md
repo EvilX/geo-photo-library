@@ -26,6 +26,9 @@ The description below is for Linux; the differences of the macOS version are lis
 - **My location** — a button next to the search box: the map jumps to your current location and
   marks it with a dot (via the location portal; location services must be enabled in the system
   settings).
+- **Date filter** — the calendar button left of the search box opens a panel over the map with
+  "All time" and a year → month → day tree; the map keeps only the photos of the chosen period
+  and zooms to show them all. The chosen period is shown on the button.
 - **By date** — a year → month → day tree and a thumbnail grid.
 - **Information** — a panel on the right with file and EXIF data: camera, lens, shutter speed,
   aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo.
@@ -97,6 +100,8 @@ The features are the same as on Linux, with the differences customary on macOS:
 
 - the map and place search are Apple's (MapKit) instead of OpenStreetMap and Nominatim;
 - "My location" uses CoreLocation; the system asks for permission on first use;
+- the Edit menu acts on the selected photo: copy (⌘C), delete (⌘⌫), view (⌘O), edit (⌘E),
+  show in Finder;
 - the Information panel — the "i" button in the title bar or ⌘I; rescan — ⌘R;
 - editing — ⌘ + double-click; the photo menu also has "Show in Finder";
 - settings (⌘,) apply immediately; the viewer and editor are chosen from the installed apps;
