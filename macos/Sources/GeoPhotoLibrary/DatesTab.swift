@@ -75,7 +75,7 @@ struct DatesTab: View {
     private func load() async {
         // Ничего не выбрано или выбранный период исчез — показать последний год.
         if find(selected) == nil {
-            selected = model.dates.last?.id
+            selected = model.dates.first?.id
         }
         guard let node = find(selected) else {
             photos = []

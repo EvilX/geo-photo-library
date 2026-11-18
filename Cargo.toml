@@ -1,6 +1,6 @@
 [package]
 name = "geo-photo-library"
-version = "1.1.5"
+version = "1.1.6"
 edition = "2021"
 description = "Каталогизатор фотографий с поиском по карте"
 license = "Apache-2.0"

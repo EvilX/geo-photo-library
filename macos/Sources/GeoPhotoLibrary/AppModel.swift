@@ -39,7 +39,8 @@ struct DateNode: Identifiable, Hashable {
             years[y].children![m].count += c.count
             years[y].count += c.count
         }
-        return years
+        // Годы — от новых к старым, как в версии GTK; месяцы и дни — по порядку.
+        return years.reversed()
     }
 }
 

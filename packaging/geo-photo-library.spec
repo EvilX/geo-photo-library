@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.1.5
+Version:        1.1.6
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -62,6 +62,9 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.6-1
+- macOS: годы в дереве дат — от новых к старым, как в версии GTK
+
 * Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.5-1
 - Стопка фотографий на иконке крупнее и выше
 - macOS: меню «Правка» — действия с выбранным фото (копировать, удалить,
