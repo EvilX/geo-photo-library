@@ -637,12 +637,6 @@ struct PhotoMap: NSViewRepresentable {
             move(lat: lat, lon: lon, zoom: min(max(target, 3), maxZoom), animated: true)
         }
 
-        func fit(_ list: PhotoList) {
-            guard let map, hasSize, let fit = list.fit(size: map.bounds.size, pad: 60, maxZoom: fitMaxZoom) else { return }
-            positioned = true
-            move(lat: fit.lat, lon: fit.lon, zoom: fit.zoom, animated: true)
-        }
-
         func markLocation(lat: Double, lon: Double) {
             guard let map else { return }
             if let location {

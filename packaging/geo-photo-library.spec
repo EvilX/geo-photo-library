@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.2
+Version:        1.2.1
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -62,6 +62,9 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2.1-1
+- Выбор периода в фильтре карты по датам не меняет положение и масштаб карты
+
 * Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2-1
 - Фильтр карты по датам: плавающая панель «Всё время» и дерево год → месяц → день
   с датами фото в видимой области карты (Linux и macOS)

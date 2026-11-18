@@ -297,13 +297,12 @@ impl MapTab {
             shown_counts: RefCell::default(),
         });
 
-        // Смена периода — перечитать фото и показать их все.
+        // Смена периода — перечитать фото; положение и масштаб карты не меняются.
         let weak = Rc::downgrade(&this);
         this.filter.connect_changed(move || {
             let Some(t) = weak.upgrade() else { return };
             if t.sync_period() {
                 t.set_photos(t.period_photos(), false);
-                t.fit_all();
                 t.schedule_refresh();
             }
         });

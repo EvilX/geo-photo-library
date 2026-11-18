@@ -28,7 +28,7 @@ The description below is for Linux; the differences of the macOS version are lis
   settings).
 - **Date filter** — the calendar button left of the search box opens a panel over the map with
   "All time" and a year → month → day tree; the map keeps only the photos of the chosen period
-  and zooms to show them all. The chosen period is shown on the button.
+  while its position and zoom stay as they are. The chosen period is shown on the button.
 - **By date** — a year → month → day tree and a thumbnail grid.
 - **Information** — a panel on the right with file and EXIF data: camera, lens, shutter speed,
   aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo.

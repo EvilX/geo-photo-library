@@ -85,8 +85,6 @@ protocol MapController: AnyObject {
     func go(lat: Double, lon: Double, radius: Double?, maxZoom: Double)
     /// Отметить текущее местоположение точкой.
     func markLocation(lat: Double, lon: Double)
-    /// Показать все фото списка (после смены фильтра по датам).
-    func fit(_ photos: PhotoList)
 }
 
 @MainActor
@@ -114,19 +112,17 @@ final class AppModel {
     /// Дерево фильтра карты: даты фото с координатами в видимой области карты
     /// (без учёта фильтра — иначе в нём остался бы один выбранный период).
     private(set) var mapDates: [DateNode] = []
-    /// Фильтр карты по датам; `nil` — всё время. Смена перечитывает фото карты
-    /// и подгоняет её под них.
+    /// Фильтр карты по датам; `nil` — всё время. Смена перечитывает фото карты,
+    /// не трогая её положение и масштаб.
     var mapPeriod: DatePeriod? {
         didSet {
             if mapPeriod != oldValue {
-                fitMapPending = true
                 reload(keepStatus: true)
             }
         }
     }
     /// Панель фильтра по датам слева от карты открыта.
     var mapFilterOpen = false
-    private var fitMapPending = false
     /// Растёт при каждом изменении данных в БД — вкладки перечитывают по нему свои списки.
     private(set) var revision = 0
 
@@ -310,10 +306,6 @@ final class AppModel {
         if loaded.geo.photos != geotagged.photos {
             geotagged = loaded.geo
             changed = true
-        }
-        if fitMapPending {
-            fitMapPending = false
-            map?.fit(loaded.geo)
         }
         if changed {
             revision += 1
