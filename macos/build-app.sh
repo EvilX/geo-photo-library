@@ -22,7 +22,12 @@ command -v cargo > /dev/null || . "$HOME/.cargo/env"
 export MACOSX_DEPLOYMENT_TARGET=14.0
 # Без GTK и libheif: HEIC на macOS декодирует ImageIO (HeifDecoder.swift).
 cargo rustc --release --locked --lib --no-default-features --features ffi --crate-type staticlib
-swift build -c release --package-path macos
+# Версию SDK компоновщику — явно: движок Swift Build (по умолчанию с Xcode 27) записывает
+# в бинарник вместо неё минимальную версию системы (sdk 14.0), и macOS считает приложение
+# старым — без интерфейса Liquid Glass. Проверка: otool -l …/GeoPhotoLibrary | grep sdk.
+SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version)
+swift build -c release --package-path macos \
+    -Xlinker -platform_version -Xlinker macos -Xlinker "$MACOSX_DEPLOYMENT_TARGET" -Xlinker "$SDK_VERSION"
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 APP="target/macos/GeoPhotoLibrary.app"

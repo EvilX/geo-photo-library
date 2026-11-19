@@ -17,6 +17,9 @@ struct SplitPane<Main: View, Side: View>: View {
     @Binding var width: Double
     let sideRange: ClosedRange<Double>
     let minMain: Double
+    /// Скрытая боковая панель не занимает места. Основная остаётся тем же видом
+    /// (её состояние, например положение карты, не теряется).
+    var sideVisible = true
     @ViewBuilder let mainPane: Main
     @ViewBuilder let sidePane: Side
 
@@ -33,8 +36,10 @@ struct SplitPane<Main: View, Side: View>: View {
                     mainPane.frame(maxWidth: .infinity)
                 } else {
                     mainPane.frame(maxWidth: .infinity)
-                    divider(total: geo.size.width)
-                    sidePane.frame(width: shown)
+                    if sideVisible {
+                        divider(total: geo.size.width)
+                        sidePane.frame(width: shown)
+                    }
                 }
             }
         }

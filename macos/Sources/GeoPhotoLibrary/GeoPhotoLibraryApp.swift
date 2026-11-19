@@ -122,6 +122,7 @@ func showAbout() {
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
+    @State private var infoWidth = 320.0
 
     var body: some View {
         @Bindable var model = model
@@ -135,10 +136,22 @@ struct ContentView: View {
                     Button(Core.text("browse")) { chooseLibrary(model) }
                 }
             } else {
-                // Обе вкладки живут постоянно: карта не теряет положение при переключении.
-                ZStack {
-                    MapTab().opacity(model.tab == .map ? 1 : 0).allowsHitTesting(model.tab == .map)
-                    DatesTab().opacity(model.tab == .dates ? 1 : 0).allowsHitTesting(model.tab == .dates)
+                // Панель «Информация» — своя, под заголовком окна. Системный `.inspector`
+                // с Liquid Glass занимает правую часть заголовка, и вкладки по центру
+                // сдвигались влево при каждом открытии панели.
+                SplitPane(
+                    side: .trailing, width: $infoWidth, sideRange: 260...460, minMain: 500,
+                    sideVisible: model.infoOpen
+                ) {
+                    // Обе вкладки живут постоянно: карта не теряет положение при переключении.
+                    ZStack {
+                        MapTab().opacity(model.tab == .map ? 1 : 0).allowsHitTesting(model.tab == .map)
+                        DatesTab().opacity(model.tab == .dates ? 1 : 0).allowsHitTesting(model.tab == .dates)
+                    }
+                } sidePane: {
+                    // Несколько выделенных фото — панель пуста.
+                    InfoPanel(photo: model.selectedPhoto, multiple: model.selection.count > 1)
+                        .background(Color(nsColor: .windowBackgroundColor))
                 }
             }
             Divider()
@@ -151,11 +164,6 @@ struct ContentView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 26)
-        }
-        .inspector(isPresented: $model.infoOpen) {
-            // Несколько выделенных фото — панель пуста.
-            InfoPanel(photo: model.selectedPhoto, multiple: model.selection.count > 1)
-                .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
         }
         .toolbar {
             ToolbarItem(placement: .principal) {

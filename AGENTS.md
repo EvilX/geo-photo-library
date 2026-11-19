@@ -87,6 +87,10 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
 
 - Нужен полный Xcode с принятой лицензией (в Command Line Tools нет макросов SwiftUI);
   скрипт сам берёт `/Applications/Xcode.app`, если выбран CLT. Rust — из rustup.
+- **Liquid Glass:** macOS включает новый интерфейс, только если в бинарнике записана версия SDK 26+.
+  Движок Swift Build (по умолчанию в SwiftPM с Xcode 27) пишет туда минимальную версию системы
+  (14.0), поэтому `build-app.sh` передаёт компоновщику `-platform_version` с настоящей версией SDK.
+  Проверка: `otool -l target/macos/GeoPhotoLibrary.app/Contents/MacOS/GeoPhotoLibrary | grep sdk`.
 - **`src/ffi.rs` и `macos/Sources/CGeoPhotoCore/include/gpl.h` править вместе:** заголовок
   написан вручную, несовпадение сигнатур компилятор не заметит.
 - Интерфейс C без общего состояния: каждый запрос сам открывает БД, поэтому функции можно
@@ -122,6 +126,9 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
   открыть фильтр карты по датам (и выбрать год). `GEO_PHOTO_LIBRARY_APPEARANCE=dark|light` — тёмное
   или светлое оформление независимо от системного (аргумент `-AppleInterfaceStyle` не действует). `_LOCATE` покажет пользователю системный
   запрос доступа — без спроса не запускать. Язык: аргумент `-AppleLanguages "(ru)"`.
+- **Панель «Информация» — не `.inspector`:** с Liquid Glass системный инспектор занимает правую
+  часть заголовка окна, и вкладки по центру сдвигались влево. Панель — боковая часть `SplitPane`
+  (`sideVisible`) под заголовком; основная часть при этом остаётся тем же видом.
 - **Не использовать `HSplitView`:** вкладки лежат друг на друге и живут постоянно, и
   разделитель скрытой вкладки продолжает управлять курсором (после перетаскивания он
   оставался «стрелками»). Панели делит свой `SplitPane` (`SplitPane.swift`).
