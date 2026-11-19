@@ -90,12 +90,17 @@ fn children(counts: &[DateCount], node: DateNode) -> Option<gio::ListModel> {
             day: Some(c.day),
             count: 0,
         }),
-        (None, None) => group(in_year, |c| DateNode {
-            year: c.year,
-            month: Some(c.month),
-            day: None,
-            count: 0,
-        }),
+        // Месяцы — от новых к старым (декабрь сверху), как годы; дни — по порядку.
+        (None, None) => {
+            let mut months = group(in_year, |c| DateNode {
+                year: c.year,
+                month: Some(c.month),
+                day: None,
+                count: 0,
+            });
+            months.reverse();
+            months
+        }
     };
     (!nodes.is_empty()).then(|| store_of(nodes).upcast())
 }

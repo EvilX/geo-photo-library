@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.2.3
+Version:        1.3
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -62,6 +62,9 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3-1
+- Месяцы в дереве дат — от новых к старым (декабрь сверху), как годы
+
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2.3-1
 - macOS: интерфейс Liquid Glass и в локальной сборке (версия SDK в бинарнике)
 - macOS: панель «Информация» не сдвигает вкладки в заголовке окна
