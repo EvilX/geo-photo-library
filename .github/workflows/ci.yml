@@ -130,7 +130,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-            !target/deb
           key: ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: ubuntu${{ matrix.ubuntu }}-${{ matrix.arch }}-cargo-
 

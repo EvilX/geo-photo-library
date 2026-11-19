@@ -18,7 +18,9 @@ DEB_VERSION="$VERSION-1~$DISTRO"
 ARCH=$(dpkg --print-architecture)
 OUT=$PWD/target/deb
 ROOT=$OUT/root
-rm -rf "$ROOT"
+# Пакеты прошлых сборок — прочь: в CI target/ восстанавливается из кэша, и без этого
+# в артефакт и релиз попадали DEB всех прошлых версий.
+rm -rf "$ROOT" "$OUT"/*.deb
 mkdir -p "$ROOT/DEBIAN"
 
 # .cargo/config.toml задаёт PKG_CONFIG=/usr/bin/pkg-config — в Ubuntu это и есть системный.

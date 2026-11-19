@@ -304,6 +304,9 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
   умолчанию он требует новейшую libheif (1.21), а в Ubuntu 24.04 — 1.17. Новые функции libheif
   в коде — только вместе с поднятием этой планки (и без Ubuntu 24.04).
 - Декодер HEVC в Ubuntu — отдельный пакет `libheif-plugin-libde265`, он в `Recommends`.
+- `build-deb.sh` удаляет старые `target/deb/*.deb` перед сборкой: в CI `target/` восстанавливается
+  из кэша целиком (исключение `!target/deb` в `actions/cache` не действует на подкаталог), и
+  иначе в артефакт и релиз попадали пакеты всех прошлых версий.
 - Проверка без человека: в контейнере `ubuntu:<выпуск>` поставить пакет и `xvfb`, запустить
   с `GEO_PHOTO_LIBRARY_SCREENSHOT` под `dbus-run-session` (как в разделе о проверке интерфейса).
 
