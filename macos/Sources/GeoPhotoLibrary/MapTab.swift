@@ -83,11 +83,35 @@ struct MapDateFilter: View {
                 model.mapPeriod = DateNode.find(id, in: model.mapDates)?.period
             }
         )
-        List(selection: selection) {
-            row(Core.text("all_time"), model.mapDates.reduce(0) { $0 + $1.count })
-                .tag(Self.allID)
-            OutlineGroup(model.mapDates, children: \.children) { node in
-                row(node.label, node.count)
+        ScrollViewReader { proxy in
+            List(selection: selection) {
+                row(Core.text("all_time"), model.mapDates.reduce(0) { $0 + $1.count })
+                    .tag(Self.allID)
+                    .id(Self.allID)
+                ForEach(model.mapDates) { year in
+                    group(year) {
+                        ForEach(year.children ?? []) { month in
+                            group(month) {
+                                ForEach(month.children ?? []) { day in
+                                    row(day.label, day.count).tag(day.id).id(day.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                // Выбранный период виден сразу: его год и месяц раскрыты, список прокручен к нему.
+                guard let period = model.mapPeriod else { return }
+                if period.month != 0 {
+                    model.mapExpanded.insert(DatePeriod(year: period.year).id)
+                }
+                if period.day != 0 {
+                    model.mapExpanded.insert(DatePeriod(year: period.year, month: period.month).id)
+                }
+                DispatchQueue.main.async {
+                    proxy.scrollTo(period.id, anchor: .center)
+                }
             }
         }
         .listStyle(.sidebar)
@@ -95,6 +119,25 @@ struct MapDateFilter: View {
         // Материал над картой: фон боковой панели (`SidebarBackground`) просвечивает
         // то, что за окном, а не карту.
         .background(.regularMaterial)
+    }
+
+    /// Раскрывающийся узел; раскрыт ли он — хранит модель (`mapExpanded`), а не сам вид.
+    private func group(_ node: DateNode, @ViewBuilder content: @escaping () -> some View) -> some View {
+        let expanded = Binding(
+            get: { model.mapExpanded.contains(node.id) },
+            set: { open in
+                if open {
+                    model.mapExpanded.insert(node.id)
+                } else {
+                    model.mapExpanded.remove(node.id)
+                }
+            }
+        )
+        return DisclosureGroup(isExpanded: expanded, content: content) {
+            row(node.label, node.count)
+        }
+        .tag(node.id)
+        .id(node.id)
     }
 
     private func row(_ label: String, _ count: UInt32) -> some View {

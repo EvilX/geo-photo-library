@@ -358,10 +358,17 @@ enum DebugHooks {
         }
         if let filter = env["GEO_PHOTO_LIBRARY_DATE_FILTER"] {
             after(3) {
-                model.mapFilterOpen = true
-                if let year = Int32(filter) {
-                    model.mapPeriod = DatePeriod(year: year)
+                // Год, год-месяц или год-месяц-день. Период ставится до открытия панели —
+                // как после её закрытия: дерево должно раскрыться до выбранной строки.
+                let parts = filter.split(separator: "-").compactMap { Int($0) }
+                if let year = parts.first {
+                    model.mapPeriod = DatePeriod(
+                        year: Int32(year),
+                        month: UInt32(parts.count > 1 ? parts[1] : 0),
+                        day: UInt32(parts.count > 2 ? parts[2] : 0)
+                    )
                 }
+                model.mapFilterOpen = true
             }
         }
         if env["GEO_PHOTO_LIBRARY_LOCATE"] != nil {

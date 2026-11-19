@@ -219,12 +219,20 @@ impl DateTree {
             years.insert(0, DateNode { year: ALL_TIME, month: None, day: None, count: total });
         }
 
-        let expanded: HashSet<NodeKey> = (0..self.tree.n_items())
+        let mut expanded: HashSet<NodeKey> = (0..self.tree.n_items())
             .filter_map(|i| self.tree.row(i))
             .filter(|r| r.is_expanded())
             .filter_map(|r| DateNode::of_row(&r).map(|n| n.key()))
             .collect();
         let selected = self.wanted.get().or_else(|| self.selected().map(|n| n.key()));
+        // Год и месяц выбранного периода раскрыты всегда: даже если его узел на время
+        // пропадал из дерева, при возвращении выбранная строка снова видна.
+        if let Some((year, Some(month), day)) = selected {
+            expanded.insert((year, None, None));
+            if day.is_some() {
+                expanded.insert((year, Some(month), None));
+            }
+        }
 
         self.rebuilding.set(true);
         *self.counts.borrow_mut() = counts;
