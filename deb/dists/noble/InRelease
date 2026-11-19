@@ -1,0 +1,41 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64 arm64
+Codename: noble
+Components: main
+Date: Thu, 19 Nov 2026 15:43:45 +0000
+Label: geo-photo-library
+Origin: geo-photo-library
+Suite: noble
+MD5Sum:
+ 2187ad5216c816391411c4a6fa06bd1f              162 Release
+ 81754fc307957342ad29cbff9cc90ca3             3492 main/binary-amd64/Packages
+ f678782e3641c5fc17728da541f5454a             1162 main/binary-amd64/Packages.gz
+ a70929762695bafa5bc61f2947895c94             3741 main/binary-arm64/Packages
+ 9377d3baa3f9e4a776aa8433971b3a7d             1191 main/binary-arm64/Packages.gz
+SHA1:
+ 83e45d8fc0cc061b8e27113171ccf21bdede9a52              162 Release
+ 7bc63aa9af5696e806e6c2ed5ed272a59ccad56e             3492 main/binary-amd64/Packages
+ 6f6aafdf9a76c975a431089dbf5bb446ad20e9a9             1162 main/binary-amd64/Packages.gz
+ 64e19a2da7e08237fb01e735985f471379956ad5             3741 main/binary-arm64/Packages
+ d4ee26714a4fbab9e173b1a5a5296b69b75b8f84             1191 main/binary-arm64/Packages.gz
+SHA256:
+ bb0cd235d0e6e02d8e9fd69f10860a27d765272f71a83aac094e381e6cc8a2be              162 Release
+ f2c3cb631c8ddf5297b14b7df0a948271bcd0ecc9fb2de24699d920a85e0a3d7             3492 main/binary-amd64/Packages
+ 610a8cd6e98862c60aaed884aae640836fea1ec0af0eb781f23b08db5163f8c4             1162 main/binary-amd64/Packages.gz
+ 2cd07b5a33c25ceb0488cf79090352e9771048043f7c0d3d4969898e2a6f144b             3741 main/binary-arm64/Packages
+ 5c1eaf04d4ba2f03082aa49f369ec0f8d7034ae2f985fd2426d66d50e31fb592             1191 main/binary-arm64/Packages.gz
+SHA512:
+ ffec9d02d5b7bb2816afda0b44ec0e27700f8f0d2016d06bc68113794b624d7257024619afff474c702c234826e371593ee35aa7672104fab09c8d8a779ceed0              162 Release
+ 6d8b6ea9d7e1e699c5593d57152f0cc1aef28acc5eda5679b13e70b2b1e5b573738edeb3e4d89ddc1d3e732fe674b40c6f29bde11ef7d4c3b77fa2ea3aabfbda             3492 main/binary-amd64/Packages
+ 8f57354636f66a9c34b1e284fbcf8d1c987e59bdbbcd06861f65019c7b1788820864d62da72a995b062947da22bb478c436c441117c2a6a7fee4efb6bc29b570             1162 main/binary-amd64/Packages.gz
+ 99a2a3810b26bbfa1279a6f767cad41454ad0ac7ec742a20b63dfca6af96baa6f1345b7d72ca55d10a20d8d262c25cc3d29af674385cc4e26080f279adca41c8             3741 main/binary-arm64/Packages
+ 68f04f2b480ea378dd0e206a3c98fa91a22ad52c6eaf40148fa9d1cd95d7113c4668ea161ba1d966dc19d4f833b8eded8c874f7b4077109d5f44e0737a02bad8             1191 main/binary-arm64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQT2y9rqxguHNEq+axYIKmWk6j7r3wUCav8ZMQAKCRAIKmWk6j7r
+3wPMAPoDDKRB4BTMqSrf6gr5CeC7lC8A0Puw2siGsG+rlpMDIgD/SMw1QhcOFM+U
+78zQJ0ckuz/SrkwdgTLN72/3a8d1Pw4=
+=fMAW
+-----END PGP SIGNATURE-----
