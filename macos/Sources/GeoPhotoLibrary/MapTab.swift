@@ -685,13 +685,11 @@ struct PhotoMap: NSViewRepresentable {
             if snapshot.visible != visible {
                 visible = snapshot.visible
                 model.mapVisible = snapshot.visible.map { photos.photos[$0] }
-                // Выбранное фото ушло из видимой области (или удалено) — выделения больше нет.
-                if let selected = model.mapSelection, !model.mapVisible.contains(where: { $0.id == selected.id }) {
-                    model.mapSelection = nil
-                }
+                // Выделенные фото, ушедшие из видимой области (или удалённые), из выделения выпадают.
+                model.mapSelection.keep(only: model.mapVisible)
             }
             if let id = pendingSelect, let photo = model.mapVisible.first(where: { $0.id == id }) {
-                model.mapSelection = photo
+                model.mapSelection = PhotoSelection(photo)
                 pendingSelect = nil
             }
         }
@@ -724,7 +722,7 @@ struct PhotoMap: NSViewRepresentable {
             mapView.deselectAnnotation(annotation, animated: false)
             let cluster = annotation.cluster
             if cluster.count == 1 {
-                model.mapSelection = cluster.cover
+                model.mapSelection = PhotoSelection(cluster.cover)
             } else {
                 move(lat: cluster.lat, lon: cluster.lon, zoom: zoom + clusterZoomStep, animated: true)
             }

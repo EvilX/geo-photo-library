@@ -12,8 +12,10 @@ use std::{
     rc::Rc,
 };
 
+/// Результаты перемещения в корзину: по одному на каждое фото.
+pub type TrashResults = Vec<(Photo, Result<(), glib::Error>)>;
 /// Обработчик результата перемещения фото в корзину.
-type TrashedHandler = Box<dyn Fn(&Photo, Result<(), glib::Error>)>;
+type TrashedHandler = Box<dyn Fn(TrashResults)>;
 /// Обработчик пункта меню над фото («Информация», «Найти на карте»).
 type PhotoHandler = Box<dyn Fn(&Photo)>;
 
@@ -23,6 +25,7 @@ struct Handlers {
     trashed: Rc<RefCell<Option<TrashedHandler>>>,
     info: Rc<RefCell<Option<PhotoHandler>>>,
     show_on_map: Rc<RefCell<Option<PhotoHandler>>>,
+    picked: Rc<RefCell<Option<PhotoHandler>>>,
 }
 
 /// Шаг кнопок «−»/«+» у слайдера масштаба миниатюр, %.
@@ -38,7 +41,7 @@ const MAX_COLUMNS_LIMIT: u32 = 16;
 pub struct PhotoGrid {
     pub root: gtk::ScrolledWindow,
     pub view: gtk::GridView,
-    pub selection: gtk::SingleSelection,
+    selection: gtk::MultiSelection,
     store: gio::ListStore,
     order: Rc<Cell<SortOrder>>,
     /// Сторона миниатюры при масштабе 100%.
@@ -60,24 +63,28 @@ impl PhotoGrid {
     /// завышенный предел отключает виртуализацию: создаются ячейки для всех фото.
     pub fn new(cache: Rc<TextureCache>, size: i32, max_columns: u32) -> Self {
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
-        let selection = gtk::SingleSelection::new(Some(store.clone()));
-        selection.set_autoselect(false);
-        selection.set_can_unselect(true);
+        // Несколько фото: Ctrl/Shift + щелчок, Ctrl+A, Shift + стрелки и рамка мышью.
+        let selection = gtk::MultiSelection::new(Some(store.clone()));
 
         let base_size = size;
         let size = Rc::new(Cell::new(base_size));
         let images: Rc<RefCell<Vec<glib::WeakRef<gtk::Image>>>> = Rc::default();
 
-        // Контекстное меню: действия работают с фото, на котором нажали правую кнопку.
-        let menu_photo: Rc<RefCell<Option<Photo>>> = Rc::default();
+        // Контекстное меню: действия работают с фото, на котором нажали правую кнопку,
+        // а если оно среди нескольких выделенных — со всеми выделенными (меню короче:
+        // только копирование и удаление).
+        let menu_photos: Rc<RefCell<Vec<Photo>>> = Rc::default();
         let handlers = Handlers::default();
-        let popover = context_menu();
-        popover.set_has_arrow(false);
-        popover.set_halign(gtk::Align::Start);
+        let (popover, popover_many) = (context_menu(), context_menu_many());
+        for p in [&popover, &popover_many] {
+            p.set_has_arrow(false);
+            p.set_halign(gtk::Align::Start);
+        }
 
         let factory = gtk::SignalListItemFactory::new();
         let (cur_size, all_images) = (size.clone(), images.clone());
-        let (pop, mp, sel) = (popover.clone(), menu_photo.clone(), selection.clone());
+        let (pop, pop_many, mp, sel) = (popover.clone(), popover_many.clone(), menu_photos.clone(), selection.clone());
+        let picked = handlers.picked.clone();
         factory.connect_setup(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
             let image = gtk::Image::new();
@@ -106,13 +113,21 @@ impl PhotoGrid {
 
             let click = gtk::GestureClick::new();
             click.set_button(gdk::BUTTON_SECONDARY);
-            let (weak_item, pop, mp, sel) = (item.downgrade(), pop.clone(), mp.clone(), sel.clone());
+            let (weak_item, pop, pop_many, mp, sel) =
+                (item.downgrade(), pop.clone(), pop_many.clone(), mp.clone(), sel.clone());
             click.connect_pressed(move |g, _, x, y| {
                 let Some(item) = weak_item.upgrade() else { return };
                 let Some(obj) = item.item().and_downcast::<glib::BoxedAnyObject>() else { return };
                 g.set_state(gtk::EventSequenceState::Claimed);
-                sel.set_selected(item.position());
-                *mp.borrow_mut() = Some(obj.borrow::<Photo>().clone());
+                let pos = item.position();
+                let many = sel.is_selected(pos) && sel.selection().size() > 1;
+                if many {
+                    *mp.borrow_mut() = selected_in(&sel);
+                } else {
+                    sel.select_item(pos, true);
+                    *mp.borrow_mut() = vec![obj.borrow::<Photo>().clone()];
+                }
+                let pop = if many { &pop_many } else { &pop };
                 let (Some(cell), Some(parent)) = (g.widget(), pop.parent()) else { return };
                 let at = cell
                     .compute_point(&parent, &graphene::Point::new(x as f32, y as f32))
@@ -121,6 +136,26 @@ impl PhotoGrid {
                 pop.popup();
             });
             b.add_controller(click);
+
+            // Обычный щелчок по фото (без Ctrl и Shift) — «выбрал это фото»: карта центрируется
+            // на нём. Жест не перехватывает событие — выделение делает сам GridView.
+            let pick = gtk::GestureClick::new();
+            pick.set_button(gdk::BUTTON_PRIMARY);
+            let (weak_item, picked) = (item.downgrade(), picked.clone());
+            pick.connect_released(move |g, n, _, _| {
+                let modifiers = gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK;
+                if n != 1 || g.current_event_state().intersects(modifiers) {
+                    return;
+                }
+                let Some(obj) = weak_item.upgrade().and_then(|i| i.item()).and_downcast::<glib::BoxedAnyObject>() else {
+                    return;
+                };
+                let photo = obj.borrow::<Photo>().clone();
+                if let Some(f) = picked.borrow().as_ref() {
+                    f(&photo);
+                }
+            });
+            b.add_controller(pick);
         });
         factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
@@ -140,12 +175,17 @@ impl PhotoGrid {
         });
 
         let view = gtk::GridView::new(Some(selection.clone()), Some(factory));
+        view.set_enable_rubberband(true);
         popover.set_parent(&view);
+        popover_many.set_parent(&view);
         // Привязанное вручную меню нужно и отвязать вручную (см. предупреждение GTK
         // «Finalizing … but it still has children left»).
-        let pop = popover.clone();
-        view.connect_destroy(move |_| pop.unparent());
-        view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photo, &handlers)));
+        let (pop, pop_many) = (popover.clone(), popover_many.clone());
+        view.connect_destroy(move |_| {
+            pop.unparent();
+            pop_many.unparent();
+        });
+        view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photos, &handlers)));
         view.set_max_columns(max_columns);
         view.set_min_columns(1);
         // Двойной щелчок или Enter — просмотр, с Ctrl — редактирование.
@@ -181,7 +221,7 @@ impl PhotoGrid {
     }
 
     /// Вызывается после попытки переместить фото в корзину из контекстного меню.
-    pub fn connect_trashed(&self, f: impl Fn(&Photo, Result<(), glib::Error>) + 'static) {
+    pub fn connect_trashed(&self, f: impl Fn(TrashResults) + 'static) {
         *self.handlers.trashed.borrow_mut() = Some(Box::new(f));
     }
 
@@ -193,6 +233,20 @@ impl PhotoGrid {
     /// Вызывается пунктом «Найти на карте» контекстного меню.
     pub fn connect_show_on_map(&self, f: impl Fn(&Photo) + 'static) {
         *self.handlers.show_on_map.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Вызывается обычным щелчком по фото (без Ctrl и Shift).
+    pub fn connect_picked(&self, f: impl Fn(&Photo) + 'static) {
+        *self.handlers.picked.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Изменилось выделение (щелчком, клавишами, рамкой или из программы) или список.
+    /// Удаление выделенных фото из списка `MultiSelection` сообщает только `items-changed`.
+    pub fn connect_selection_changed(&self, f: impl Fn() + 'static) {
+        let f = Rc::new(f);
+        let g = f.clone();
+        self.selection.connect_selection_changed(move |_, _, _| f());
+        self.selection.connect_items_changed(move |_, _, _, _| g());
     }
 
     /// Масштаб миниатюр в процентах от исходного размера. Предел колонок меняется
@@ -234,13 +288,13 @@ impl PhotoGrid {
         if self.order.replace(order) == order {
             return;
         }
-        let selected = self.selected_photo().map(|p| p.id);
+        let selected = self.selected_ids();
         let mut objs: Vec<glib::BoxedAnyObject> = (0..self.store.n_items())
             .filter_map(|i| self.store.item(i).and_downcast())
             .collect();
         objs.reverse();
         self.store.splice(0, self.store.n_items(), &objs);
-        if !selected.is_some_and(|id| self.select_id(id)) && !objs.is_empty() {
+        if !self.restore_selection(&selected) && !objs.is_empty() {
             self.view.scroll_to(0, gtk::ListScrollFlags::NONE, None);
         }
     }
@@ -252,26 +306,62 @@ impl PhotoGrid {
             .map(|o| o.borrow::<Photo>().clone())
     }
 
+    /// Выделенное фото, если оно одно.
     pub fn selected_photo(&self) -> Option<Photo> {
-        match self.selection.selected() {
-            gtk::INVALID_LIST_POSITION => None,
-            pos => self.photo(pos),
+        let set = self.selection.selection();
+        (set.size() == 1).then(|| self.photo(set.minimum())).flatten()
+    }
+
+    /// Сколько фото выделено.
+    pub fn selected_count(&self) -> u64 {
+        self.selection.selection().size()
+    }
+
+    /// id выделенных фото — без копирования данных фото.
+    pub fn selected_ids(&self) -> Vec<i64> {
+        let set = self.selection.selection();
+        (0..set.size() as u32).filter_map(|i| self.id_at(set.nth(i))).collect()
+    }
+
+    fn id_at(&self, pos: u32) -> Option<i64> {
+        self.store.item(pos).and_downcast::<glib::BoxedAnyObject>().map(|o| o.borrow::<Photo>().id)
+    }
+
+    /// Выделить фото с данным id (только его) и прокрутить к нему.
+    pub fn select_id(&self, id: i64) -> bool {
+        // Сравниваем id на месте: `photo()` копировал бы каждое фото со строками.
+        let Some(pos) = (0..self.store.n_items()).find(|&i| self.id_at(i) == Some(id)) else {
+            return false;
+        };
+        self.selection.select_item(pos, true);
+        self.view.scroll_to(pos, gtk::ListScrollFlags::FOCUS, None);
+        true
+    }
+
+    /// Вернуть выделение после замены списка: одно фото — выделить и прокрутить к нему,
+    /// несколько — выделить те, что остались в списке, без прокрутки. `false` — ни одного нет.
+    pub fn restore_selection(&self, ids: &[i64]) -> bool {
+        match ids {
+            [] => false,
+            [id] => self.select_id(*id),
+            _ => {
+                let ids: std::collections::HashSet<i64> = ids.iter().copied().collect();
+                let n = self.store.n_items();
+                let set = gtk::Bitset::new_empty();
+                for i in (0..n).filter(|&i| self.id_at(i).is_some_and(|id| ids.contains(&id))) {
+                    set.add(i);
+                }
+                let found = !set.is_empty();
+                self.selection.set_selection(&set, &gtk::Bitset::new_range(0, n));
+                found
+            }
         }
     }
 
-    /// Выделить фото с данным id и прокрутить к нему.
-    pub fn select_id(&self, id: i64) -> bool {
-        let n = self.store.n_items();
-        // Сравниваем id на месте: `photo()` копировал бы каждое фото со строками.
-        let has_id = |i: &u32| {
-            self.store.item(*i).and_downcast::<glib::BoxedAnyObject>().is_some_and(|o| o.borrow::<Photo>().id == id)
-        };
-        let Some(pos) = (0..n).find(has_id) else {
-            return false;
-        };
-        self.selection.set_selected(pos);
-        self.view.scroll_to(pos, gtk::ListScrollFlags::FOCUS, None);
-        true
+    /// Выделить первые `n` фото (отладочный хук).
+    pub fn select_first(&self, n: u32) {
+        let n = n.min(self.store.n_items());
+        self.selection.set_selection(&gtk::Bitset::new_range(0, n), &gtk::Bitset::new_range(0, self.store.n_items()));
     }
 }
 
@@ -379,46 +469,99 @@ fn context_menu() -> gtk::PopoverMenu {
     ])
 }
 
-/// Действия контекстного меню (группа `photo`) над фото из `menu_photo`.
+/// Меню над несколькими выделенными фото: только действия, применимые ко всем сразу.
+fn context_menu_many() -> gtk::PopoverMenu {
+    icon_menu(vec![
+        vec![Item::new(i18n::copy(), "photo.copy", "edit-copy-symbolic")],
+        vec![Item::new(i18n::delete(), "photo.trash", "user-trash-symbolic")],
+    ])
+}
+
+/// Выделенные фото по порядку показа.
+fn selected_in(selection: &gtk::MultiSelection) -> Vec<Photo> {
+    let set = selection.selection();
+    (0..set.size() as u32)
+        .filter_map(|i| selection.item(set.nth(i)).and_downcast::<glib::BoxedAnyObject>())
+        .map(|o| o.borrow::<Photo>().clone())
+        .collect()
+}
+
+/// Действия контекстного меню (группа `photo`) над фото из `menu_photos`: копирование
+/// и удаление — над всеми, остальные — над первым (меню с ними открывается для одного фото).
 fn photo_actions(
     view: &gtk::GridView,
-    menu_photo: &Rc<RefCell<Option<Photo>>>,
+    menu_photos: &Rc<RefCell<Vec<Photo>>>,
     handlers: &Handlers,
 ) -> gio::SimpleActionGroup {
     let group = gio::SimpleActionGroup::new();
-    let add = |name: &str, f: fn(&gtk::GridView, &Photo, &Handlers)| {
+    let add = |name: &str, f: fn(&gtk::GridView, &[Photo], &Handlers)| {
         let action = gio::SimpleAction::new(name, None);
-        let (view, mp, handlers) = (view.downgrade(), menu_photo.clone(), handlers.clone());
+        let (view, mp, handlers) = (view.downgrade(), menu_photos.clone(), handlers.clone());
         action.connect_activate(move |_, _| {
-            let (Some(view), Some(photo)) = (view.upgrade(), mp.borrow().clone()) else { return };
-            f(&view, &photo, &handlers);
+            let Some(view) = view.upgrade() else { return };
+            let photos = mp.borrow().clone();
+            if !photos.is_empty() {
+                f(&view, &photos, &handlers);
+            }
         });
         group.add_action(&action);
     };
-    add("copy", |v, p, _| copy_to_clipboard(v, &p.path));
-    add("view", |v, p, _| open_external(v, &p.path));
-    add("edit", |v, p, _| open_in_editor(v, &p.path));
-    add("show-in-folder", |v, p, _| show_in_folder(v, &p.path));
-    add("info", |_, p, handlers| {
+    add("copy", |v, ps, _| copy_to_clipboard(v, &ps.iter().map(|p| p.path.as_str()).collect::<Vec<_>>()));
+    add("view", |v, ps, _| open_external(v, &ps[0].path));
+    add("edit", |v, ps, _| open_in_editor(v, &ps[0].path));
+    add("show-in-folder", |v, ps, _| show_in_folder(v, &ps[0].path));
+    add("info", |_, ps, handlers| {
         if let Some(f) = handlers.info.borrow().as_ref() {
-            f(p);
+            f(&ps[0]);
         }
     });
-    add("show-on-map", |_, p, handlers| {
+    add("show-on-map", |_, ps, handlers| {
         if let Some(f) = handlers.show_on_map.borrow().as_ref() {
-            f(p);
+            f(&ps[0]);
         }
     });
-    add("trash", |_, p, handlers| {
-        let (p, handler) = (p.clone(), handlers.trashed.clone());
-        let file = gio::File::for_path(&p.path);
-        file.trash_async(glib::Priority::DEFAULT, gio::Cancellable::NONE, move |res| {
-            if let Some(f) = handler.borrow().as_ref() {
-                f(&p, res);
+    // После подтверждения файлы перемещаются параллельно; обработчик получает все результаты разом.
+    add("trash", |v, ps, handlers| {
+        let subject = match ps {
+            [p] => p.file_name().to_string(),
+            _ => i18n::photos(ps.len()),
+        };
+        let dialog = gtk::AlertDialog::builder()
+            .modal(true)
+            .message(i18n::confirm_trash(&subject))
+            .detail(i18n::confirm_trash_detail())
+            .buttons([i18n::cancel(), i18n::move_to_trash()])
+            .cancel_button(0)
+            .default_button(0)
+            .build();
+        let (ps, handlers) = (ps.to_vec(), handlers.clone());
+        dialog.choose(v.root().and_downcast_ref::<gtk::Window>(), gio::Cancellable::NONE, move |res| {
+            if res == Ok(1) {
+                trash(&ps, &handlers);
             }
         });
     });
     group
+}
+
+/// Переместить фото в корзину (параллельно) и отдать обработчику все результаты разом.
+fn trash(ps: &[Photo], handlers: &Handlers) {
+    let total = ps.len();
+    let results: Rc<RefCell<TrashResults>> = Rc::default();
+    for p in ps {
+        let (p, handler, results) = (p.clone(), handlers.trashed.clone(), results.clone());
+        let file = gio::File::for_path(&p.path);
+        file.trash_async(glib::Priority::DEFAULT, gio::Cancellable::NONE, move |res| {
+            results.borrow_mut().push((p, res));
+            if results.borrow().len() < total {
+                return;
+            }
+            let done = results.take();
+            if let Some(f) = handler.borrow().as_ref() {
+                f(done);
+            }
+        });
+    }
 }
 
 /// Зажат ли сейчас Ctrl (сигнал `activate` не передаёт событие).

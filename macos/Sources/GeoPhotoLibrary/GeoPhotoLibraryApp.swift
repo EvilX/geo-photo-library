@@ -31,17 +31,21 @@ struct GeoPhotoLibraryApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button(Core.text("about")) { showAbout() }
             }
-            // Меню «Правка» — действия с выбранным фото, как в его контекстном меню.
+            // Меню «Правка» — действия с выбранными фото, как в их контекстном меню:
+            // копирование и удаление — над всеми выделенными, остальное — только над одним.
             // Правку текста в строке поиска без этих пунктов обслуживает TextEditKeys.
             CommandGroup(replacing: .undoRedo) {}
             CommandGroup(replacing: .pasteboard) {
-                let photo = model.selectedPhoto
-                Button(Core.text("copy")) { photo.map(model.copy) }
+                let selected = model.selection
+                let photo = selected.single
+                Button(Core.text("copy")) { model.copy(selected.all) }
                     .keyboardShortcut("c")
-                    .disabled(photo == nil)
-                Button(Core.text("delete")) { photo.map(model.trash) }
+                    .disabled(selected.isEmpty)
+                Button(Core.text("delete")) { model.trash(selected.all) }
                     .keyboardShortcut(.delete)
-                    .disabled(photo == nil)
+                    .disabled(selected.isEmpty)
+                Button(Core.text("select_all")) { model.selectAll() }
+                    .keyboardShortcut("a")
                 Divider()
                 Button(Core.text("view")) { photo.map(model.open) }
                     .keyboardShortcut("o")
@@ -149,7 +153,8 @@ struct ContentView: View {
             .frame(height: 26)
         }
         .inspector(isPresented: $model.infoOpen) {
-            InfoPanel(photo: model.selectedPhoto)
+            // Несколько выделенных фото — панель пуста.
+            InfoPanel(photo: model.selectedPhoto, multiple: model.selection.count > 1)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
         }
         .toolbar {
@@ -183,6 +188,17 @@ struct ContentView: View {
             Button(Core.text("ok")) {}
         } message: { alert in
             Text(alert.detail)
+        }
+        // Подтверждение удаления; «Отмена» — кнопка по умолчанию (Esc и Enter).
+        .alert(
+            model.pendingTrash.map(AppModel.trashQuestion) ?? "",
+            isPresented: Binding(get: { model.pendingTrash != nil }, set: { if !$0 { model.pendingTrash = nil } }),
+            presenting: model.pendingTrash
+        ) { photos in
+            Button(Core.text("cancel"), role: .cancel) {}
+            Button(Core.text("move_to_trash"), role: .destructive) { model.confirmTrash(photos) }
+        } message: { _ in
+            Text(Core.text("confirm_trash_detail"))
         }
         .onAppear {
             // Запущенный не из .app (swift run) процесс сам не становится обычным приложением.
@@ -313,11 +329,17 @@ enum DebugHooks {
             after(3) {
                 guard let photo = firstPhoto() else { return }
                 switch action {
-                case "copy": model.copy(photo)
+                case "copy": model.copy([photo])
                 case "show-on-map": model.showOnMap(photo)
-                case "trash": model.trash(photo)
+                case "trash": model.trash([photo])
                 default: break
                 }
+            }
+        }
+        if let n = env["GEO_PHOTO_LIBRARY_SELECT"].flatMap(Int.init) {
+            after(4) {
+                let photos = model.tab == .map ? model.ordered(model.mapVisible) : model.ordered(model.datePhotos)
+                model.selection = PhotoSelection(photos.prefix(n))
             }
         }
         if let query = env["GEO_PHOTO_LIBRARY_SEARCH"] {

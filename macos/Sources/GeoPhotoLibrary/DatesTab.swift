@@ -71,7 +71,8 @@ struct DatesTab: View {
         }
         guard let node = find(selected) else {
             photos = []
-            model.dateSelection = nil
+            model.datePhotos = []
+            model.dateSelection = PhotoSelection()
             return
         }
         let loaded = await Task.detached(priority: .userInitiated) {
@@ -80,8 +81,8 @@ struct DatesTab: View {
         // Пока грузили, могли выбрать другой период.
         guard !Task.isCancelled, loaded != photos else { return }
         photos = loaded
-        if let chosen = model.dateSelection, !loaded.contains(where: { $0.id == chosen.id }) {
-            model.dateSelection = nil
-        }
+        model.datePhotos = loaded
+        // Фото другого периода (или удалённые) из выделения выпадают.
+        model.dateSelection.keep(only: loaded)
     }
 }

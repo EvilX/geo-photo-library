@@ -73,8 +73,6 @@ pub struct MapTab {
     /// изменившиеся.
     markers: RefCell<HashMap<ClusterKey, shumate::Marker>>,
     pending: RefCell<Option<glib::SourceId>>,
-    /// Не центрировать карту при программном изменении выделения.
-    suppress_center: Cell<bool>,
     fitted: Cell<bool>,
     last_size: Cell<(i32, i32)>,
     search: Search,
@@ -282,7 +280,6 @@ impl MapTab {
             visible_ids: RefCell::default(),
             markers: RefCell::default(),
             pending: RefCell::default(),
-            suppress_center: Cell::new(false),
             fitted: Cell::new(false),
             last_size: Cell::new((0, 0)),
             search,
@@ -379,14 +376,11 @@ impl MapTab {
                 }
             });
         });
-        // Выбор фото в списке — центрировать карту на нём.
+        // Щелчок по фото в списке — центрировать карту на нём (выделение клавишами,
+        // рамкой и из программы карту не двигает).
         let weak = Rc::downgrade(&this);
-        this.grid.selection.connect_selected_notify(move |_| {
-            let Some(t) = weak.upgrade() else { return };
-            if t.suppress_center.get() {
-                return;
-            }
-            if let Some((lat, lon)) = t.grid.selected_photo().and_then(|p| p.coords()) {
+        this.grid.connect_picked(move |photo| {
+            if let (Some(t), Some((lat, lon))) = (weak.upgrade(), photo.coords()) {
                 t.map.go_to(lat, lon);
             }
         });
@@ -459,11 +453,8 @@ impl MapTab {
         self.map.go_to_full(lat, lon, zoom);
     }
 
-    /// Сменить сортировку списка, не сдвигая карту к выбранному фото.
     pub fn set_order(&self, order: SortOrder) {
-        self.suppress_center.set(true);
         self.grid.set_order(order);
-        self.suppress_center.set(false);
     }
 
     pub fn grid(&self) -> &PhotoGrid {
@@ -749,26 +740,23 @@ impl MapTab {
         if *self.visible_ids.borrow() != ids {
             let _t = trace::span(format!("  список: {} фото", ids.len()));
             let objects: Vec<glib::BoxedAnyObject> = visible.iter().map(|&i| photos[i].clone()).collect();
-            let selected = self.grid.selected_photo().map(|p| p.id);
-            self.suppress_center.set(true);
+            // Выделенные фото, ушедшие из видимой области, из выделения выпадают.
+            let selected = self.grid.selected_ids();
             {
                 let _t = trace::span("    set_photos");
                 self.grid.set_objects(objects);
             }
-            if let Some(id) = selected {
-                let _t = trace::span("    select_id");
-                self.grid.select_id(id);
+            if !selected.is_empty() {
+                let _t = trace::span("    restore_selection");
+                self.grid.restore_selection(&selected);
             }
-            self.suppress_center.set(false);
             *self.visible_ids.borrow_mut() = ids;
         }
         drop(points);
         drop(photos);
         // Фото из «Найти на карте» — выделить, как только оно в видимой области.
         if let Some(id) = self.pending_select.get().filter(|id| self.visible_ids.borrow().contains(id)) {
-            self.suppress_center.set(true);
             self.grid.select_id(id);
-            self.suppress_center.set(false);
             self.pending_select.set(None);
         }
         // Дерево фильтра: даты всех фото с координатами в видимой области.
@@ -852,8 +840,6 @@ impl MapTab {
             return;
         }
         // Одиночное фото (или максимальный зум) — выделить в списке.
-        self.suppress_center.set(true);
         self.grid.select_id(ids[0]);
-        self.suppress_center.set(false);
     }
 }

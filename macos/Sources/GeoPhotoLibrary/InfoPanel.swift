@@ -4,6 +4,8 @@ import SwiftUI
 
 struct InfoPanel: View {
     let photo: Photo?
+    /// Выделено несколько фото — показывать нечего, даже подсказку.
+    var multiple = false
     @State private var info: PhotoInfo?
     @State private var allTagsOpen = false
 
@@ -50,7 +52,7 @@ struct InfoPanel: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-            } else {
+            } else if !multiple {
                 Text(Core.text(photo == nil ? "select_photo" : "info"))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)

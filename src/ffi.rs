@@ -111,6 +111,10 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "place_search_failed" => i18n::place_search_failed(),
         "my_location" => i18n::my_location(),
         "all_time" => i18n::all_time(),
+        "select_all" => i18n::select_all(),
+        "cancel" => i18n::cancel(),
+        "move_to_trash" => i18n::move_to_trash(),
+        "confirm_trash_detail" => i18n::confirm_trash_detail(),
         "filter_by_date" => i18n::filter_by_date(),
         "location_failed" => i18n::location_failed(),
         "location_unavailable" => i18n::location_unavailable(),
@@ -154,6 +158,11 @@ pub unsafe extern "C" fn gpl_text_no_coordinates_detail(name: *const c_char) -> 
 #[no_mangle]
 pub unsafe extern "C" fn gpl_text_trashed(name: *const c_char) -> *mut c_char {
     out_string(i18n::trashed(str_arg(name).unwrap_or("")))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gpl_text_confirm_trash(subject: *const c_char) -> *mut c_char {
+    out_string(i18n::confirm_trash(str_arg(subject).unwrap_or("")))
 }
 
 #[no_mangle]

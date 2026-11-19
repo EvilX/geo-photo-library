@@ -67,6 +67,59 @@ struct DateNode: Identifiable, Hashable {
     }
 }
 
+/// Выделенные фото сетки. `anchor` — опорное фото: от него Shift-щелчок выделяет
+/// диапазон, к нему прокручивается сетка.
+struct PhotoSelection: Equatable {
+    private(set) var photos: [Photo.ID: Photo] = [:]
+    private(set) var anchor: Photo.ID?
+
+    init(_ photo: Photo? = nil) {
+        if let photo {
+            photos[photo.id] = photo
+            anchor = photo.id
+        }
+    }
+
+    /// Несколько фото; опорное — `anchor` (или первое).
+    init(_ list: some Collection<Photo>, anchor: Photo.ID? = nil) {
+        for photo in list {
+            photos[photo.id] = photo
+        }
+        self.anchor = anchor ?? list.first?.id
+    }
+
+    var isEmpty: Bool { photos.isEmpty }
+    var count: Int { photos.count }
+    /// Выделенное фото, если оно одно.
+    var single: Photo? { photos.count == 1 ? photos.first?.value : nil }
+    /// Все выделенные — по пути к файлу, чтобы порядок не зависел от словаря.
+    var all: [Photo] { photos.values.sorted { $0.path < $1.path } }
+
+    func contains(_ photo: Photo) -> Bool { photos[photo.id] != nil }
+
+    /// Добавить фото или снять с него выделение; оно становится опорным.
+    mutating func toggle(_ photo: Photo) {
+        photos[photo.id] = photos[photo.id] == nil ? photo : nil
+        anchor = photo.id
+    }
+
+    mutating func formUnion(_ other: PhotoSelection) {
+        photos.merge(other.photos) { a, _ in a }
+        anchor = other.anchor ?? anchor
+    }
+
+    /// Оставить только фото из `list` (остальные пропали из сетки).
+    mutating func keep(only list: [Photo]) {
+        guard !photos.isEmpty else { return }
+        let ids = Set(list.map(\.id))
+        photos = photos.filter { ids.contains($0.key) }
+    }
+
+    mutating func remove(_ ids: Set<Photo.ID>) {
+        photos = photos.filter { !ids.contains($0.key) }
+    }
+}
+
 /// Сообщение в окне: заголовок и пояснение.
 struct AlertMessage: Identifiable {
     let id = UUID()
@@ -149,10 +202,14 @@ final class AppModel {
     /// Фото в видимой области карты по дате съёмки и подпись над списком.
     var mapVisible: [Photo] = []
     var mapInfo = ""
-    var mapSelection: Photo?
-    var dateSelection: Photo?
+    var mapSelection = PhotoSelection()
+    var dateSelection = PhotoSelection()
+    /// Фото вкладки дат за выбранный период (по дате съёмки) — для «Выделить все».
+    var datePhotos: [Photo] = []
     var infoOpen = false
     var alert: AlertMessage?
+    /// Фото, удаление которых ждёт подтверждения в окне.
+    var pendingTrash: [Photo]?
     weak var map: MapController?
 
     private var cancel: CancelToken?
@@ -172,9 +229,24 @@ final class AppModel {
         editorID = Core.app(editor: true)
     }
 
-    /// Фото, выбранное на открытой вкладке, — его показывает панель «Информация».
-    var selectedPhoto: Photo? {
-        tab == .map ? mapSelection : dateSelection
+    /// Выделение на открытой вкладке.
+    var selection: PhotoSelection {
+        get { tab == .map ? mapSelection : dateSelection }
+        set {
+            if tab == .map {
+                mapSelection = newValue
+            } else {
+                dateSelection = newValue
+            }
+        }
+    }
+
+    /// Фото, выбранное на открытой вкладке, если оно одно, — его показывает панель «Информация».
+    var selectedPhoto: Photo? { selection.single }
+
+    /// Выделить все фото сетки открытой вкладки.
+    func selectAll() {
+        selection = PhotoSelection(tab == .map ? mapVisible : datePhotos, anchor: selection.anchor)
     }
 
     /// Список в порядке выбранной сортировки (на входе — по дате съёмки).
@@ -337,13 +409,14 @@ final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([photo.url])
     }
 
-    /// Положить файл в буфер обмена: как файл (вставка в Finder) и как путь.
-    func copy(_ photo: Photo) {
+    /// Положить файлы в буфер обмена: как файлы (вставка в Finder) и как пути по строке.
+    func copy(_ photos: [Photo]) {
+        guard !photos.isEmpty else { return }
         let board = NSPasteboard.general
         board.clearContents()
-        board.writeObjects([photo.url as NSURL])
+        board.writeObjects(photos.map { $0.url as NSURL })
         board.addTypes([.string], owner: nil)
-        board.setString(photo.path, forType: .string)
+        board.setString(photos.map(\.path).joined(separator: "\n"), forType: .string)
     }
 
     /// Открыть панель «Информация» для фото.
@@ -364,30 +437,48 @@ final class AppModel {
         map?.show(photo)
     }
 
-    /// Переместить файл в корзину и убрать фото из БД и интерфейса.
-    func trash(_ photo: Photo) {
-        do {
-            try FileManager.default.trashItem(at: photo.url, resultingItemURL: nil)
-        } catch {
-            status = Core.trashFailed(photo.fileName, error.localizedDescription)
-            return
+    /// Удалить фото — после подтверждения в окне (`pendingTrash`).
+    func trash(_ photos: [Photo]) {
+        if !photos.isEmpty {
+            pendingTrash = photos
         }
-        if mapSelection?.id == photo.id { mapSelection = nil }
-        if dateSelection?.id == photo.id { dateSelection = nil }
-        status = Core.trashed(photo.fileName)
+    }
+
+    /// Вопрос перед удалением `photos`.
+    static func trashQuestion(_ photos: [Photo]) -> String {
+        Core.confirmTrash(photos.count == 1 ? photos[0].fileName : Core.photos(photos.count))
+    }
+
+    /// Переместить файлы в корзину и убрать фото из БД и интерфейса. В строке состояния —
+    /// имя фото (или их число), при ошибке — первая из них.
+    func confirmTrash(_ photos: [Photo]) {
+        pendingTrash = nil
+        var moved: [Photo] = []
+        var failure: String?
+        for photo in photos {
+            do {
+                try FileManager.default.trashItem(at: photo.url, resultingItemURL: nil)
+                moved.append(photo)
+            } catch {
+                failure = failure ?? Core.trashFailed(photo.fileName, error.localizedDescription)
+            }
+        }
+        let ids = Set(moved.map(\.id))
+        mapSelection.remove(ids)
+        dateSelection.remove(ids)
+        status = failure ?? (moved.count == 1 ? Core.trashed(moved[0].fileName) : Core.trashed(Core.photos(moved.count)))
+        guard !moved.isEmpty else { return }
         Task.detached(priority: .userInitiated) {
-            Core.remove(id: photo.id)
+            for id in ids {
+                Core.remove(id: id)
+            }
             await MainActor.run { self.reload(keepStatus: true) }
         }
     }
 
     /// Выделить фото на открытой вкладке (правый щелчок, меню).
     func select(_ photo: Photo) {
-        if tab == .map {
-            mapSelection = photo
-        } else {
-            dateSelection = photo
-        }
+        selection = PhotoSelection(photo)
     }
 }
 

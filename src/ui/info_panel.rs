@@ -115,6 +115,13 @@ impl InfoPanel {
         });
     }
 
+    /// Ничего не показывать (выделено несколько фото).
+    pub fn show_nothing(&self) {
+        self.shown.set(None);
+        self.generation.set(self.generation.get() + 1);
+        self.clear();
+    }
+
     fn clear(&self) {
         while let Some(child) = self.content.first_child() {
             self.content.remove(&child);

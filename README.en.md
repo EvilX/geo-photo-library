@@ -32,12 +32,16 @@ The description below is for Linux; the differences of the macOS version are lis
   on the map closes the panel.
 - **By date** — a year → month → day tree and a thumbnail grid.
 - **Information** — a panel on the right with file and EXIF data: camera, lens, shutter speed,
-  aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo.
+  aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo
+  and stays empty while several photos are selected.
   Open it with the “i” button in the window header or from the photo menu; close it with the same
   button or the cross.
 - **Photo menu** (right click): copy the file, view, edit, show in folder (the file manager opens
   the folder with the file selected), information, show on map (jumps to
-  where the photo was taken; warns if EXIF has no coordinates), move to trash.
+  where the photo was taken; warns if EXIF has no coordinates), move to trash (after confirmation).
+- **Selecting several photos:** Ctrl + click (⌘ + click on macOS) adds or removes a photo,
+  Shift + click selects a range, dragging a rectangle selects the photos under it, Ctrl+A (⌘A)
+  selects all. For several photos the menu offers only Copy and Delete.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen
   in Settings (by default, the app for the file type and a detected image editor).
 - A slider under the photo grids scales thumbnails from 50 to 200%, with −/+ buttons (10% steps).
@@ -105,8 +109,8 @@ The features are the same as on Linux, with the differences customary on macOS:
 
 - the map and place search are Apple's (MapKit) instead of OpenStreetMap and Nominatim;
 - "My location" uses CoreLocation; the system asks for permission on first use;
-- the Edit menu acts on the selected photo: copy (⌘C), delete (⌘⌫), view (⌘O), edit (⌘E),
-  show in Finder;
+- the Edit menu acts on the selected photos: copy (⌘C), delete (⌘⌫), select all (⌘A), and for
+  a single photo also view (⌘O), edit (⌘E), show in Finder;
 - the Information panel — the "i" button in the title bar or ⌘I; rescan — ⌘R;
 - editing — ⌘ + double-click; the photo menu also has "Show in Finder";
 - settings (⌘,) apply immediately; the viewer and editor are chosen from the installed apps;

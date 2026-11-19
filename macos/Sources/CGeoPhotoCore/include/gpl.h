@@ -27,6 +27,8 @@ char *gpl_text_in_map_area(size_t visible, size_t total);
 char *gpl_text_no_coordinates_detail(const char *name);
 char *gpl_text_trashed(const char *name);
 char *gpl_text_trash_failed(const char *name, const char *e);
+// Вопрос перед удалением: subject — имя файла или «5 фото».
+char *gpl_text_confirm_trash(const char *subject);
 // Подпись узла дерева дат и заголовок периода: month == 0 — год, day == 0 — месяц.
 char *gpl_text_date_label(int32_t year, uint32_t month, uint32_t day);
 char *gpl_text_date_title(int32_t year, uint32_t month, uint32_t day);

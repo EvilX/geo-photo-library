@@ -207,6 +207,10 @@ enum Core {
         take(gpl_text_trashed(name)) ?? ""
     }
 
+    static func confirmTrash(_ subject: String) -> String {
+        take(gpl_text_confirm_trash(subject)) ?? ""
+    }
+
     static func trashFailed(_ name: String, _ e: String) -> String {
         take(gpl_text_trash_failed(name, e)) ?? e
     }

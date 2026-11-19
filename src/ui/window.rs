@@ -173,9 +173,9 @@ pub fn build(app: &gtk::Application) {
     apply_preferred_apps(&state);
     for grid in [state.dates.grid(), state.map.grid()] {
         let s = Rc::downgrade(&state);
-        grid.connect_trashed(move |photo, res| {
+        grid.connect_trashed(move |results| {
             if let Some(s) = s.upgrade() {
-                photo_trashed(&s, photo, res);
+                photos_trashed(&s, results);
             }
         });
     }
@@ -250,6 +250,7 @@ pub fn build(app: &gtk::Application) {
     debug_search(&state, &stack);
     debug_date_filter(&state, &stack);
     debug_info(&state);
+    debug_select(&state);
     debug_locate(&state, &stack);
 }
 
@@ -294,7 +295,7 @@ fn init_info_panel(state: &Rc<App>, button: &gtk::ToggleButton) {
             }
         });
         let s = Rc::downgrade(state);
-        grid.selection.connect_selected_item_notify(move |_| {
+        grid.connect_selection_changed(move || {
             if let Some(s) = s.upgrade() {
                 update_info(&s);
             }
@@ -338,7 +339,8 @@ fn active_grid(state: &App) -> &super::photo_grid::PhotoGrid {
     }
 }
 
-/// Показать в открытой панели «Информация» выбранное фото активной вкладки.
+/// Показать в открытой панели «Информация» выбранное фото активной вкладки;
+/// при нескольких выделенных панель пуста.
 ///
 /// Откладывается до простоя: при перестроении списка (сдвиг карты, пересканирование)
 /// выделение на миг снимается и восстанавливается — панель видит уже итоговый выбор.
@@ -346,7 +348,12 @@ fn update_info(state: &Rc<App>) {
     let s = Rc::downgrade(state);
     glib::idle_add_local_once(move || {
         if let Some(s) = s.upgrade().filter(|s| s.info.is_open()) {
-            s.info.show_photo(active_grid(&s).selected_photo());
+            let grid = active_grid(&s);
+            if grid.selected_count() > 1 {
+                s.info.show_nothing();
+            } else {
+                s.info.show_photo(grid.selected_photo());
+            }
         }
     });
 }
@@ -359,10 +366,19 @@ fn debug_info(state: &Rc<App>) {
     }
     let state = state.clone();
     glib::timeout_add_seconds_local_once(3, move || {
-        active_grid(&state).selection.set_selected(0);
+        active_grid(&state).select_first(1);
         state.info.open();
         update_info(&state);
     });
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_SELECT=<n>` — через 4 с выделить первые n фото на открытой вкладке.
+fn debug_select(state: &Rc<App>) {
+    let Some(n) = std::env::var("GEO_PHOTO_LIBRARY_SELECT").ok().and_then(|v| v.parse().ok()) else {
+        return;
+    };
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(4, move || active_grid(&state).select_first(n));
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_DATE_FILTER=open|<год>` — через 3 с открыть фильтр карты
@@ -566,21 +582,37 @@ fn init_thumb_scale(state: &Rc<App>) {
     });
 }
 
-/// Фото перемещено в корзину из контекстного меню: убрать его из БД и интерфейса.
-fn photo_trashed(state: &Rc<App>, photo: &Photo, res: Result<(), glib::Error>) {
-    if let Err(e) = res {
-        state.status.set_text(&i18n::trash_failed(photo.file_name(), e.message()));
-        return;
-    }
-    match state.db.remove(photo.id) {
-        Ok(Some(thumb)) => {
-            let _ = std::fs::remove_file(thumb);
+/// Фото перемещены в корзину из контекстного меню: убрать их из БД и интерфейса.
+/// В строке состояния — имя фото (или их число), при ошибке — первая из них.
+fn photos_trashed(state: &Rc<App>, results: super::photo_grid::TrashResults) {
+    let mut moved = Vec::new();
+    let mut failed = None;
+    for (photo, res) in results {
+        match res {
+            Ok(()) => moved.push(photo),
+            Err(e) => {
+                failed.get_or_insert((photo, e));
+            }
         }
-        Ok(None) => {}
-        Err(e) => eprintln!("БД: {e:#}"),
     }
-    reload(state, false);
-    state.status.set_text(&i18n::trashed(photo.file_name()));
+    for photo in &moved {
+        match state.db.remove(photo.id) {
+            Ok(Some(thumb)) => {
+                let _ = std::fs::remove_file(thumb);
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("БД: {e:#}"),
+        }
+    }
+    if !moved.is_empty() {
+        reload(state, false);
+    }
+    let status = match (failed, moved.as_slice()) {
+        (Some((photo, e)), _) => i18n::trash_failed(photo.file_name(), e.message()),
+        (None, [photo]) => i18n::trashed(photo.file_name()),
+        (None, many) => i18n::trashed(&i18n::photos(many.len())),
+    };
+    state.status.set_text(&status);
 }
 
 fn open_settings(state: &Rc<App>) {

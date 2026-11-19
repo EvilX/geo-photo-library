@@ -186,6 +186,11 @@ pub fn delete() -> &'static str {
     tr("Delete", "Удалить", "Διαγραφή")
 }
 
+/// Пункт меню «Правка» в интерфейсе macOS.
+pub fn select_all() -> &'static str {
+    tr("Select All", "Выделить все", "Επιλογή όλων")
+}
+
 pub fn info() -> &'static str {
     tr("Information", "Информация", "Πληροφορίες")
 }
@@ -213,6 +218,27 @@ pub fn no_coordinates_detail(name: &str) -> String {
 
 pub fn ok() -> &'static str {
     tr("OK", "OK", "OK")
+}
+
+/// Вопрос перед удалением: `subject` — имя файла или «5 фото».
+pub fn confirm_trash(subject: &str) -> String {
+    match lang() {
+        Lang::En => format!("Move {subject} to the trash?"),
+        Lang::Ru => format!("Переместить {subject} в корзину?"),
+        Lang::El => format!("Μετακίνηση {subject} στα απορρίμματα;"),
+    }
+}
+
+pub fn confirm_trash_detail() -> &'static str {
+    tr(
+        "Files can be restored from the trash.",
+        "Файлы можно будет восстановить из корзины.",
+        "Τα αρχεία μπορούν να ανακτηθούν από τα απορρίμματα.",
+    )
+}
+
+pub fn move_to_trash() -> &'static str {
+    tr("Move to Trash", "Переместить в корзину", "Μετακίνηση στα απορρίμματα")
 }
 
 pub fn trashed(name: &str) -> String {

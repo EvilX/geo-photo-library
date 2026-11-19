@@ -281,17 +281,17 @@ fn is_editor_categories(categories: &str) -> bool {
     (has("RasterGraphics") || has("Photography")) && !has("Viewer")
 }
 
-/// Положить файл в буфер обмена: как файл (вставка в файловом менеджере) и как путь.
-pub fn copy_to_clipboard(widget: &impl IsA<gtk::Widget>, path: &str) {
-    let file = gio::File::for_path(path);
-    let uri = file.uri();
+/// Положить файлы в буфер обмена: как файлы (вставка в файловом менеджере) и как пути по строке.
+pub fn copy_to_clipboard(widget: &impl IsA<gtk::Widget>, paths: &[&str]) {
+    let files: Vec<gio::File> = paths.iter().map(gio::File::for_path).collect();
+    let uris: Vec<String> = files.iter().map(|f| f.uri().to_string()).collect();
     let providers = [
-        gdk::ContentProvider::for_value(&gdk::FileList::from_array(&[file]).to_value()),
+        gdk::ContentProvider::for_value(&gdk::FileList::from_array(&files).to_value()),
         gdk::ContentProvider::for_bytes(
             "x-special/gnome-copied-files",
-            &glib::Bytes::from_owned(format!("copy\n{uri}")),
+            &glib::Bytes::from_owned(format!("copy\n{}", uris.join("\n"))),
         ),
-        gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &glib::Bytes::from_owned(path.to_owned())),
+        gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &glib::Bytes::from_owned(paths.join("\n"))),
     ];
     widget.clipboard().set_content(Some(&gdk::ContentProvider::new_union(&providers))).ok();
 }

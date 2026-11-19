@@ -85,13 +85,21 @@ struct PhotoGrid: View {
 
     /// Фото уже в порядке показа.
     let photos: [Photo]
-    @Binding var selection: Photo?
-    /// Пользователь выбрал фото щелчком (а не программа выделила его сама).
+    @Binding var selection: PhotoSelection
+    /// Пользователь выбрал фото обычным щелчком (без ⌘ и ⇧; а не программа выделила его сама).
     var onPick: (Photo) -> Void = { _ in }
     @Environment(AppModel.self) private var model
 
     /// Промежуток между ячейками и отступ от краёв.
     private static let spacing = 10.0
+    private static let space = "photo-grid"
+
+    /// Высота ячейки (миниатюра и две строки подписи) — по ней рамка находит фото.
+    @State private var cellHeight = 0.0
+    /// Рамка выделения мышью в координатах сетки.
+    @State private var marquee: CGRect?
+    /// Выделение до начала рамки: с ⌘ или ⇧ рамка добавляет к нему.
+    @State private var marqueeBase: PhotoSelection?
 
     var body: some View {
         let size = Self.baseSize * model.thumbScale / 100
@@ -112,11 +120,26 @@ struct PhotoGrid: View {
                             cell(photo)
                         }
                     }
+                    .coordinateSpace(name: Self.space)
+                    .overlay(alignment: .topLeading) {
+                        if let marquee {
+                            Rectangle()
+                                .fill(Color.accentColor.opacity(0.15))
+                                .stroke(Color.accentColor.opacity(0.7))
+                                .frame(width: marquee.width, height: marquee.height)
+                                .offset(x: marquee.minX, y: marquee.minY)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .padding(Self.spacing)
-                    .frame(maxWidth: .infinity)
+                    // Пустое место под сеткой тоже ловит щелчок (снять выделение) и рамку.
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selection = PhotoSelection() }
+                    .gesture(marqueeGesture(columns: count, cellWidth: cellWidth))
                 }
-                .onChange(of: selection?.id) { _, id in
-                    if let id {
+                .onChange(of: selection.anchor) { _, id in
+                    if let id, marquee == nil {
                         withAnimation { proxy.scrollTo(id) }
                     }
                 }
@@ -130,6 +153,75 @@ struct PhotoGrid: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
+    /// Рамка мышью: выделяет фото, ячейки которых она задевает. Ячейки не меряются по одной —
+    /// LazyVGrid создаёт только видимые, — их места считаются по колонкам и высоте ячейки.
+    private func marqueeGesture(columns: Int, cellWidth: Double) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
+            .onChanged { drag in
+                if marqueeBase == nil {
+                    let flags = NSEvent.modifierFlags
+                    marqueeBase = flags.contains(.command) || flags.contains(.shift) ? selection : PhotoSelection()
+                }
+                let rect = CGRect(
+                    x: min(drag.startLocation.x, drag.location.x), y: min(drag.startLocation.y, drag.location.y),
+                    width: abs(drag.location.x - drag.startLocation.x), height: abs(drag.location.y - drag.startLocation.y)
+                )
+                marquee = rect
+                var next = marqueeBase ?? PhotoSelection()
+                next.formUnion(PhotoSelection(hits(rect, columns: columns, cellWidth: cellWidth)))
+                if next != selection {
+                    selection = next
+                }
+            }
+            .onEnded { _ in
+                marquee = nil
+                marqueeBase = nil
+            }
+    }
+
+    /// Фото, ячейки которых пересекает прямоугольник `rect` (в координатах сетки).
+    private func hits(_ rect: CGRect, columns: Int, cellWidth: Double) -> [Photo] {
+        guard cellHeight > 0, !photos.isEmpty else { return [] }
+        let (stepX, stepY) = (cellWidth + Self.spacing, cellHeight + Self.spacing)
+        let rows = (photos.count + columns - 1) / columns
+        let firstRow = max(0, Int(rect.minY / stepY))
+        let lastRow = min(rows - 1, Int(rect.maxY / stepY))
+        let firstCol = max(0, Int(rect.minX / stepX))
+        let lastCol = min(columns - 1, Int(rect.maxX / stepX))
+        guard firstRow <= lastRow, firstCol <= lastCol else { return [] }
+        var found: [Photo] = []
+        for row in firstRow...lastRow {
+            for col in firstCol...lastCol {
+                let index = row * columns + col
+                let cell = CGRect(x: Double(col) * stepX, y: Double(row) * stepY, width: cellWidth, height: cellHeight)
+                if index < photos.count, cell.intersects(rect) {
+                    found.append(photos[index])
+                }
+            }
+        }
+        return found
+    }
+
+    /// Щелчок по фото: ⌘ — добавить или убрать его, ⇧ — диапазон от опорного фото
+    /// (с ⌘⇧ — добавить диапазон), без них — выделить только его.
+    private func click(_ photo: Photo) {
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.shift), let anchor = selection.anchor,
+           let from = photos.firstIndex(where: { $0.id == anchor }),
+           let to = photos.firstIndex(where: { $0.id == photo.id }) {
+            var range = PhotoSelection(photos[min(from, to)...max(from, to)], anchor: anchor)
+            if flags.contains(.command) {
+                range.formUnion(selection)
+            }
+            selection = range
+        } else if flags.contains(.command) || flags.contains(.shift) {
+            selection.toggle(photo)
+        } else {
+            selection = PhotoSelection(photo)
+            onPick(photo)
+        }
+    }
+
     private func cell(_ photo: Photo) -> some View {
         VStack(spacing: 4) {
             Thumbnail(path: photo.thumbPath)
@@ -139,36 +231,46 @@ struct PhotoGrid: View {
         .padding(5)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(selection?.id == photo.id ? Color.accentColor.opacity(0.3) : .clear)
+                .fill(selection.contains(photo) ? Color.accentColor.opacity(0.3) : .clear)
         )
+        .onGeometryChange(for: Double.self) { $0.size.height } action: { height in
+            if abs(height - cellHeight) > 0.5 {
+                cellHeight = height
+            }
+        }
         .contentShape(Rectangle())
         // Двойной щелчок — просмотр, с ⌘ — редактирование.
         .onTapGesture(count: 2) {
-            selection = photo
+            selection = PhotoSelection(photo)
             if NSEvent.modifierFlags.contains(.command) {
                 model.edit(photo)
             } else {
                 model.open(photo)
             }
         }
-        .onTapGesture {
-            selection = photo
-            onPick(photo)
-        }
+        .onTapGesture { click(photo) }
         .contextMenu {
-            Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy(photo) }
-            Divider()
-            Button(Core.text("view"), systemImage: "eye") { model.open(photo) }
-            Button(Core.text("edit"), systemImage: "pencil") { model.edit(photo) }
-            Button(Core.text("show_in_finder"), systemImage: "folder") { model.showInFinder(photo) }
-            Divider()
-            Button(Core.text("info"), systemImage: "info.circle") {
-                selection = photo
-                model.infoOpen = true
+            // Правый щелчок по одному из нескольких выделенных — действия над всеми ними.
+            if selection.count > 1, selection.contains(photo) {
+                let all = selection.all
+                Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy(all) }
+                Divider()
+                Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash(all) }
+            } else {
+                Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy([photo]) }
+                Divider()
+                Button(Core.text("view"), systemImage: "eye") { model.open(photo) }
+                Button(Core.text("edit"), systemImage: "pencil") { model.edit(photo) }
+                Button(Core.text("show_in_finder"), systemImage: "folder") { model.showInFinder(photo) }
+                Divider()
+                Button(Core.text("info"), systemImage: "info.circle") {
+                    selection = PhotoSelection(photo)
+                    model.infoOpen = true
+                }
+                Button(Core.text("show_on_map"), systemImage: "mappin.and.ellipse") { model.showOnMap(photo) }
+                Divider()
+                Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash([photo]) }
             }
-            Button(Core.text("show_on_map"), systemImage: "mappin.and.ellipse") { model.showOnMap(photo) }
-            Divider()
-            Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash(photo) }
         }
         .id(photo.id)
     }
