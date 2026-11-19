@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.3.1
+Version:        1.3.2
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -62,6 +62,9 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.2-1
+- Репозитории пакетов dnf и apt на GitHub Pages
+
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.1-1
 - Фильтр карты по датам: при повторном открытии дерево раскрыто до выбранной строки
 

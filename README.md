@@ -54,7 +54,26 @@
 
 ## Установка
 
-Готовые пакеты — в [последнем релизе](https://github.com/EvilX/geo-photo-library/releases/latest):
+Удобнее всего — из репозитория пакетов: тогда новые версии приходят с обычным обновлением системы.
+
+Fedora 45 (x86_64 и aarch64):
+
+```sh
+sudo dnf config-manager addrepo --from-repofile=https://evilx.github.io/geo-photo-library/geo-photo-library.repo
+sudo dnf install geo-photo-library
+```
+
+Ubuntu 24.04 и 26.04 (amd64 и arm64):
+
+```sh
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://evilx.github.io/geo-photo-library/key.gpg | sudo tee /etc/apt/keyrings/geo-photo-library.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/geo-photo-library.gpg] https://evilx.github.io/geo-photo-library/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/geo-photo-library.list
+sudo apt update && sudo apt install geo-photo-library
+```
+
+Те же пакеты можно скачать и поставить вручную — они в [последнем релизе](https://github.com/EvilX/geo-photo-library/releases/latest):
 RPM для Fedora 45 (x86_64 и aarch64), DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) и образ
 диска для macOS.
 
@@ -141,7 +160,8 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 - CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`,
   и DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) — в контейнерах этих выпусков;
-  на macOS — тесты ядра и сборка DMG. На теге `v*` пакеты и DMG прикладываются к релизу GitHub.
+  на macOS — тесты ядра и сборка DMG. На теге `v*` пакеты и DMG прикладываются к релизу GitHub,
+  а RPM и DEB добавляются в репозитории dnf и apt на GitHub Pages (`packaging/build-repo.sh`).
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.
 - Инструкции для ИИ-агентов и отладочные переменные окружения — в [AGENTS.md](AGENTS.md).

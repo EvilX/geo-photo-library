@@ -53,7 +53,26 @@ The description below is for Linux; the differences of the macOS version are lis
 
 ## Installation
 
-Ready-made packages are in the [latest release](https://github.com/EvilX/geo-photo-library/releases/latest):
+The easiest way is the package repository: new versions then arrive with regular system updates.
+
+Fedora 45 (x86_64 and aarch64):
+
+```sh
+sudo dnf config-manager addrepo --from-repofile=https://evilx.github.io/geo-photo-library/geo-photo-library.repo
+sudo dnf install geo-photo-library
+```
+
+Ubuntu 24.04 and 26.04 (amd64 and arm64):
+
+```sh
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://evilx.github.io/geo-photo-library/key.gpg | sudo tee /etc/apt/keyrings/geo-photo-library.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/geo-photo-library.gpg] https://evilx.github.io/geo-photo-library/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/geo-photo-library.list
+sudo apt update && sudo apt install geo-photo-library
+```
+
+The same packages can also be downloaded and installed by hand — they are in the [latest release](https://github.com/EvilX/geo-photo-library/releases/latest):
 RPMs for Fedora 45 (x86_64 and aarch64), DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64) and
 a disk image for macOS.
 
@@ -137,7 +156,8 @@ Your location is determined by the system (GeoClue) only when you press the butt
 
 - CI (`.github/workflows/ci.yml`): clippy and tests, then RPM builds for x86_64 and aarch64 — in a `fedora:45` container,
   and DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64) — in containers of those releases;
-  on macOS — core tests and a DMG build. On a `v*` tag the packages and the DMG are attached to the GitHub release.
+  on macOS — core tests and a DMG build. On a `v*` tag the packages and the DMG are attached to the GitHub release,
+  and the RPMs and DEBs are added to the dnf and apt repositories on GitHub Pages (`packaging/build-repo.sh`).
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.
 - Instructions for AI agents and debug environment variables (in Russian) — [AGENTS.md](AGENTS.md).

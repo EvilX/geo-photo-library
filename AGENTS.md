@@ -66,7 +66,7 @@ cargo test --release
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist`, `AppIcon.svg` (иконка на весь квадрат, рисунок как в `data/icons`) |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
-| `packaging/` | RPM spec и `build-rpm.sh`, `build-deb.sh` (DEB для Ubuntu); `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
+| `packaging/` | RPM spec и `build-rpm.sh`, `build-deb.sh` (DEB для Ubuntu), `build-repo.sh` (репозитории dnf/apt для GitHub Pages); `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
 | `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` |
 
@@ -340,9 +340,28 @@ root — агент её не выполняет, а даёт пользоват
 На теге `v*` задача `release` (после `rpm`, `deb` и `dmg`) проверяет, что тег равен версии из
 `Cargo.toml` (`v1.1.2` ↔ `1.1.2`, `v1.1` ↔ `1.1.0`), и прикладывает RPM, DEB и DMG к релизу
 GitHub: если релиз уже создан в интерфейсе — догружает файлы, если запушен только тег —
-создаёт релиз с автоописанием. Выпуск: поднять версию (см. «Пакет RPM»), запушить в `main`,
+создаёт релиз с автоописанием. Затем задача `repo` обновляет репозитории пакетов (см. ниже). Выпуск: поднять версию (см. «Пакет RPM»), запушить в `main`,
 затем создать релиз с тегом `v<версия>` на GitHub или `git tag v<версия> && git push origin v<версия>`.
 Локально то же самое можно повторить через `podman run fedora:45`.
+
+## Репозитории dnf и apt (GitHub Pages)
+
+На теге `v*` после `release` задача `repo` кладёт RPM и DEB в ветку `gh-pages`
+(сайт `https://evilx.github.io/geo-photo-library/`) скриптом `packaging/build-repo.sh <пакеты> <сайт>`:
+`rpm/fedora/<выпуск>/<архитектура>/` с метаданными `createrepo_c`, `deb/pool/<кодовое имя>/` и
+`deb/dists/<кодовое имя>/` (`apt-ftparchive`), файл `geo-photo-library.repo`, ключи `key.asc`/`key.gpg`
+и `index.html` с инструкцией. Скрипт берёт уже лежащие на сайте пакеты, добавляет новые и оставляет
+последние `KEEP` (3) версий на выпуск и архитектуру; ветка `gh-pages` каждый раз — один коммит
+(`push --force`), иначе удалённые пакеты копились бы в истории.
+
+- Подпись: секрет `GPG_PRIVATE_KEY` — закрытый ключ без пароля в ASCII. Подписываются сами RPM
+  (`rpmsign`, `gpgcheck=1`), `repomd.xml` (`repo_gpgcheck=1`) и `Release`/`InRelease` для apt.
+  Сменить ключ — значит заставить всех пользователей заново импортировать `key.asc`/`key.gpg`.
+- Новый выпуск Ubuntu — добавить его кодовое имя в `codename()` в `build-repo.sh` (24.04 noble,
+  26.04 resolute); новый выпуск Fedora подхватывается сам по `.fc<N>` в имени RPM.
+- Pages включён в настройках репозитория: источник — ветка `gh-pages`, корень.
+- Проверка без GitHub: прогнать скрипт в `ubuntu:24.04` (пакеты `createrepo-c apt-utils gnupg rpm`)
+  с одноразовым ключом, затем поставить пакет из `file://` в контейнерах `fedora:45` и `ubuntu:24.04`.
 
 ## Flatpak
 
