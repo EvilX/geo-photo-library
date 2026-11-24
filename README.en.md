@@ -42,6 +42,8 @@ The description below is for Linux; the differences of the macOS version are lis
 - **Selecting several photos:** Ctrl + click (⌘ + click on macOS) adds or removes a photo,
   Shift + click selects a range, dragging a rectangle selects the photos under it, Ctrl+A (⌘A)
   selects all. For several photos the menu offers only Copy and Delete.
+- **Keyboard in the photo list:** arrows, Page Up/Page Down, Home/End move between photos,
+  with Shift they extend the selection.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen
   in Settings (by default, the app for the file type and a detected image editor).
 - A slider under the photo grids scales thumbnails from 50 to 200%, with −/+ buttons (10% steps).

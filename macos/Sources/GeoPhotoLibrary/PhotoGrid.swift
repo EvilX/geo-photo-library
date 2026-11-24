@@ -100,6 +100,9 @@ struct PhotoGrid: View {
     @State private var marquee: CGRect?
     /// Выделение до начала рамки: с ⌘ или ⇧ рамка добавляет к нему.
     @State private var marqueeBase: PhotoSelection?
+    /// Фото, от которого ходят стрелки (с ⇧ — конец диапазона от опорного); `nil` — опорное.
+    @State private var cursor: Photo.ID?
+    @FocusState private var focused: Bool
 
     var body: some View {
         let size = Self.baseSize * model.thumbScale / 100
@@ -135,8 +138,25 @@ struct PhotoGrid: View {
                     // Пустое место под сеткой тоже ловит щелчок (снять выделение) и рамку.
                     .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
                     .contentShape(Rectangle())
-                    .onTapGesture { selection = PhotoSelection() }
+                    .onTapGesture {
+                        focused = true
+                        selection = PhotoSelection()
+                    }
                     .gesture(marqueeGesture(columns: count, cellWidth: cellWidth))
+                }
+                // Управление с клавиатуры: стрелки, Page Up/Down, Home/End; с ⇧ — диапазон.
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focused)
+                .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow, .pageUp, .pageDown, .home, .end],
+                            phases: [.down, .repeat]) { press in
+                    let rows = cellHeight > 0 ? Int((geometry.size.height - Self.spacing) / (cellHeight + Self.spacing)) : 1
+                    guard let target = move(press.key, columns: count, pageRows: max(1, rows)) else {
+                        return .ignored
+                    }
+                    select(target, extend: press.modifiers.contains(.shift))
+                    proxy.scrollTo(target.id)
+                    return .handled
                 }
                 .onChange(of: selection.anchor) { _, id in
                     if let id, marquee == nil {
@@ -176,6 +196,7 @@ struct PhotoGrid: View {
             .onEnded { _ in
                 marquee = nil
                 marqueeBase = nil
+                cursor = nil
             }
     }
 
@@ -202,9 +223,45 @@ struct PhotoGrid: View {
         return found
     }
 
+    /// Фото, к которому ведёт клавиша `key` от текущего (`cursor` или опорного). Без выделения —
+    /// первое фото (End — последнее). По краям сетки — крайнее фото, а не выход за неё.
+    private func move(_ key: KeyEquivalent, columns: Int, pageRows: Int) -> Photo? {
+        guard !photos.isEmpty else { return nil }
+        let last = photos.count - 1
+        guard let id = cursor ?? selection.anchor, let index = photos.firstIndex(where: { $0.id == id }) else {
+            return photos[key == .end ? last : 0]
+        }
+        let target = switch key {
+        case .leftArrow: index - 1
+        case .rightArrow: index + 1
+        case .upArrow: index - columns
+        case .downArrow: index + columns
+        case .pageUp: index - columns * pageRows
+        case .pageDown: index + columns * pageRows
+        case .home: 0
+        default: last
+        }
+        return photos[min(max(target, 0), last)]
+    }
+
+    /// Выделить фото с клавиатуры: без ⇧ — только его, с ⇧ — диапазон от опорного до него.
+    /// Карту не центрирует (`onPick` — только щелчок), как и в GTK: иначе стрелки на вкладке
+    /// карты меняли бы сам список, по которому идут.
+    private func select(_ photo: Photo, extend: Bool) {
+        cursor = photo.id
+        if extend, let anchor = selection.anchor, let from = photos.firstIndex(where: { $0.id == anchor }),
+           let to = photos.firstIndex(where: { $0.id == photo.id }) {
+            selection = PhotoSelection(photos[min(from, to)...max(from, to)], anchor: anchor)
+        } else {
+            selection = PhotoSelection(photo)
+        }
+    }
+
     /// Щелчок по фото: ⌘ — добавить или убрать его, ⇧ — диапазон от опорного фото
     /// (с ⌘⇧ — добавить диапазон), без них — выделить только его.
     private func click(_ photo: Photo) {
+        focused = true
+        cursor = photo.id
         let flags = NSEvent.modifierFlags
         if flags.contains(.shift), let anchor = selection.anchor,
            let from = photos.firstIndex(where: { $0.id == anchor }),
