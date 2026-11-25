@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoPhotoLibrary</title>
+<meta name="description" content="A photo catalog for macOS and Linux that places your photos on a map using GPS coordinates from EXIF.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta property="og:title" content="GeoPhotoLibrary">
+<meta property="og:description" content="Your photos on a map — for macOS and Linux.">
+<meta property="og:image" content="@URL@/screenshots/macos-en.png">
+<style>
+:root {
+  --bg: #fbf8f1;
+  --bg-2: #f3eee2;
+  --surface: #ffffff;
+  --text: #1c1d21;
+  --muted: #5d6170;
+  --line: rgba(28, 29, 33, .1);
+  --accent: #2f6bff;
+  --accent-2: #ff7a3c;
+  --accent-text: #ffffff;
+  --code-bg: #1d2029;
+  --code-text: #e8eaf0;
+  --code-muted: #8b91a3;
+  --shadow: 0 1px 2px rgba(20, 24, 40, .06), 0 12px 40px -8px rgba(20, 24, 40, .18);
+  --glow-1: rgba(47, 107, 255, .16);
+  --glow-2: rgba(255, 122, 60, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1116;
+    --bg-2: #151821;
+    --surface: #1a1d26;
+    --text: #eceef3;
+    --muted: #9aa0b1;
+    --line: rgba(255, 255, 255, .09);
+    --accent: #5b8cff;
+    --accent-2: #ff925c;
+    --code-bg: #0a0c10;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 16px 48px -8px rgba(0, 0, 0, .6);
+    --glow-1: rgba(91, 140, 255, .18);
+    --glow-2: rgba(255, 146, 92, .10);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Cantarell", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+img { max-width: 100%; height: auto; display: block; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+/* Шапка */
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: saturate(1.6) blur(14px);
+  -webkit-backdrop-filter: saturate(1.6) blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+header .wrap { display: flex; align-items: center; gap: 16px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; text-decoration: none; letter-spacing: -.01em; }
+.brand img { width: 30px; height: 30px; }
+nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+nav a {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px; border-radius: 9px;
+  text-decoration: none; font-size: 15px; color: var(--muted);
+  transition: background .15s, color .15s;
+}
+nav a:hover { background: var(--line); color: var(--text); }
+nav svg { width: 17px; height: 17px; flex: none; }
+nav a.sponsor { color: var(--text); border: 1px solid var(--line); }
+nav a.sponsor svg { color: #db61a2; }
+@media (max-width: 640px) {
+  nav a span.l { display: none; }
+  nav a { padding: 8px 10px; }
+  .brand span { display: none; }
+}
+
+/* Первый экран */
+.hero { position: relative; overflow: hidden; padding: 88px 0 40px; text-align: center; }
+.hero::before {
+  content: ""; position: absolute; inset: -20% -10% auto; height: 640px; z-index: -1;
+  background:
+    radial-gradient(40% 50% at 30% 30%, var(--glow-1), transparent 70%),
+    radial-gradient(35% 45% at 72% 25%, var(--glow-2), transparent 70%);
+}
+.hero .icon { width: 96px; height: 96px; margin: 0 auto 24px; filter: drop-shadow(0 10px 24px rgba(47, 107, 255, .25)); }
+h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -.035em; margin: 0 0 18px; font-weight: 750; }
+h1 em {
+  font-style: normal;
+  background: linear-gradient(100deg, var(--accent) 10%, var(--accent-2) 90%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lead { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 640px; margin: 0 auto 32px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 12px 20px; border-radius: 12px;
+  font-weight: 600; font-size: 16px; text-decoration: none;
+  transition: transform .15s, box-shadow .15s, background .15s;
+}
+.btn svg { width: 19px; height: 19px; }
+.btn.primary { background: var(--accent); color: var(--accent-text); box-shadow: 0 6px 20px -6px var(--accent); }
+.btn.secondary { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.btn:hover { transform: translateY(-1px); }
+.meta { margin-top: 18px; font-size: 14px; color: var(--muted); }
+.meta b { color: var(--text); font-weight: 600; }
+
+/* Возможности */
+.features {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;
+  margin: 56px 0 24px; text-align: left;
+}
+.feature { padding: 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.feature h3 { margin: 10px 0 4px; font-size: 16px; letter-spacing: -.01em; }
+.feature p { margin: 0; font-size: 14.5px; color: var(--muted); }
+.feature .ic {
+  width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent);
+}
+.feature:nth-child(even) .ic { background: color-mix(in srgb, var(--accent-2) 16%, transparent); color: var(--accent-2); }
+.feature .ic svg { width: 20px; height: 20px; }
+
+/* Платформы */
+.platform { padding: 72px 0; border-top: 1px solid var(--line); }
+.platform:nth-of-type(even) { background: var(--bg-2); }
+.platform .head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.platform .head svg { width: 30px; height: 30px; }
+h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -.03em; margin: 0; line-height: 1.15; }
+.platform .sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; }
+.shot {
+  border-radius: 14px; overflow: hidden; box-shadow: var(--shadow);
+  border: 1px solid var(--line); background: var(--surface);
+  margin-bottom: 36px;
+}
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; min-width: 0; }
+.step h3 { margin: 0 0 6px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+.step h3 .n {
+  width: 26px; height: 26px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-size: 13px; font-weight: 700;
+  background: var(--accent); color: var(--accent-text);
+}
+.step p { margin: 0 0 12px; color: var(--muted); font-size: 15px; }
+.step p:last-child { margin-bottom: 0; }
+.step a { color: var(--accent); text-decoration: none; }
+.step a:hover { text-decoration: underline; }
+code { font: 13.5px/1.6 ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace; }
+p code, li code { background: var(--line); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+.code {
+  position: relative; background: var(--code-bg); color: var(--code-text);
+  border-radius: 11px; padding: 14px 16px; padding-right: 48px; margin: 0;
+}
+.code pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.code .c { color: var(--code-muted); }
+.copy {
+  position: absolute; top: 8px; right: 8px; width: 32px; height: 32px;
+  border: 0; border-radius: 8px; cursor: pointer;
+  background: rgba(255, 255, 255, .08); color: var(--code-muted);
+  display: grid; place-items: center; transition: background .15s, color .15s;
+}
+.copy:hover { background: rgba(255, 255, 255, .16); color: var(--code-text); }
+.copy svg { width: 16px; height: 16px; }
+.copy.done { color: #5ad18a; }
+.note { font-size: 14px; color: var(--muted); margin-top: 20px; }
+.note a { color: var(--accent); }
+
+footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
+  <symbol id="i-apple" viewBox="0 0 24 24"><path fill="currentColor" d="M16.37 12.6c-.02-2.33 1.9-3.45 1.99-3.5-1.08-1.59-2.77-1.8-3.37-1.83-1.43-.15-2.8.84-3.53.84-.73 0-1.85-.82-3.04-.8-1.56.02-3 .91-3.81 2.31-1.63 2.82-.42 7 1.17 9.29.78 1.12 1.7 2.38 2.91 2.33 1.17-.05 1.61-.75 3.02-.75 1.41 0 1.81.75 3.04.73 1.26-.02 2.05-1.14 2.82-2.27.89-1.3 1.25-2.56 1.27-2.62-.03-.01-2.44-.94-2.47-3.73zM14.05 5.75c.64-.78 1.08-1.86.96-2.94-.93.04-2.05.62-2.72 1.4-.6.69-1.12 1.79-.98 2.85 1.04.08 2.1-.53 2.74-1.31z"/></symbol>
+  <symbol id="i-linux" viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 2c-2.3 0-3.6 1.9-3.6 4.4 0 1.3.2 2.2-.5 3.4-.8 1.3-2.6 3.4-3 5.6-.2 1 .1 1.6.5 2-.4.4-1.5.6-1.7 1.4-.2 1 .9 1.4 2.3 1.8 1.2.3 2.2.9 3 1.2 1.1.4 2.1-.1 2.4-1h1.4c.3.9 1.3 1.4 2.4 1 .8-.3 1.8-.9 3-1.2 1.4-.4 2.5-.8 2.3-1.8-.2-.8-1.3-1-1.7-1.4.4-.4.7-1 .5-2-.4-2.2-2.2-4.3-3-5.6-.7-1.2-.5-2.1-.5-3.4C16.1 3.9 14.8 2 12.5 2zm-1.3 3.6c.5 0 .8.6.8 1.2 0 .3-.1.6-.2.8l-.5-.2c.1-.2.1-.4.1-.6 0-.4-.2-.6-.3-.6-.2 0-.3.3-.3.6v.3l-.5-.1V7c0-.8.4-1.4.9-1.4zm2.6 0c.6 0 1 .6 1 1.4 0 .2 0 .4-.1.6l-.5-.1c.1-.1.1-.3.1-.5 0-.4-.2-.8-.5-.8-.2 0-.4.3-.4.7v.2l-.5-.2c0-.8.4-1.3.9-1.3zm-1.4 2.3c.6 0 1.6.4 2 .6.3.1.4.3.3.5-.1.3-.9.9-1.7 1.2-.4.2-.6.2-.9.2s-.6-.2-1-.5c-.4-.3-.9-.6-1-.9 0-.2.2-.4.5-.6.6-.3 1.2-.5 1.8-.5zm-2 3.3c.7.5 1.4.9 2.2.9.9 0 1.8-.6 2.4-1 .4 1 1.2 2.5 1.3 3.9.1.7 0 1.3-.3 1.6-.2-1-.9-1.2-1.6-1-.2.8-.5 1.4-1 1.8-1 .7-2.6.6-3.4-.3-.4-.4-.7-1-.8-1.6-.6-.1-1.1.2-1.3.8-.3-.4-.4-1-.2-1.8.4-1.4 1.6-2.4 2.7-3.3z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 16 16"><path fill="currentColor" d="M4.25 2.5c-1.34 0-2.75 1.13-2.75 3 0 2.12 1.68 4.03 3.38 5.43a20.4 20.4 0 003.12 2.13 20.4 20.4 0 003.12-2.13C12.82 9.53 14.5 7.62 14.5 5.5c0-1.87-1.41-3-2.75-3-1.38 0-2.6.9-3.04 2.27a.75.75 0 01-1.42 0C6.85 3.4 5.63 2.5 4.25 2.5z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h3.5"/></g></symbol>
+</svg>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="icon.svg" alt=""><span>GeoPhotoLibrary</span></a>
+    <nav>
+      <a href="https://github.com/EvilX/geo-photo-library" title="GitHub"><svg><use href="#i-github"/></svg><span class="l">GitHub</span></a>
+      <a href="#macos" title="macOS"><svg><use href="#i-apple"/></svg><span class="l">macOS</span></a>
+      <a href="#linux" title="Linux"><svg><use href="#i-linux"/></svg><span class="l">Linux</span></a>
+      <a class="sponsor" href="https://github.com/sponsors/EvilX" title="Sponsor"><svg><use href="#i-heart"/></svg><span class="l">Sponsor</span></a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <img class="icon" src="icon.svg" alt="">
+      <h1>Your photos,<br><em>on the map</em></h1>
+      <p class="lead">A fast, private photo catalog that places every shot where it was taken — using GPS
+        coordinates from EXIF. Native on macOS, GTK4 on Linux, one Rust core underneath.</p>
+      <div class="cta">
+        <a class="btn primary" href="#macos"><svg><use href="#i-apple"/></svg>Get for macOS</a>
+        <a class="btn secondary" href="#linux"><svg><use href="#i-linux"/></svg>Install on Linux</a>
+      </div>
+      <p class="meta" id="release">Free and open source · Apache 2.0</p>
+
+      <div class="features">
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.6-7-11.5a7 7 0 0114 0C19 15.4 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></g></svg></div>
+          <h3>Photos on a map</h3>
+          <p>Clustered previews, with the photos of the visible area listed by date.</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></g></svg></div>
+          <h3>By date</h3>
+          <p>A year → month → day tree, and a date filter right on the map.</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z"/></g></svg></div>
+          <h3>Fast</h3>
+          <p>Incremental scans in parallel; tens of thousands of photos stay smooth.</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/></g></svg></div>
+          <h3>Private</h3>
+          <p>Your photos never leave your computer. JPEG, HEIC, PNG, WebP, TIFF, DNG.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="platform" id="macos">
+    <div class="wrap">
+      <div class="head"><svg><use href="#i-apple"/></svg><h2>macOS</h2></div>
+      <p class="sub">A native SwiftUI app with Apple Maps. Apple silicon, macOS 14 or later.</p>
+      <div class="shot"><img src="screenshots/macos-en.png" width="1427" height="1013" loading="lazy"
+        alt="GeoPhotoLibrary on macOS: photo previews on an Apple Maps map and the photos in the visible area"></div>
+      <div class="steps">
+        <div class="step">
+          <h3><span class="n">1</span>Download</h3>
+          <p>Get the disk image from the latest release.</p>
+          <a class="btn primary" id="dmg" href="https://github.com/EvilX/geo-photo-library/releases/latest"><svg><use href="#i-download"/></svg>Download .dmg</a>
+        </div>
+        <div class="step">
+          <h3><span class="n">2</span>Install</h3>
+          <p>Open the disk image and drag <b>GeoPhotoLibrary</b> to <b>Applications</b>.</p>
+        </div>
+        <div class="step">
+          <h3><span class="n">3</span>Allow it to open</h3>
+          <p>The app is not notarized yet, so remove the quarantine flag once:</p>
+          <div class="code"><pre><code>xattr -dr com.apple.quarantine /Applications/GeoPhotoLibrary.app</code></pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="platform" id="linux">
+    <div class="wrap">
+      <div class="head"><svg><use href="#i-linux"/></svg><h2>Linux</h2></div>
+      <p class="sub">GTK4 with an OpenStreetMap map. Signed package repositories for x86_64 and ARM — updates arrive with your system ones.</p>
+      <div class="shot"><img src="screenshots/map-en.png" width="1280" height="820" loading="lazy"
+        alt="GeoPhotoLibrary on Linux: photo previews on an OpenStreetMap world map and the photos in the visible area"></div>
+      <div class="steps">
+        <div class="step">
+          <h3><span class="n">F</span>Fedora 45</h3>
+          <p>Add the repository and install:</p>
+          <div class="code"><pre><code>sudo dnf config-manager addrepo \
+  --from-repofile=@URL@/geo-photo-library.repo
+sudo dnf install geo-photo-library</code></pre></div>
+        </div>
+        <div class="step">
+          <h3><span class="n">U</span>Ubuntu 24.04 / 26.04</h3>
+          <p>Add the signing key and the repository, then install:</p>
+          <div class="code"><pre><code>sudo install -d /etc/apt/keyrings
+curl -fsSL @URL@/key.gpg \
+  | sudo tee /etc/apt/keyrings/geo-photo-library.gpg &gt; /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/geo-photo-library.gpg] @URL@/deb $(. /etc/os-release &amp;&amp; echo $VERSION_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/geo-photo-library.list
+sudo apt update &amp;&amp; sudo apt install geo-photo-library</code></pre></div>
+        </div>
+      </div>
+      <p class="note">Prefer a single file? RPM and DEB packages are attached to every
+        <a href="https://github.com/EvilX/geo-photo-library/releases/latest">release</a>.
+        Building from source is described in the <a href="https://github.com/EvilX/geo-photo-library#readme">README</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>GeoPhotoLibrary · Apache License 2.0</span>
+    <span><a href="https://github.com/EvilX/geo-photo-library">Source on GitHub</a> ·
+      <a href="https://github.com/EvilX/geo-photo-library/issues">Report an issue</a> ·
+      <a href="https://github.com/sponsors/EvilX">Sponsor</a></span>
+  </div>
+</footer>
+
+<script>
+// Кнопки «Копировать» у блоков с командами.
+document.querySelectorAll('.code').forEach(function (block) {
+  var btn = document.createElement('button');
+  btn.className = 'copy';
+  btn.type = 'button';
+  btn.title = 'Copy';
+  btn.innerHTML = '<svg><use href="#i-copy"/></svg>';
+  btn.addEventListener('click', function () {
+    var text = block.querySelector('code').textContent;
+    navigator.clipboard.writeText(text).then(function () {
+      btn.classList.add('done');
+      btn.innerHTML = '<svg><use href="#i-check"/></svg>';
+      setTimeout(function () {
+        btn.classList.remove('done');
+        btn.innerHTML = '<svg><use href="#i-copy"/></svg>';
+      }, 1600);
+    });
+  });
+  block.appendChild(btn);
+});
+
+// Последний выпуск: версия под кнопками и прямая ссылка на DMG.
+fetch('https://api.github.com/repos/EvilX/geo-photo-library/releases/latest')
+  .then(function (r) { return r.ok ? r.json() : null; })
+  .then(function (rel) {
+    if (!rel) return;
+    document.getElementById('release').innerHTML =
+      'Latest release <b>' + rel.tag_name.replace(/[<>&]/g, '') + '</b> · Free and open source · Apache 2.0';
+    var dmg = (rel.assets || []).find(function (a) { return /\.dmg$/.test(a.name); });
+    if (dmg) document.getElementById('dmg').href = dmg.browser_download_url;
+  })
+  .catch(function () {});
+</script>
+</body>
+</html>

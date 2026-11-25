@@ -10,7 +10,8 @@
 # Раскладка сайта:
 #   rpm/fedora/<выпуск>/<архитектура>/*.rpm + repodata/   — выпуск из .fc45 в имени
 #   deb/pool/<кодовое имя>/*.deb, deb/dists/<кодовое имя>/ — выпуск из ~ubuntu24.04 в версии
-#   geo-photo-library.repo, key.asc, key.gpg, index.html
+#   geo-photo-library.repo, key.asc, key.gpg
+#   index.html (лендинг packaging/site), icon.svg, screenshots/
 set -euo pipefail
 
 IN=$(realpath "$1")
@@ -114,23 +115,10 @@ gpgkey=$URL/key.asc
 EOF
 # Без .nojekyll GitHub Pages пропускает файлы и каталоги, начинающиеся с «_».
 touch "$SITE/.nojekyll"
-cat > "$SITE/index.html" <<EOF
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>GeoPhotoLibrary packages</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem}
-pre{background:#f4f4f4;padding:.75rem;overflow-x:auto}</style></head><body>
-<h1>GeoPhotoLibrary — package repositories</h1>
-<p><a href="https://github.com/EvilX/geo-photo-library">Project on GitHub</a></p>
-<h2>Fedora</h2>
-<pre>sudo dnf config-manager addrepo --from-repofile=$URL/$NAME.repo
-sudo dnf install $NAME</pre>
-<h2>Ubuntu 24.04 / 26.04</h2>
-<pre>sudo install -d /etc/apt/keyrings
-curl -fsSL $URL/key.gpg | sudo tee /etc/apt/keyrings/$NAME.gpg &gt; /dev/null
-echo "deb [signed-by=/etc/apt/keyrings/$NAME.gpg] $URL/deb \$(. /etc/os-release &amp;&amp; echo \$VERSION_CODENAME) main" \\
-  | sudo tee /etc/apt/sources.list.d/$NAME.list
-sudo apt update &amp;&amp; sudo apt install $NAME</pre>
-</body></html>
-EOF
+# Страница проекта: лендинг из packaging/site, скриншоты и иконка — из репозитория.
+SRC=$(dirname "$(realpath "$0")")/..
+sed "s|@URL@|$URL|g" "$SRC/packaging/site/index.html" > "$SITE/index.html"
+cp "$SRC/data/icons/io.github.EvilX.GeoPhotoLibrary.svg" "$SITE/icon.svg"
+install -d "$SITE/screenshots"
+cp "$SRC/docs/screenshots/macos-en.png" "$SRC/docs/screenshots/map-en.png" "$SITE/screenshots/"
 find "$SITE" -name '*.rpm' -o -name '*.deb' | sed "s|$SITE/||" | sort
