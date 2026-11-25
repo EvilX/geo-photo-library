@@ -1,6 +1,6 @@
 [package]
 name = "geo-photo-library"
-version = "1.3.5"
+version = "1.3.6"
 edition = "2021"
 description = "Photo catalog with map search by EXIF GPS coordinates"
 license = "Apache-2.0"
