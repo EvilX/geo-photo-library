@@ -119,6 +119,10 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
         content.append(&grid);
         content.append(&apps_hint);
     }
+    let check_updates = gtk::CheckButton::with_label(i18n::check_updates());
+    check_updates.set_active(config.check_updates);
+    check_updates.set_margin_top(8);
+    content.append(&check_updates);
     content.append(&buttons);
     dialog.set_child(Some(&content));
 
@@ -161,6 +165,7 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
             library_path: Some(path),
             viewer: viewer.selected(),
             editor: editor.selected(),
+            check_updates: check_updates.is_active(),
             ..config.clone()
         });
         if let Some(d) = d.upgrade() {

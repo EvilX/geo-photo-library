@@ -7,6 +7,7 @@ use super::{
     menu::{icon_menu, Item},
     settings,
     textures::{self, TextureCache},
+    update_banner::UpdateBanner,
     CSS,
 };
 use crate::{
@@ -138,13 +139,19 @@ pub fn build(app: &gtk::Application) {
     let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     body.append(&stack);
     body.append(&info.root);
+    // Над вкладками — уведомление о новой версии (скрыто, пока её нет).
+    let banner = UpdateBanner::new();
+    let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main.append(&banner.root);
+    body.set_vexpand(true);
+    main.append(&body);
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title(crate::APP_NAME)
         .default_width(1280)
         .default_height(820)
-        .child(&body)
+        .child(&main)
         .build();
     window.set_titlebar(Some(&header));
 
@@ -242,6 +249,9 @@ pub fn build(app: &gtk::Application) {
         start_scan(&state);
     } else {
         open_settings(&state);
+    }
+    if state.config.borrow().check_updates {
+        banner.check();
     }
     debug_action(&state.window);
     debug_screenshot(&state.window, &stack);
@@ -623,6 +633,7 @@ fn open_settings(state: &Rc<App>) {
             let mut c = s.config.borrow_mut();
             c.viewer = new.viewer;
             c.editor = new.editor;
+            c.check_updates = new.check_updates;
         }
         apply_preferred_apps(&s);
         // Сохраняет настройки и при смене папки пересканирует.

@@ -7,6 +7,7 @@ pub mod menu;
 pub mod photo_grid;
 pub mod settings;
 pub mod textures;
+pub mod update_banner;
 pub mod window;
 
 pub const CSS: &str = "
@@ -43,4 +44,9 @@ pub const CSS: &str = "
     box-shadow: 0 0 0 6px rgba(53, 132, 228, 0.25), 0 1px 4px rgba(0, 0, 0, 0.5);
 }
 .pane-title { font-weight: bold; padding: 6px 10px; }
+.update-banner {
+    background: alpha(@accent_bg_color, 0.15);
+    border-bottom: 1px solid alpha(currentColor, 0.15);
+    padding: 2px 6px 2px 12px;
+}
 ";

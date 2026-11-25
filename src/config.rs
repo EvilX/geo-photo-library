@@ -61,6 +61,9 @@ pub struct Config {
     pub viewer: Option<String>,
     /// Редактор фото: id `.desktop`-файла; `None` — найти графический редактор автоматически.
     pub editor: Option<String>,
+    /// Проверять при запуске, нет ли новой версии на GitHub.
+    #[serde(default = "default_true")]
+    pub check_updates: bool,
     /// Положение карты при закрытии окна; `None` — показать все фото.
     /// Таблица TOML — должна идти после простых полей.
     pub map_view: Option<MapView>,
@@ -72,6 +75,10 @@ pub const THUMB_SCALE_STEP: u32 = 5;
 
 fn default_thumb_scale() -> u32 {
     100
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Масштаб, приведённый к допустимому диапазону и шагу.
@@ -88,6 +95,7 @@ impl Default for Config {
             thumb_scale: default_thumb_scale(),
             viewer: None,
             editor: None,
+            check_updates: true,
             map_view: None,
         }
     }
@@ -156,5 +164,15 @@ mod tests {
         assert_eq!((c.viewer, c.editor), (None, None));
         let c: Config = toml::from_str("editor = \"org.gimp.GIMP.desktop\"").unwrap();
         assert_eq!(c.editor.as_deref(), Some("org.gimp.GIMP.desktop"));
+    }
+
+    #[test]
+    fn check_updates() {
+        // Старый конфиг без поля — проверка включена.
+        assert!(toml::from_str::<Config>("thumb_scale = 100").unwrap().check_updates);
+        assert!(Config::default().check_updates);
+        let c = Config { check_updates: false, map_view: Some(MapView { lat: 1.0, lon: 2.0, zoom: 3.0 }), ..Config::default() };
+        let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+        assert!(!back.check_updates);
     }
 }

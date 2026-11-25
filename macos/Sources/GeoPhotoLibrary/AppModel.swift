@@ -205,6 +205,12 @@ final class AppModel {
         didSet { Core.setApp(editor: true, id: editorID) }
     }
 
+    /// Проверять обновления при запуске; новая версия, если она есть (уведомление над вкладками).
+    var checkUpdates: Bool {
+        didSet { Core.setCheckUpdates(checkUpdates) }
+    }
+    var newVersion: String?
+
     /// Фото в видимой области карты по дате съёмки и подпись над списком.
     var mapVisible: [Photo] = []
     var mapInfo = ""
@@ -233,6 +239,7 @@ final class AppModel {
         thumbScale = Double(Core.thumbScale)
         viewerID = Core.app(editor: false)
         editorID = Core.app(editor: true)
+        checkUpdates = Core.checkUpdates
     }
 
     /// Выделение на открытой вкладке.
@@ -275,6 +282,33 @@ final class AppModel {
     func start() {
         reload()
         rescan()
+        if checkUpdates {
+            checkForUpdates()
+        }
+    }
+
+    /// Спросить GitHub о последнем выпуске. Ошибки — только в stderr: уведомление
+    /// появляется, лишь если найдена версия новее текущей.
+    private func checkForUpdates() {
+        if let debug = Core.debugUpdate {
+            newVersion = debug
+            return
+        }
+        guard let url = Core.releasesURL else { return }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                    throw URLError(.badServerResponse)
+                }
+                let version = Core.newerVersion(data)
+                newVersion = version
+            } catch {
+                FileHandle.standardError.write(Data("Проверка обновлений: \(error)\n".utf8))
+            }
+        }
     }
 
     func setLibrary(_ path: String) {

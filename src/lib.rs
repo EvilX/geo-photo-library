@@ -14,5 +14,6 @@ pub mod paths;
 pub mod scanner;
 pub mod thumbs;
 pub mod trace;
+pub mod update;
 #[cfg(windows)]
 pub mod win;

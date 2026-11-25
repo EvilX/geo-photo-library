@@ -367,6 +367,27 @@ pub fn folder_missing() -> &'static str {
     tr("Folder does not exist", "Папка не существует", "Ο φάκελος δεν υπάρχει")
 }
 
+/// Галочка в настройках.
+pub fn check_updates() -> &'static str {
+    tr("Check for updates at startup", "Проверять обновления при запуске", "Έλεγχος για ενημερώσεις κατά την εκκίνηση")
+}
+
+// ---------- Обновления ----------
+
+/// Уведомление о новой версии.
+pub fn update_available(version: &str) -> String {
+    match lang() {
+        Lang::En => format!("A new version {version} is available"),
+        Lang::Ru => format!("Доступна новая версия {version}"),
+        Lang::El => format!("Είναι διαθέσιμη νέα έκδοση {version}"),
+    }
+}
+
+/// Кнопка уведомления: сайт программы.
+pub fn open_site() -> &'static str {
+    tr("Download", "Скачать", "Λήψη")
+}
+
 // ---------- Вкладки ----------
 
 pub fn no_photos() -> &'static str {

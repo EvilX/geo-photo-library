@@ -127,6 +127,10 @@ struct ContentView: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
+            if let version = model.newVersion {
+                UpdateBanner(version: version) { model.newVersion = nil }
+                Divider()
+            }
             if model.libraryPath == nil {
                 ContentUnavailableView {
                     Label(Core.text("photo_folder"), systemImage: "photo.on.rectangle.angled")
@@ -235,6 +239,33 @@ func chooseLibrary(_ model: AppModel) {
 }
 
 /// Настройки (⌘,): папка библиотеки, просмотрщик и редактор. Применяются сразу, как принято в macOS.
+/// Уведомление о новой версии над вкладками: номер версии, ссылка на сайт, закрытие.
+struct UpdateBanner: View {
+    let version: String
+    let close: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle")
+                .foregroundStyle(.tint)
+            Text(Core.updateAvailable(version))
+                .lineLimit(1)
+            Spacer()
+            if let url = Core.siteURL {
+                Link(Core.text("open_site"), destination: url)
+            }
+            Button(action: close) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help(Core.text("close"))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.accentColor.opacity(0.12))
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var apps: [Apps.Choice] = []
@@ -261,6 +292,9 @@ struct SettingsView: View {
                 appPicker("photo_editor", $model.editorID)
             } footer: {
                 hint("apps_hint")
+            }
+            Section {
+                Toggle(Core.text("check_updates"), isOn: $model.checkUpdates)
             }
         }
         .formStyle(.grouped)

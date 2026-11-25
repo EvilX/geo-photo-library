@@ -51,6 +51,20 @@ bool gpl_config_set_thumb_scale(uint32_t percent, char **err);
 // приложения; NULL или пустая строка — выбирать автоматически.
 char *gpl_config_app(bool editor);
 bool gpl_config_set_app(bool editor, const char *id, char **err);
+// Проверять обновления при запуске.
+bool gpl_config_check_updates(void);
+bool gpl_config_set_check_updates(bool check, char **err);
+
+// ---------- Обновления ----------
+
+// Адрес API последнего выпуска на GitHub (site == false) или сайта программы.
+char *gpl_update_url(bool site);
+// Версия из ответа GitHub (json, len байт), если она новее текущей; иначе NULL.
+char *gpl_update_newer(const uint8_t *json, size_t len);
+// Отладка (GEO_PHOTO_LIBRARY_UPDATE): true — версия подменена и запрос не нужен,
+// в *version — она, если новее текущей (иначе NULL).
+bool gpl_update_debug(char **version);
+char *gpl_text_update_available(const char *version);
 
 // ---------- Сканирование ----------
 

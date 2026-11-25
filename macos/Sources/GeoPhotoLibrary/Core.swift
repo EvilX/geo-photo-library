@@ -223,6 +223,28 @@ enum Core {
         take(gpl_text_date_title(year, month, day)) ?? ""
     }
 
+    static func updateAvailable(_ version: String) -> String {
+        take(gpl_text_update_available(version)) ?? version
+    }
+
+    // MARK: Обновления
+
+    static let releasesURL = URL(string: take(gpl_update_url(false)) ?? "")
+    static let siteURL = URL(string: take(gpl_update_url(true)) ?? "")
+
+    /// Версия из ответа GitHub, если она новее текущей.
+    static func newerVersion(_ json: Data) -> String? {
+        json.withUnsafeBytes { buf in
+            take(gpl_update_newer(buf.bindMemory(to: UInt8.self).baseAddress, buf.count))
+        }
+    }
+
+    /// Подменённая для отладки версия: `.some(nil)` — подмена есть, но версия не новее.
+    static var debugUpdate: String?? {
+        var v: UnsafeMutablePointer<CChar>?
+        return gpl_update_debug(&v) ? .some(take(v)) : .none
+    }
+
     // MARK: Настройки
 
     static var libraryPath: String? {
@@ -267,6 +289,14 @@ enum Core {
 
     static func setApp(editor: Bool, id: String?) {
         report { gpl_config_set_app(editor, id ?? "", $0) }
+    }
+
+    static var checkUpdates: Bool {
+        gpl_config_check_updates()
+    }
+
+    static func setCheckUpdates(_ check: Bool) {
+        report { gpl_config_set_check_updates(check, $0) }
     }
 
     /// Выполнить сохранение настроек; ошибку — в stderr.

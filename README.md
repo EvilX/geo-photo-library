@@ -56,6 +56,10 @@ The description below is for Linux; the differences of the macOS version are lis
   in Settings (by default, the app for the file type and a detected image editor).
 - A slider under the photo grids scales thumbnails from 50 to 200%, with −/+ buttons (10% steps).
 - On startup the library is rescanned incrementally (new, changed and deleted files).
+- **Update check:** on startup the app asks GitHub for the latest release
+  (`api.github.com`); if it is newer, a bar above the tabs shows its version and a link to the
+  [website](https://evilx.github.io/geo-photo-library/). Turned off in Settings
+  («Check for updates at startup»).
 - Formats: JPEG, HEIC/HEIF (iPhone, Samsung), PNG, WebP, TIFF, DNG (metadata only).
 - Interface languages: English, Russian, Greek — from the system locale (`LANG`, `LC_MESSAGES`,
   `LANGUAGE`), English by default. Photo dates follow the system date format (`LC_TIME`),

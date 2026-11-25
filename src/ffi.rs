@@ -14,7 +14,7 @@
 use crate::{
     config::{snap_thumb_scale, Config, MapView, SortOrder},
     db::{DateCount, Day, Db, Photo},
-    geo, i18n, metadata, paths, scanner, thumbs, trace,
+    geo, i18n, metadata, paths, scanner, thumbs, trace, update,
 };
 use image::RgbImage;
 use std::{
@@ -120,6 +120,8 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "location_unavailable" => i18n::location_unavailable(),
         "location_denied" => i18n::location_denied(),
         "location_purpose" => i18n::location_purpose(),
+        "check_updates" => i18n::check_updates(),
+        "open_site" => i18n::open_site(),
         _ => return ptr::null_mut(),
     };
     out_string(text)
@@ -281,6 +283,19 @@ pub unsafe extern "C" fn gpl_config_set_app(editor: bool, id: *const c_char, err
     save(&config, err)
 }
 
+/// Проверять обновления при запуске.
+#[no_mangle]
+pub extern "C" fn gpl_config_check_updates() -> bool {
+    Config::load().check_updates
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gpl_config_set_check_updates(check: bool, err: *mut *mut c_char) -> bool {
+    let mut config = Config::load();
+    config.check_updates = check;
+    save(&config, err)
+}
+
 unsafe fn save(config: &Config, err: *mut *mut c_char) -> bool {
     match config.save() {
         Ok(()) => true,
@@ -289,6 +304,42 @@ unsafe fn save(config: &Config, err: *mut *mut c_char) -> bool {
             false
         }
     }
+}
+
+// ---------- Обновления ----------
+
+/// Адрес API последнего выпуска на GitHub (`site == false`) или сайта программы.
+#[no_mangle]
+pub extern "C" fn gpl_update_url(site: bool) -> *mut c_char {
+    out_string(if site { update::SITE_URL } else { update::RELEASES_API })
+}
+
+/// Версия из ответа GitHub (`json`, `len` байт), если она новее текущей; иначе `NULL`.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_update_newer(json: *const u8, len: usize) -> *mut c_char {
+    if json.is_null() {
+        return ptr::null_mut();
+    }
+    match update::newer_than_current(std::slice::from_raw_parts(json, len)) {
+        Some(v) => out_string(v),
+        None => ptr::null_mut(),
+    }
+}
+
+/// Отладка (`GEO_PHOTO_LIBRARY_UPDATE`): `true` — версия подменена и запрос не нужен,
+/// в `version` — она, если новее текущей (иначе `NULL`).
+#[no_mangle]
+pub unsafe extern "C" fn gpl_update_debug(version: *mut *mut c_char) -> bool {
+    let Some(v) = update::debug_override() else { return false };
+    if !version.is_null() {
+        *version = v.map_or(ptr::null_mut(), out_string);
+    }
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gpl_text_update_available(version: *const c_char) -> *mut c_char {
+    out_string(i18n::update_available(str_arg(version).unwrap_or("")))
 }
 
 // ---------- Сканирование ----------
