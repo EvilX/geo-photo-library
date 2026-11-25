@@ -78,11 +78,21 @@ nav a {
 nav a:hover { background: var(--line); color: var(--text); }
 nav svg { width: 17px; height: 17px; flex: none; }
 nav a.sponsor { color: var(--text); border: 1px solid var(--line); }
+.langs { display: inline-flex; margin-left: 8px; padding: 2px; border-radius: 9px; border: 1px solid var(--line); }
+.langs button {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font: 600 12px/1 inherit; font-family: inherit; letter-spacing: .04em;
+  padding: 7px 8px; border-radius: 7px;
+}
+.langs button:hover { color: var(--text); }
+.langs button[aria-pressed="true"] { background: var(--line); color: var(--text); }
 nav a.sponsor svg { color: #db61a2; }
 @media (max-width: 640px) {
   nav a span.l { display: none; }
   nav a { padding: 8px 10px; }
   .brand span { display: none; }
+  .langs { margin-left: 2px; }
+  .langs button { padding: 7px 6px; }
 }
 
 /* Первый экран */
@@ -199,7 +209,10 @@ footer a { color: var(--muted); }
       <a href="https://github.com/EvilX/geo-photo-library" title="GitHub"><svg><use href="#i-github"/></svg><span class="l">GitHub</span></a>
       <a href="#macos" title="macOS"><svg><use href="#i-apple"/></svg><span class="l">macOS</span></a>
       <a href="#linux" title="Linux"><svg><use href="#i-linux"/></svg><span class="l">Linux</span></a>
-      <a class="sponsor" href="https://github.com/sponsors/EvilX" title="Sponsor"><svg><use href="#i-heart"/></svg><span class="l">Sponsor</span></a>
+      <a class="sponsor" href="https://github.com/sponsors/EvilX" title="Sponsor"><svg><use href="#i-heart"/></svg><span class="l" data-i18n="nav_sponsor">Sponsor</span></a>
+      <div class="langs" role="group" aria-label="Language">
+        <button type="button" data-lang="en">EN</button><button type="button" data-lang="ru">RU</button><button type="button" data-lang="el">EL</button>
+      </div>
     </nav>
   </div>
 </header>
@@ -208,35 +221,35 @@ footer a { color: var(--muted); }
   <section class="hero">
     <div class="wrap">
       <img class="icon" src="icon.svg" alt="">
-      <h1>Your photos,<br><em>on the map</em></h1>
-      <p class="lead">A fast, private photo catalog that places every shot where it was taken — using GPS
+      <h1 data-i18n="h1">Your photos,<br><em>on the map</em></h1>
+      <p class="lead" data-i18n="lead">A fast, private photo catalog that places every shot where it was taken — using GPS
         coordinates from EXIF. Native on macOS, GTK4 on Linux, one Rust core underneath.</p>
       <div class="cta">
-        <a class="btn primary" href="#macos"><svg><use href="#i-apple"/></svg>Get for macOS</a>
-        <a class="btn secondary" href="#linux"><svg><use href="#i-linux"/></svg>Install on Linux</a>
+        <a class="btn primary" href="#macos"><svg><use href="#i-apple"/></svg><span data-i18n="cta_mac">Get for macOS</span></a>
+        <a class="btn secondary" href="#linux"><svg><use href="#i-linux"/></svg><span data-i18n="cta_linux">Install on Linux</span></a>
       </div>
-      <p class="meta" id="release">Free and open source · Apache 2.0</p>
+      <p class="meta"><span id="release"></span><span data-i18n="license">Free and open source · Apache 2.0</span></p>
 
       <div class="features">
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.6-7-11.5a7 7 0 0114 0C19 15.4 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></g></svg></div>
-          <h3>Photos on a map</h3>
-          <p>Clustered previews, with the photos of the visible area listed by date.</p>
+          <h3 data-i18n="f1">Photos on a map</h3>
+          <p data-i18n="f1_t">Clustered previews, with the photos of the visible area listed by date.</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></g></svg></div>
-          <h3>By date</h3>
-          <p>A year → month → day tree, and a date filter right on the map.</p>
+          <h3 data-i18n="f2">By date</h3>
+          <p data-i18n="f2_t">A year → month → day tree, and a date filter right on the map.</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z"/></g></svg></div>
-          <h3>Fast</h3>
-          <p>Incremental scans in parallel; tens of thousands of photos stay smooth.</p>
+          <h3 data-i18n="f3">Fast</h3>
+          <p data-i18n="f3_t">Incremental scans in parallel; tens of thousands of photos stay smooth.</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/></g></svg></div>
-          <h3>Private</h3>
-          <p>Your photos never leave your computer. JPEG, HEIC, PNG, WebP, TIFF, DNG.</p>
+          <h3 data-i18n="f4">Private</h3>
+          <p data-i18n="f4_t">Your photos never leave your computer. JPEG, HEIC, PNG, WebP, TIFF, DNG.</p>
         </div>
       </div>
     </div>
@@ -245,22 +258,22 @@ footer a { color: var(--muted); }
   <section class="platform" id="macos">
     <div class="wrap">
       <div class="head"><svg><use href="#i-apple"/></svg><h2>macOS</h2></div>
-      <p class="sub">A native SwiftUI app with Apple Maps. Apple silicon, macOS 14 or later.</p>
-      <div class="shot"><img src="screenshots/macos-en.png" width="1427" height="1013" loading="lazy"
-        alt="GeoPhotoLibrary on macOS: photo previews on an Apple Maps map and the photos in the visible area"></div>
+      <p class="sub" data-i18n="mac_sub">A native SwiftUI app with Apple Maps. Apple silicon, macOS 14 or later.</p>
+      <div class="shot"><img data-shot="macos" src="screenshots/macos-en.png" width="1427" height="1013" loading="lazy"
+        data-i18n-alt="mac_alt" alt="GeoPhotoLibrary on macOS: photo previews on an Apple Maps map and the photos in the visible area"></div>
       <div class="steps">
         <div class="step">
-          <h3><span class="n">1</span>Download</h3>
-          <p>Get the disk image from the latest release.</p>
-          <a class="btn primary" id="dmg" href="https://github.com/EvilX/geo-photo-library/releases/latest"><svg><use href="#i-download"/></svg>Download .dmg</a>
+          <h3><span class="n">1</span><span data-i18n="mac_s1">Download</span></h3>
+          <p data-i18n="mac_s1_t">Get the disk image from the latest release.</p>
+          <a class="btn primary" id="dmg" href="https://github.com/EvilX/geo-photo-library/releases/latest"><svg><use href="#i-download"/></svg><span data-i18n="mac_dl">Download .dmg</span></a>
         </div>
         <div class="step">
-          <h3><span class="n">2</span>Install</h3>
-          <p>Open the disk image and drag <b>GeoPhotoLibrary</b> to <b>Applications</b>.</p>
+          <h3><span class="n">2</span><span data-i18n="mac_s2">Install</span></h3>
+          <p data-i18n="mac_s2_t">Open the disk image and drag <b>GeoPhotoLibrary</b> to <b>Applications</b>.</p>
         </div>
         <div class="step">
-          <h3><span class="n">3</span>Allow it to open</h3>
-          <p>The app is not notarized yet, so remove the quarantine flag once:</p>
+          <h3><span class="n">3</span><span data-i18n="mac_s3">Allow it to open</span></h3>
+          <p data-i18n="mac_s3_t">The app is not notarized yet, so remove the quarantine flag once:</p>
           <div class="code"><pre><code>xattr -dr com.apple.quarantine /Applications/GeoPhotoLibrary.app</code></pre></div>
         </div>
       </div>
@@ -270,20 +283,20 @@ footer a { color: var(--muted); }
   <section class="platform" id="linux">
     <div class="wrap">
       <div class="head"><svg><use href="#i-linux"/></svg><h2>Linux</h2></div>
-      <p class="sub">GTK4 with an OpenStreetMap map. Signed package repositories for x86_64 and ARM — updates arrive with your system ones.</p>
-      <div class="shot"><img src="screenshots/map-en.png" width="1280" height="820" loading="lazy"
-        alt="GeoPhotoLibrary on Linux: photo previews on an OpenStreetMap world map and the photos in the visible area"></div>
+      <p class="sub" data-i18n="linux_sub">GTK4 with an OpenStreetMap map. Signed package repositories for x86_64 and ARM — updates arrive with your system ones.</p>
+      <div class="shot"><img data-shot="map" src="screenshots/map-en.png" width="1280" height="820" loading="lazy"
+        data-i18n-alt="linux_alt" alt="GeoPhotoLibrary on Linux: photo previews on an OpenStreetMap world map and the photos in the visible area"></div>
       <div class="steps">
         <div class="step">
           <h3><span class="n">F</span>Fedora 45</h3>
-          <p>Add the repository and install:</p>
+          <p data-i18n="fedora_t">Add the repository and install:</p>
           <div class="code"><pre><code>sudo dnf config-manager addrepo \
   --from-repofile=@URL@/geo-photo-library.repo
 sudo dnf install geo-photo-library</code></pre></div>
         </div>
         <div class="step">
           <h3><span class="n">U</span>Ubuntu 24.04 / 26.04</h3>
-          <p>Add the signing key and the repository, then install:</p>
+          <p data-i18n="ubuntu_t">Add the signing key and the repository, then install:</p>
           <div class="code"><pre><code>sudo install -d /etc/apt/keyrings
 curl -fsSL @URL@/key.gpg \
   | sudo tee /etc/apt/keyrings/geo-photo-library.gpg &gt; /dev/null
@@ -292,7 +305,7 @@ echo "deb [signed-by=/etc/apt/keyrings/geo-photo-library.gpg] @URL@/deb $(. /etc
 sudo apt update &amp;&amp; sudo apt install geo-photo-library</code></pre></div>
         </div>
       </div>
-      <p class="note">Prefer a single file? RPM and DEB packages are attached to every
+      <p class="note" data-i18n="linux_note">Prefer a single file? RPM and DEB packages are attached to every
         <a href="https://github.com/EvilX/geo-photo-library/releases/latest">release</a>.
         Building from source is described in the <a href="https://github.com/EvilX/geo-photo-library#readme">README</a>.</p>
     </div>
@@ -301,24 +314,140 @@ sudo apt update &amp;&amp; sudo apt install geo-photo-library</code></pre></div>
 
 <footer>
   <div class="wrap">
-    <span>GeoPhotoLibrary · Apache License 2.0</span>
-    <span><a href="https://github.com/EvilX/geo-photo-library">Source on GitHub</a> ·
+    <span data-i18n="foot_l">GeoPhotoLibrary · Apache License 2.0</span>
+    <span data-i18n="foot_r"><a href="https://github.com/EvilX/geo-photo-library">Source on GitHub</a> ·
       <a href="https://github.com/EvilX/geo-photo-library/issues">Report an issue</a> ·
       <a href="https://github.com/sponsors/EvilX">Sponsor</a></span>
   </div>
 </footer>
 
 <script>
+// Переводы. Английский — в самой разметке: он же запасной вариант без JS.
+var T = {
+  ru: {
+    title: 'GeoPhotoLibrary — ваши фото на карте',
+    desc: 'Каталог фотографий для macOS и Linux: снимки на карте по GPS-координатам из EXIF.',
+    nav_sponsor: 'Поддержать',
+    h1: 'Ваши фото —<br><em>на карте</em>',
+    lead: 'Быстрый каталог фотографий, который показывает каждый снимок там, где он сделан, — по GPS-координатам из EXIF. Нативное приложение на macOS, GTK4 на Linux и общее ядро на Rust.',
+    cta_mac: 'Скачать для macOS',
+    cta_linux: 'Установить на Linux',
+    release: 'Последний выпуск <b>%s</b> · ',
+    license: 'Бесплатно, открытый код · Apache 2.0',
+    f1: 'Фото на карте', f1_t: 'Миниатюры, собранные в группы, а справа — снимки видимой области по датам.',
+    f2: 'По датам', f2_t: 'Дерево год → месяц → день и фильтр по датам прямо на карте.',
+    f3: 'Быстро', f3_t: 'Параллельное сканирование только изменившихся файлов: и десятки тысяч фото не тормозят.',
+    f4: 'Приватно', f4_t: 'Фото не покидают ваш компьютер. JPEG, HEIC, PNG, WebP, TIFF, DNG.',
+    mac_sub: 'Нативное приложение на SwiftUI с картами Apple. Apple silicon, macOS 14 и новее.',
+    mac_alt: 'GeoPhotoLibrary на macOS: миниатюры фото на карте Apple и снимки видимой области',
+    mac_s1: 'Скачайте', mac_s1_t: 'Образ диска — в последнем выпуске.', mac_dl: 'Скачать .dmg',
+    mac_s2: 'Установите', mac_s2_t: 'Откройте образ и перетащите <b>GeoPhotoLibrary</b> в <b>Программы</b>.',
+    mac_s3: 'Разрешите запуск', mac_s3_t: 'Приложение пока не нотаризовано, поэтому один раз снимите флаг карантина:',
+    linux_sub: 'GTK4 и карта OpenStreetMap. Подписанные репозитории пакетов для x86_64 и ARM — обновления приходят вместе с системными.',
+    linux_alt: 'GeoPhotoLibrary на Linux: миниатюры фото на карте мира OpenStreetMap и снимки видимой области',
+    fedora_t: 'Подключите репозиторий и установите:',
+    ubuntu_t: 'Добавьте ключ подписи и репозиторий, затем установите:',
+    linux_note: 'Нужен просто файл? Пакеты RPM и DEB приложены к каждому <a href="https://github.com/EvilX/geo-photo-library/releases/latest">выпуску</a>. Сборка из исходников описана в <a href="https://github.com/EvilX/geo-photo-library/blob/main/README.ru.md">README</a>.',
+    foot_l: 'GeoPhotoLibrary · Лицензия Apache 2.0',
+    foot_r: '<a href="https://github.com/EvilX/geo-photo-library">Исходники на GitHub</a> · <a href="https://github.com/EvilX/geo-photo-library/issues">Сообщить об ошибке</a> · <a href="https://github.com/sponsors/EvilX">Поддержать</a>',
+    copy: 'Копировать'
+  },
+  el: {
+    title: 'GeoPhotoLibrary — οι φωτογραφίες σας στον χάρτη',
+    desc: 'Κατάλογος φωτογραφιών για macOS και Linux: οι λήψεις στον χάρτη με βάση τις συντεταγμένες GPS από τα EXIF.',
+    nav_sponsor: 'Υποστήριξη',
+    h1: 'Οι φωτογραφίες σας,<br><em>στον χάρτη</em>',
+    lead: 'Ένας γρήγορος κατάλογος φωτογραφιών που τοποθετεί κάθε λήψη εκεί όπου τραβήχτηκε — με βάση τις συντεταγμένες GPS από τα EXIF. Εγγενής εφαρμογή στο macOS, GTK4 στο Linux και κοινός πυρήνας σε Rust.',
+    cta_mac: 'Λήψη για macOS',
+    cta_linux: 'Εγκατάσταση στο Linux',
+    release: 'Τελευταία έκδοση <b>%s</b> · ',
+    license: 'Δωρεάν, ανοιχτός κώδικας · Apache 2.0',
+    f1: 'Φωτογραφίες στον χάρτη', f1_t: 'Μικρογραφίες σε ομάδες και, δεξιά, οι φωτογραφίες της ορατής περιοχής ανά ημερομηνία.',
+    f2: 'Ανά ημερομηνία', f2_t: 'Δέντρο έτος → μήνας → ημέρα και φίλτρο ημερομηνιών πάνω στον χάρτη.',
+    f3: 'Γρήγορο', f3_t: 'Παράλληλη σάρωση μόνο των αλλαγμένων αρχείων — ομαλή λειτουργία ακόμη και με δεκάδες χιλιάδες φωτογραφίες.',
+    f4: 'Ιδιωτικό', f4_t: 'Οι φωτογραφίες σας δεν φεύγουν ποτέ από τον υπολογιστή σας. JPEG, HEIC, PNG, WebP, TIFF, DNG.',
+    mac_sub: 'Εγγενής εφαρμογή SwiftUI με τους Χάρτες της Apple. Apple silicon, macOS 14 ή νεότερο.',
+    mac_alt: 'Το GeoPhotoLibrary στο macOS: μικρογραφίες φωτογραφιών στους Χάρτες της Apple και οι φωτογραφίες της ορατής περιοχής',
+    mac_s1: 'Λήψη', mac_s1_t: 'Κατεβάστε το είδωλο δίσκου από την τελευταία έκδοση.', mac_dl: 'Λήψη .dmg',
+    mac_s2: 'Εγκατάσταση', mac_s2_t: 'Ανοίξτε το είδωλο δίσκου και σύρετε το <b>GeoPhotoLibrary</b> στις <b>Εφαρμογές</b>.',
+    mac_s3: 'Επιτρέψτε το άνοιγμα', mac_s3_t: 'Η εφαρμογή δεν έχει ακόμη επικυρωθεί (notarization), οπότε αφαιρέστε μία φορά τη σήμανση καραντίνας:',
+    linux_sub: 'GTK4 με χάρτη OpenStreetMap. Υπογεγραμμένα αποθετήρια πακέτων για x86_64 και ARM — οι ενημερώσεις έρχονται μαζί με του συστήματος.',
+    linux_alt: 'Το GeoPhotoLibrary στο Linux: μικρογραφίες φωτογραφιών σε παγκόσμιο χάρτη OpenStreetMap και οι φωτογραφίες της ορατής περιοχής',
+    fedora_t: 'Προσθέστε το αποθετήριο και εγκαταστήστε:',
+    ubuntu_t: 'Προσθέστε το κλειδί υπογραφής και το αποθετήριο και μετά εγκαταστήστε:',
+    linux_note: 'Θέλετε απλώς ένα αρχείο; Πακέτα RPM και DEB επισυνάπτονται σε κάθε <a href="https://github.com/EvilX/geo-photo-library/releases/latest">έκδοση</a>. Η μεταγλώττιση από τον πηγαίο κώδικα περιγράφεται στο <a href="https://github.com/EvilX/geo-photo-library#readme">README</a>.',
+    foot_l: 'GeoPhotoLibrary · Άδεια Apache 2.0',
+    foot_r: '<a href="https://github.com/EvilX/geo-photo-library">Πηγαίος κώδικας στο GitHub</a> · <a href="https://github.com/EvilX/geo-photo-library/issues">Αναφορά προβλήματος</a> · <a href="https://github.com/sponsors/EvilX">Υποστήριξη</a>',
+    copy: 'Αντιγραφή'
+  }
+};
+// Скриншоты есть только на английском и русском.
+var SHOTS = { ru: 'ru' };
+
+var EN = {
+  title: document.title,
+  desc: document.querySelector('meta[name=description]').content,
+  release: 'Latest release <b>%s</b> · ',
+  copy: 'Copy'
+};
+document.querySelectorAll('[data-i18n]').forEach(function (el) { EN[el.dataset.i18n] = el.innerHTML; });
+document.querySelectorAll('[data-i18n-alt]').forEach(function (el) { EN[el.dataset.i18nAlt] = el.alt; });
+T.en = EN;
+
+function store(fn) { try { return fn(); } catch (e) { return null; } }
+
+function pickLang() {
+  var q = new URLSearchParams(location.search).get('lang');
+  if (T[q]) return q;
+  var saved = store(function () { return localStorage.getItem('lang'); });
+  if (T[saved]) return saved;
+  var list = navigator.languages || [navigator.language || 'en'];
+  for (var i = 0; i < list.length; i++) {
+    var code = String(list[i]).slice(0, 2).toLowerCase();
+    if (T[code]) return code;
+  }
+  return 'en';
+}
+
+var lang = 'en', tag = '';
+
+function t(key) { return (T[lang] && T[lang][key]) || EN[key]; }
+
+function apply(l) {
+  lang = l;
+  document.documentElement.lang = l;
+  document.title = t('title');
+  document.querySelector('meta[name=description]').content = t('desc');
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.innerHTML = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-alt]').forEach(function (el) { el.alt = t(el.dataset.i18nAlt); });
+  document.querySelectorAll('[data-shot]').forEach(function (img) {
+    img.src = 'screenshots/' + img.dataset.shot + '-' + (SHOTS[l] || 'en') + '.png';
+  });
+  document.querySelectorAll('.copy').forEach(function (b) { b.title = t('copy'); b.setAttribute('aria-label', t('copy')); });
+  document.querySelectorAll('.langs button').forEach(function (b) {
+    b.setAttribute('aria-pressed', b.dataset.lang === l ? 'true' : 'false');
+  });
+  document.getElementById('release').innerHTML = tag ? t('release').replace('%s', tag) : '';
+}
+
+document.querySelectorAll('.langs button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    store(function () { localStorage.setItem('lang', b.dataset.lang); });
+    var u = new URL(location.href);
+    u.searchParams.delete('lang');
+    history.replaceState(null, '', u);
+    apply(b.dataset.lang);
+  });
+});
+
 // Кнопки «Копировать» у блоков с командами.
 document.querySelectorAll('.code').forEach(function (block) {
   var btn = document.createElement('button');
   btn.className = 'copy';
   btn.type = 'button';
-  btn.title = 'Copy';
   btn.innerHTML = '<svg><use href="#i-copy"/></svg>';
   btn.addEventListener('click', function () {
-    var text = block.querySelector('code').textContent;
-    navigator.clipboard.writeText(text).then(function () {
+    navigator.clipboard.writeText(block.querySelector('code').textContent).then(function () {
       btn.classList.add('done');
       btn.innerHTML = '<svg><use href="#i-check"/></svg>';
       setTimeout(function () {
@@ -330,13 +459,15 @@ document.querySelectorAll('.code').forEach(function (block) {
   block.appendChild(btn);
 });
 
+apply(pickLang());
+
 // Последний выпуск: версия под кнопками и прямая ссылка на DMG.
 fetch('https://api.github.com/repos/EvilX/geo-photo-library/releases/latest')
   .then(function (r) { return r.ok ? r.json() : null; })
   .then(function (rel) {
     if (!rel) return;
-    document.getElementById('release').innerHTML =
-      'Latest release <b>' + rel.tag_name.replace(/[<>&]/g, '') + '</b> · Free and open source · Apache 2.0';
+    tag = String(rel.tag_name).replace(/[<>&"]/g, '');
+    apply(lang);
     var dmg = (rel.assets || []).find(function (a) { return /\.dmg$/.test(a.name); });
     if (dmg) document.getElementById('dmg').href = dmg.browser_download_url;
   })
