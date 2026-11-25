@@ -11,7 +11,7 @@
 #   rpm/fedora/<выпуск>/<архитектура>/*.rpm + repodata/   — выпуск из .fc45 в имени
 #   deb/pool/<кодовое имя>/*.deb, deb/dists/<кодовое имя>/ — выпуск из ~ubuntu24.04 в версии
 #   geo-photo-library.repo, key.asc, key.gpg
-#   index.html (лендинг packaging/site), icon.svg, screenshots/
+#   index.html и sitemap.xml (лендинг packaging/site), icon.svg, screenshots/
 set -euo pipefail
 
 IN=$(realpath "$1")
@@ -118,6 +118,9 @@ touch "$SITE/.nojekyll"
 # Страница проекта: лендинг из packaging/site, скриншоты и иконка — из репозитория.
 SRC=$(dirname "$(realpath "$0")")/..
 sed "s|@URL@|$URL|g" "$SRC/packaging/site/index.html" > "$SITE/index.html"
+# Карта сайта для поисковиков: страница на трёх языках (?lang=), дата — день выпуска.
+# robots.txt не кладём: у сайта проекта он был бы не в корне домена, и поисковики его не читают.
+sed -e "s|@URL@|$URL|g" -e "s|@DATE@|$(date -u +%F)|g" "$SRC/packaging/site/sitemap.xml" > "$SITE/sitemap.xml"
 cp "$SRC/data/icons/io.github.EvilX.GeoPhotoLibrary.svg" "$SITE/icon.svg"
 install -d "$SITE/screenshots"
 cp "$SRC"/docs/screenshots/{macos,map,windows}-{en,ru}.png "$SITE/screenshots/"
