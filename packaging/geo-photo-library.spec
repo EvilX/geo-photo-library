@@ -1,4 +1,4 @@
-# Release-сборка Rust без отладочной информации — debuginfo-пакет был бы пустым.
+# Rust release build without debug info: the debuginfo package would be empty.
 %global debug_package %{nil}
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
@@ -9,7 +9,7 @@ Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
 URL:            https://github.com/EvilX/geo-photo-library
 Source0:        %{name}-%{version}.tar.gz
-# Зависимости Cargo (cargo vendor), чтобы собирать без сети.
+# Cargo dependencies (cargo vendor), to build without network access.
 Source1:        %{name}-%{version}-vendor.tar.xz
 
 BuildRequires:  cargo
@@ -63,117 +63,117 @@ cargo test --release --offline --locked
 
 %changelog
 * Wed Nov 25 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.5-1
-- Версия для Windows (x64 и ARM64): установщик и переносная версия
+- Windows version (x64 and ARM64): installer and portable version
 
 * Wed Nov 25 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.4-1
-- Исправлена ошибка «database is locked» при первом сканировании новой библиотеки
+- Fixed "database is locked" on the first scan of a new library
 
 * Tue Nov 24 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.3-1
-- macOS: управление списком фото с клавиатуры (стрелки, Page Up/Down, Home/End, Shift)
+- macOS: keyboard navigation in the photo list (arrows, Page Up/Down, Home/End, Shift)
 
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.2-1
-- Репозитории пакетов dnf и apt на GitHub Pages
+- dnf and apt package repositories on GitHub Pages
 
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.1-1
-- Фильтр карты по датам: при повторном открытии дерево раскрыто до выбранной строки
+- Map date filter: when reopened, the tree is expanded down to the selected row
 
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3-1
-- Месяцы в дереве дат — от новых к старым (декабрь сверху), как годы
+- Months in the date tree go from newest to oldest (December on top), like years
 
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2.3-1
-- macOS: интерфейс Liquid Glass и в локальной сборке (версия SDK в бинарнике)
-- macOS: панель «Информация» не сдвигает вкладки в заголовке окна
-- Для Linux изменений нет
+- macOS: Liquid Glass interface in local builds too (SDK version in the binary)
+- macOS: the Information panel no longer shifts the tabs in the window title bar
+- No changes for Linux
 
 * Thu Nov 19 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2.2-1
-- Выделение нескольких фото: Ctrl/⌘ + щелчок, Shift + щелчок, рамка мышью, выделить все;
-  над несколькими фото — копирование и удаление, панель «Информация» пуста
-- Подтверждение перед перемещением фото в корзину
+- Selecting several photos: Ctrl/⌘ + click, Shift + click, rubber band, select all;
+  for several photos — copy and delete, the Information panel is empty
+- Confirmation before moving photos to the trash
 
 * Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2.1-1
-- Выбор периода в фильтре карты по датам не меняет положение и масштаб карты
+- Choosing a period in the map date filter keeps the map position and zoom
 
 * Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.2-1
-- Фильтр карты по датам: плавающая панель «Всё время» и дерево год → месяц → день
-  с датами фото в видимой области карты (Linux и macOS)
-- Общее дерево дат для вкладки «По датам» и фильтра карты (GTK)
+- Map date filter: a floating panel with "All time" and a year → month → day tree
+  with the dates of photos in the visible map area (Linux and macOS)
+- Shared date tree for the "By date" tab and the map filter (GTK)
 
 * Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.6-1
-- macOS: годы в дереве дат — от новых к старым, как в версии GTK
+- macOS: years in the date tree go from newest to oldest, as in the GTK version
 
 * Wed Nov 18 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.5-1
-- Стопка фотографий на иконке крупнее и выше
-- macOS: меню «Правка» — действия с выбранным фото (копировать, удалить,
-  просмотр, редактирование, показать в Finder)
-- macOS: заголовок у панели «Информация»
+- Larger and higher photo stack on the icon
+- macOS: the Edit menu acts on the selected photo (copy, delete,
+  view, edit, show in Finder)
+- macOS: title for the Information panel
 
 * Tue Nov 17 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.4-1
-- macOS: в меню «Правка» только нужные пункты, убрано меню справки
-- В релиз попадает только DMG текущей версии
+- macOS: only relevant items in the Edit menu, Help menu removed
+- Only the DMG of the current version goes into the release
 
 * Tue Nov 17 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.3-1
-- Лицензия Apache 2.0
-- Пакеты RPM и образ DMG прикладываются к релизам GitHub
-- macOS: дерево дат в стиле боковой панели Finder, слайдер масштаба без отметок,
-  тёмный вариант иконки
+- Apache 2.0 license
+- RPM packages and the DMG image are attached to GitHub releases
+- macOS: Finder-style sidebar date tree, zoom slider without tick marks,
+  dark icon variant
 
 * Mon Nov 16 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.2-1
-- Название программы в одно слово: GeoPhotoLibrary
-- Пункт «Показать на диске» в меню фото: файловый менеджер открывает папку и выделяет файл
+- The app name is one word: GeoPhotoLibrary
+- "Show in folder" in the photo menu: the file manager opens the folder and selects the file
 
 * Mon Nov 16 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1.1-1
-- Версия для macOS: кнопки «Пересканировать» и «Информация» — у правого края заголовка окна
-- Версия для macOS: выбор сортировки над сеткой больше не сжимается до одной буквы
-- Для Linux изменений нет
+- macOS version: the Rescan and Information buttons are at the right edge of the title bar
+- macOS version: the sort picker above the grid no longer shrinks to one letter
+- No changes for Linux
 
 * Mon Nov 16 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.1-1
-- Ядро (сканер, база, миниатюры, EXIF) выделено в библиотеку, интерфейс GTK — её клиент
-- Нативная версия для macOS на том же ядре (SwiftUI + MapKit), распространяется отдельно (DMG)
-- Для Linux возможности и формат данных не изменились
+- The core (scanner, database, thumbnails, EXIF) is a library; the GTK interface is its client
+- Native macOS version on the same core (SwiftUI + MapKit), distributed separately (DMG)
+- No feature or data format changes for Linux
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.0.1-1
-- Исправлено определение местоположения (кнопка «Моё местоположение»)
-- Исправлена утечка памяти в диалоге настроек
-- Убраны предупреждения GTK при закрытии окна
+- Fixed location lookup (the "My location" button)
+- Fixed a memory leak in the settings dialog
+- Removed GTK warnings when closing the window
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.0-1
-- Даты под фото — в формате системной локали
-- Ускорение карты на больших библиотеках, программа не тратит CPU в простое
-- Исправлена утечка памяти при закрытии окна
+- Photo dates use the system locale format
+- Faster map on large libraries; no CPU use when idle
+- Fixed a memory leak when closing the window
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.7-1
-- Кнопка «Моё местоположение» на карте
-- Кнопки «−»/«+» у слайдера масштаба миниатюр
-- Иконки в главном меню
+- "My location" button on the map
+- "−"/"+" buttons next to the thumbnail size slider
+- Icons in the main menu
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.6-1
-- Кнопка «i» в заголовке открывает и закрывает панель «Информация»
-- Положение и масштаб карты запоминаются между запусками
-- Пункт «Найти на карте» в меню фото
-- Иконки у пунктов меню фото
+- The "i" button in the title bar opens and closes the Information panel
+- Map position and zoom are remembered between launches
+- "Show on map" in the photo menu
+- Icons in the photo menu
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.5-1
-- Панель «Информация» с данными файла и EXIF выбранного фото
+- Information panel with file and EXIF data of the selected photo
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.4-1
-- Поиск местности на карте (геокодер Nominatim)
-- CI: тесты и сборка RPM для Fedora 45 в GitHub Actions
+- Place search on the map (Nominatim geocoder)
+- CI: tests and RPM builds for Fedora 45 on GitHub Actions
 
 * Sun Nov 15 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.3-1
-- Локализация интерфейса: английский, русский, греческий
-- Вкладка «Карта» открывается первой
-- Сортировка фото и масштаб миниатюр 50…200%
-- Главное меню: настройки и окно «О программе»
-- Контекстное меню фото: копирование, просмотр, редактирование, удаление в корзину
-- Выбор просмотрщика и редактора в настройках
-- Сборка Flatpak
+- Interface localization: English, Russian, Greek
+- The Map tab opens first
+- Photo sorting and thumbnail size 50…200%
+- Main menu: settings and the About window
+- Photo context menu: copy, view, edit, move to trash
+- Choice of viewer and editor in settings
+- Flatpak build
 
 * Sat Nov 14 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.2-1
-- Ускорение сканирования: масштабированный JPEG, встроенные миниатюры HEIC
-- Асинхронная загрузка миниатюр в интерфейсе
-- Смена папки во время сканирования отменяет его и запускает заново
-- Дерево дат и карта обновляются по ходу длинного сканирования
-- Миниатюры для DNG (iPhone ProRAW)
+- Faster scanning: scaled JPEG decoding, embedded HEIC thumbnails
+- Asynchronous thumbnail loading in the interface
+- Changing the folder during a scan cancels it and starts over
+- The date tree and map update during a long scan
+- Thumbnails for DNG (iPhone ProRAW)
 
 * Sat Nov 14 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 0.1-1
-- Первый выпуск
+- First release
