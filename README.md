@@ -11,7 +11,9 @@ GTK4 with an OpenStreetMap map on Linux and a native SwiftUI one with a MapKit m
 
 The macOS version was added in 1.1; nothing has changed feature-wise on Linux since 1.0.
 
-![Map tab: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
+![The macOS app: photos on an Apple Maps map and the photos in the visible area](docs/screenshots/macos-en.png)
+
+![Map tab on Linux: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
 
 ## Features
 
@@ -120,8 +122,6 @@ A native app: the Rust core (scanner, database, thumbnails) is built as a static
 interface is SwiftUI with a MapKit map (`macos/`). Requires macOS 14 or later, Xcode with its
 license accepted (`sudo xcodebuild -license accept`) and Rust (rustup); GTK and libheif are not
 needed — HEIC is decoded by the system.
-
-![The macOS app: photos on an Apple Maps map and the photos in the visible area](docs/screenshots/macos-en.png)
 
 ```sh
 ./macos/build-app.sh --run   # → target/macos/GeoPhotoLibrary.app
