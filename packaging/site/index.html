@@ -68,6 +68,10 @@ header {
 header .wrap { display: flex; align-items: center; gap: 16px; height: 60px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; text-decoration: none; letter-spacing: -.01em; }
 .brand img { width: 30px; height: 30px; }
+/* Ссылка на корень сайта (evilx.github.io) — все проекты автора */
+.home { font-weight: 650; letter-spacing: -.01em; text-decoration: none; color: var(--muted); transition: color .15s; }
+.home:hover { color: var(--text); }
+.crumb { color: var(--muted); opacity: .6; margin: 0 -6px; }
 nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 nav a {
   display: inline-flex; align-items: center; gap: 7px;
@@ -205,6 +209,7 @@ footer a { color: var(--muted); }
 
 <header>
   <div class="wrap">
+    <a class="home" href="../" title="EvilX — all projects">EvilX</a><span class="crumb" aria-hidden="true">/</span>
     <a class="brand" href="#top"><img src="icon.svg" alt=""><span>GeoPhotoLibrary</span></a>
     <nav>
       <a href="https://github.com/EvilX/geo-photo-library" title="GitHub"><svg><use href="#i-github"/></svg><span class="l">GitHub</span></a>
