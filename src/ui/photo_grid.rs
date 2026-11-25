@@ -403,6 +403,9 @@ pub fn zoom_scale() -> gtk::Scale {
     scale.set_format_value_func(|_, v| format!("{v:.0}%"));
     // Отметка исходного размера.
     scale.add_mark(100.0, gtk::PositionType::Bottom, None);
+    // Под отметку GTK резервирует место снизу, и полоса оказывалась выше кнопок «−»/«+»:
+    // такой же отступ сверху (класс `thumb-zoom` в CSS) возвращает её на середину строки.
+    scale.add_css_class("thumb-zoom");
     scale.set_size_request(160, -1);
     scale.set_tooltip_text(Some(i18n::thumb_size_tooltip()));
     scale

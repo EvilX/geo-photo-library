@@ -44,6 +44,8 @@ pub const CSS: &str = "
     box-shadow: 0 0 0 6px rgba(53, 132, 228, 0.25), 0 1px 4px rgba(0, 0, 0, 0.5);
 }
 .pane-title { font-weight: bold; padding: 6px 10px; }
+/* Высота области отметок слайдера в Adwaita: отступ 6px + риска 6px. */
+.thumb-zoom { margin-top: 12px; }
 .update-banner {
     background: alpha(@accent_bg_color, 0.15);
     border-bottom: 1px solid alpha(currentColor, 0.15);
