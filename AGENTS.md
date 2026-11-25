@@ -2,7 +2,7 @@
 
 Инструкции для ИИ-агентов, работающих с репозиторием **GeoPhotoLibrary** —
 каталогизатором фотографий с поиском снимков на карте по GPS из EXIF: ядро на Rust + SQLite,
-интерфейс GTK4 с картой OSM на Linux и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (английский, по умолчанию)
+интерфейс GTK4 с картой OSM на Linux и Windows и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (английский, по умолчанию)
 и `README.ru.md` (русский).
 
 ## Язык и стиль
@@ -43,7 +43,9 @@ cargo test --release
 | `src/lib.rs` | ядро как библиотека: всё, кроме `main.rs`, `geocode.rs`, `location.rs` и `ui/` |
 | `src/main.rs` | запуск GTK-приложения; CLI-режим `--scan <папка>` без GUI |
 | `src/ffi.rs` | C-интерфейс ядра для приложения macOS (фича `ffi`) |
-| `src/paths.rs` | каталоги данных: XDG через GLib, без GTK — `~/Library` |
+| `src/paths.rs` | каталоги данных: XDG через GLib, на Windows — `%LOCALAPPDATA%`, без GTK — `~/Library` |
+| `src/win.rs` | Windows (kernel32): языки интерфейса, формат дат, консоль для `--scan` |
+| `build.rs` | на Windows вкомпоновывает в exe иконку и версию (`packaging/windows/*.rc`, `windres`) |
 | `src/scanner.rs` | инкрементальное сканирование (size+mtime), rayon, пачки по 64, отмена через `AtomicBool` |
 | `src/metadata.rs` | EXIF (kamadak-exif): дата, GPS, ориентация, камера; подробности для панели «Информация» |
 | `src/thumbs.rs` | квадратные миниатюры 320×320: JPEG через mozjpeg с IDCT-масштабом, HEIC — встроенная миниатюра, DNG — встроенное JPEG-превью |
@@ -66,9 +68,9 @@ cargo test --release
 | `src/ui/textures.rs` | асинхронная загрузка текстур, LRU-кэш 128 МБ |
 | `macos/` | нативный интерфейс macOS: пакет SwiftPM (SwiftUI + MapKit), `build-app.sh`, `build-dmg.sh`, `Info.plist`, `AppIcon.svg` (иконка на весь квадрат, рисунок как в `data/icons`) |
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
-| `packaging/` | RPM spec и `build-rpm.sh`, `build-deb.sh` (DEB для Ubuntu), `build-repo.sh` (репозитории dnf/apt для GitHub Pages); `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
+| `packaging/` | `windows/` — `build-windows.sh` (MSYS2), установщик Inno Setup (`.iss`), иконка `.ico`; RPM spec и `build-rpm.sh`, `build-deb.sh` (DEB для Ubuntu), `build-repo.sh` (репозитории dnf/apt для GitHub Pages); `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
-| `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` (Linux), `macos-ru.png`, `macos-en.png` |
+| `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` (Linux), `macos-*.png`, `windows-*.png` |
 
 Данные пользователя: `~/.config/geo-photo-library/config.toml`,
 `~/.local/share/geo-photo-library/library.db`, `~/.cache/geo-photo-library/thumbs/`.
@@ -163,6 +165,35 @@ cargo test --release --no-default-features --features ffi --lib   # тесты �
   панель «Информация» пуста. Щелчок с ⌘/⇧ и рамка карту не центрируют (`onPick` — только обычный щелчок).
 - Изменения ядра проверять и для GTK: на Mac — в контейнере
   (`docker run --rm -v "$PWD":/src:ro -e CARGO_TARGET_DIR=/target fedora:45 …`, зависимости как в CI).
+
+## Windows
+
+Тот же интерфейс GTK, собирается в MSYS2: UCRT64 (x64) или CLANGARM64 (ARM64), пакеты — в
+шапке `packaging/windows/build-windows.sh`. Скрипт собирает exe, кладёт рядом DLL, модули GIO
+(TLS — `libgiognutls`), загрузчики gdk-pixbuf, схемы GSettings, темы значков, `gdbus.exe` и делает
+ZIP и установщик Inno Setup (6 или 7) → `target/windows/GeoPhotoLibrary-<версия>-<арх>-setup.exe`.
+
+- `.cargo/config.toml` задаёт `PKG_CONFIG=/usr/bin/pkg-config` для Fedora; в MSYS2 его перекрывает
+  `PKG_CONFIG=$MINGW_PREFIX/bin/pkgconf.exe` (скрипт ставит сам).
+- **DLL — через `ntldd -R`, не `ldd`:** на ARM64 `ldd` MSYS2 работает под эмуляцией x64 и теряет
+  зависимости (так пропадал `libgnutls` — без него нет тайлов OSM). Фильтр по выводу — одним `awk`:
+  запуск процесса на строку в MSYS2 медленный (было 10 минут вместо 30 с).
+- Пути: `canonicalize()` даёт `\\?\C:\…` — сканер отрезает префикс (`scanner::strip_verbatim`), иначе он
+  виден в панели «Информация» и в буфере обмена.
+- Язык — `GetUserPreferredUILanguages`, если не заданы `LANG`/`LC_*`; даты — `GetLocaleInfoEx`
+  (короткие форматы) → strftime GLib (`win::convert_pattern`). Кнопки «Моё местоположение» нет
+  (портал D-Bus). `DesktopAppInfo` только для Unix: программы ищутся среди `gio::AppInfo::all()`,
+  редактор по категориям не ищется — сразу окно выбора.
+- Данные — `%LOCALAPPDATA%\geo-photo-library\` (кэш GLib на Windows — `INetCache`, туда не класть);
+  `XDG_*_HOME` GLib учитывает и на Windows — так изолируются тесты.
+- exe с `windows_subsystem = "windows"`: без консоли; `--scan` подключается к консоли родителя.
+- Иконка `packaging/windows/geo-photo-library.ico` сделана из `data/icons/…svg` (rsvg-convert + magick,
+  16…256) — менять вместе с ней.
+- Проверка на ВМ: GUI из сессии SSH не виден — запускать через `schtasks /create … /it` в сессии
+  вошедшего пользователя, с `GEO_PHOTO_LIBRARY_SCREENSHOT` и отдельными `XDG_*_HOME`.
+  Установщик ставится тихо: `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER`.
+- CI: задача `windows` (матрица `windows-latest` UCRT64 и `windows-11-arm` CLANGARM64, `msys2/setup-msys2`),
+  артефакты `geo-photo-library-windows-<x64|arm64>`, на теге — в релиз.
 
 ## Важные инварианты и грабли
 
@@ -352,11 +383,11 @@ root — агент её не выполняет, а даёт пользоват
 (`packaging/build-deb.sh`) матрицей Ubuntu 24.04/26.04 × amd64/arm64 в контейнерах `ubuntu:<выпуск>`
 с Rust из rustup; пакет ставится в тот же контейнер (`apt-get install ./…deb`), артефакты
 `geo-photo-library-ubuntu<выпуск>-<архитектура>-deb`.
-Независимо от них — задача `dmg` на `macos-latest`: тесты ядра без GTK и `macos/build-dmg.sh`
+Независимо от них — задача `windows` (см. «Windows») и задача `dmg` на `macos-latest`: тесты ядра без GTK и `macos/build-dmg.sh`
 (артефакт `geo-photo-library-macos-dmg`, только arm64; подпись ad-hoc, без нотаризации —
 для неё нужны сертификат Developer ID и секреты в репозитории).
-На теге `v*` задача `release` (после `rpm`, `deb` и `dmg`) проверяет, что тег равен версии из
-`Cargo.toml` (`v1.1.2` ↔ `1.1.2`, `v1.1` ↔ `1.1.0`), и прикладывает RPM, DEB и DMG к релизу
+На теге `v*` задача `release` (после `rpm`, `deb`, `dmg` и `windows`) проверяет, что тег равен версии из
+`Cargo.toml` (`v1.1.2` ↔ `1.1.2`, `v1.1` ↔ `1.1.0`), и прикладывает RPM, DEB, DMG и установщики Windows (с ZIP) к релизу
 GitHub: если релиз уже создан в интерфейсе — догружает файлы, если запушен только тег —
 создаёт релиз с автоописанием. Затем задача `repo` обновляет репозитории пакетов (см. ниже). Выпуск: поднять версию (см. «Пакет RPM»), запушить в `main`,
 затем создать релиз с тегом `v<версия>` на GitHub или `git tag v<версия> && git push origin v<версия>`.
@@ -370,7 +401,7 @@ GitHub: если релиз уже создан в интерфейсе — до
 `deb/dists/<кодовое имя>/` (`apt-ftparchive`), файл `geo-photo-library.repo`, ключи `key.asc`/`key.gpg`
 и `index.html` — лендинг проекта из `packaging/site/index.html` (тёмная/светлая тема по системной,
 языки en/ru/el — по браузеру, переключатель в шапке, `?lang=ru`; английский текст — в разметке, ru и el — в словаре `T`
-в скрипте страницы, менять все три сразу; скриншоты `macos-*`/`map-*` для en и ru (у греческого — английские) и иконка копируются из репозитория, `@URL@` заменяется адресом сайта;
+в скрипте страницы, менять все три сразу; скриншоты `macos-*`/`map-*`/`windows-*` для en и ru (у греческого — английские) и иконка копируются из репозитория, `@URL@` заменяется адресом сайта;
 версию и прямую ссылку на DMG страница берёт из API GitHub). Лендинг обновляется только с выпуском. Скрипт берёт уже лежащие на сайте пакеты, добавляет новые и оставляет
 последние `KEEP` (3) версий на выпуск и архитектуру; ветка `gh-pages` каждый раз — один коммит
 (`push --force`), иначе удалённые пакеты копились бы в истории.

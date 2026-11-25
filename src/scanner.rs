@@ -70,7 +70,7 @@ pub fn scan(
     }
     // Абсолютный канонический путь: иначе `--scan ./lib` и GUI с полным путём
     // видели бы одну библиотеку как разные файлы и пересканировали её целиком.
-    let root = &root.canonicalize()?;
+    let root = &canonical(root)?;
     std::fs::create_dir_all(thumbs_dir)?;
     let mut db = Db::open(db_path)?;
     let known = db.known_files()?;
@@ -156,10 +156,36 @@ fn process(t: &Todo, thumbs_dir: &Path) -> NewPhoto {
     }
 }
 
+/// `canonicalize` без префикса `\\?\` на Windows (`\\?\C:\Photos` → `C:\Photos`,
+/// `\\?\UNC\srv\share` → `\\srv\share`): с ним пути видны пользователю в панели
+/// «Информация» и в буфере обмена, и не все программы открывают такие файлы.
+fn canonical(path: &Path) -> std::io::Result<PathBuf> {
+    let path = path.canonicalize()?;
+    Ok(strip_verbatim(&path.to_string_lossy()).map(PathBuf::from).unwrap_or(path))
+}
+
+fn strip_verbatim(path: &str) -> Option<String> {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return Some(format!(r"\\{rest}"));
+    }
+    let rest = path.strip_prefix(r"\\?\")?;
+    // Только обычный путь с буквой диска: «X:\…».
+    let b = rest.as_bytes();
+    (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\').then(|| rest.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::RgbImage;
+
+    #[test]
+    fn verbatim_paths() {
+        assert_eq!(strip_verbatim(r"\\?\C:\Photos\a.jpg").as_deref(), Some(r"C:\Photos\a.jpg"));
+        assert_eq!(strip_verbatim(r"\\?\UNC\nas\photos").as_deref(), Some(r"\\nas\photos"));
+        assert_eq!(strip_verbatim(r"\\?\Volume{1234}\x"), None);
+        assert_eq!(strip_verbatim("/home/user/Photos"), None);
+    }
 
     #[test]
     fn supported() {

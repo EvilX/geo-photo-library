@@ -1,7 +1,8 @@
 //! Локализация интерфейса: английский (по умолчанию), русский, греческий.
 //!
 //! Язык выбирается один раз при запуске по переменным окружения в порядке glibc:
-//! `LANGUAGE` (список через `:`), затем `LC_ALL`, `LC_MESSAGES`, `LANG`.
+//! `LANGUAGE` (список через `:`), затем `LC_ALL`, `LC_MESSAGES`, `LANG`. На Windows этих
+//! переменных обычно нет — тогда по языкам интерфейса Windows (первый поддерживаемый).
 //! Все строки, которые видит пользователь, собраны здесь; диагностика в stderr
 //! (`eprintln!`, трассировка) не переводится.
 use chrono::NaiveDateTime;
@@ -18,7 +19,14 @@ static LANG: OnceLock<Lang> = OnceLock::new();
 
 /// Текущий язык интерфейса.
 pub fn lang() -> Lang {
-    *LANG.get_or_init(|| detect(|k| std::env::var(k).ok()))
+    *LANG.get_or_init(|| {
+        let var = |k: &str| std::env::var(k).ok();
+        #[cfg(windows)]
+        if ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"].iter().all(|k| var(k).is_none_or(|v| v.is_empty())) {
+            return crate::win::ui_languages().iter().find_map(|l| parse(l)).unwrap_or(Lang::En);
+        }
+        detect(var)
+    })
 }
 
 /// Задать язык явно (код `ru`, `el_GR`…) — до первого обращения к строкам.
@@ -670,10 +678,17 @@ pub fn datetime(dt: &NaiveDateTime) -> String {
     datetime_in(lang(), dt)
 }
 
+/// Шаблон «дата время» из региональных настроек Windows (короткие форматы даты и времени).
+#[cfg(all(feature = "gtk-ui", windows))]
+fn locale_datetime_pattern() -> Option<&'static str> {
+    static PATTERN: OnceLock<Option<String>> = OnceLock::new();
+    PATTERN.get_or_init(crate::win::datetime_pattern).as_deref()
+}
+
 /// Шаблон «дата время» из локали `LC_TIME` без секунд; `None` — локаль C/POSIX
 /// (не настроена) или её не прочитать. Читается один раз: локаль выставляет GTK
 /// при запуске (`setlocale(LC_ALL, "")`), до первой подписи с датой.
-#[cfg(feature = "gtk-ui")]
+#[cfg(all(feature = "gtk-ui", unix))]
 fn locale_datetime_pattern() -> Option<&'static str> {
     static PATTERN: OnceLock<Option<String>> = OnceLock::new();
     PATTERN
@@ -694,13 +709,13 @@ fn locale_datetime_pattern() -> Option<&'static str> {
         .as_deref()
 }
 
-#[cfg(feature = "gtk-ui")]
+#[cfg(all(feature = "gtk-ui", unix))]
 fn is_c_locale(name: &str) -> bool {
     name == "C" || name == "POSIX" || name.starts_with("C.")
 }
 
 /// Время из шаблона локали без секунд: «%T» → «%H:%M», «%r» → «%I:%M %p».
-#[cfg(feature = "gtk-ui")]
+#[cfg(all(feature = "gtk-ui", unix))]
 fn time_without_seconds(fmt: &str) -> String {
     fmt.replace("%T", "%H:%M")
         .replace("%r", "%I:%M %p")
@@ -789,16 +804,23 @@ mod tests {
         assert_eq!(datetime_in(Lang::El, &dt), "14/07/2023 12:30");
     }
 
-    #[cfg(feature = "gtk-ui")]
+    #[cfg(all(feature = "gtk-ui", unix))]
     #[test]
     fn locale_patterns() {
-        let dt = NaiveDateTime::parse_from_str("2023-07-14 12:30:45", "%Y-%m-%d %H:%M:%S").unwrap();
         // Шаблоны локалей: en_US, ru_RU/en_GB, нестандартный с точкой.
         assert_eq!(time_without_seconds("%r"), "%I:%M %p");
         assert_eq!(time_without_seconds("%T"), "%H:%M");
         assert_eq!(time_without_seconds("%H.%M.%S"), "%H.%M");
-        assert_eq!(format_glib(&dt, "%m/%d/%Y %I:%M %p").as_deref(), Some("07/14/2023 12:30 PM"));
-        assert_eq!(format_glib(&dt, "%d/%m/%y %H:%M").as_deref(), Some("14/07/23 12:30"));
         assert!(is_c_locale("C.UTF-8") && is_c_locale("POSIX") && !is_c_locale("en_US.UTF-8"));
+    }
+
+    #[cfg(feature = "gtk-ui")]
+    #[test]
+    fn glib_format() {
+        let dt = NaiveDateTime::parse_from_str("2023-07-14 09:30:45", "%Y-%m-%d %H:%M:%S").unwrap();
+        assert_eq!(format_glib(&dt, "%m/%d/%Y %I:%M %p").as_deref(), Some("07/14/2023 09:30 AM"));
+        assert_eq!(format_glib(&dt, "%d/%m/%y %H:%M").as_deref(), Some("14/07/23 09:30"));
+        // Без ведущих нулей — так переводятся форматы Windows `M/d/yyyy h:mm tt`.
+        assert_eq!(format_glib(&dt, "%-m/%-d/%Y %-I:%M %p").as_deref(), Some("7/14/2023 9:30 AM"));
     }
 }

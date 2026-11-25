@@ -5,8 +5,8 @@
 [![Последний релиз](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
 [![Поддержать](https://img.shields.io/github/sponsors/EvilX?label=Sponsor&logo=GitHub)](https://github.com/sponsors/EvilX)
 
-Каталогизатор фотографий для Linux и macOS с поиском снимков на карте по GPS-координатам
-из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux — GTK4 с
+Каталогизатор фотографий для Linux, Windows и macOS с поиском снимков на карте по GPS-координатам
+из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux и Windows — GTK4 с
 картой OpenStreetMap, на macOS — нативный, SwiftUI с картой MapKit
 (см. [Сборка (macOS)](#сборка-macos)).
 
@@ -15,6 +15,8 @@
 ![Приложение для macOS: фото на карте Apple и список фото из видимой области](docs/screenshots/macos-ru.png)
 
 ![Вкладка «Карта» на Linux: превью фото на карте мира и список фото из видимой области](docs/screenshots/map-ru.png)
+
+![Версия для Windows: тот же интерфейс GTK с картой OpenStreetMap](docs/screenshots/windows-ru.png)
 
 ## Возможности
 
@@ -79,8 +81,8 @@ sudo apt update && sudo apt install geo-photo-library
 ```
 
 Те же пакеты можно скачать и поставить вручную — они в [последнем релизе](https://github.com/EvilX/geo-photo-library/releases/latest):
-RPM для Fedora 45 (x86_64 и aarch64), DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) и образ
-диска для macOS.
+RPM для Fedora 45 (x86_64 и aarch64), DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64), образ
+диска для macOS и установщики для Windows.
 
 ```sh
 sudo dnf install ./geo-photo-library-*.fc45.*.rpm                # Fedora
@@ -89,8 +91,7 @@ sudo apt install ./geo-photo-library_*~ubuntu24.04_amd64.deb     # Ubuntu: св�
 
 Сборки из текущего `main` GitHub Actions делает при каждом push: вкладка **Actions** →
 последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64),
-`geo-photo-library-fc45-aarch64-rpm` (ARM), `geo-photo-library-ubuntu<выпуск>-<архитектура>-deb`
-или `geo-photo-library-macos-dmg`
+`geo-photo-library-fc45-aarch64-rpm` (ARM), `geo-photo-library-ubuntu<выпуск>-<архитектура>-deb`, `geo-photo-library-macos-dmg` или `geo-photo-library-windows-<x64|arm64>`
 (скачивание артефактов доступно только после входа в GitHub).
 
 Образ диска для macOS — для Apple silicon, macOS 14 и новее. Приложение не подписано
@@ -100,6 +101,12 @@ sudo apt install ./geo-photo-library_*~ubuntu24.04_amd64.deb     # Ubuntu: св�
 ```sh
 xattr -dr com.apple.quarantine "/Applications/GeoPhotoLibrary.app"
 ```
+
+Windows 10 (1809) или 11, x64 или ARM64: запустите `GeoPhotoLibrary-<версия>-<x64|arm64>-setup.exe`
+из релиза. Он ставит программу для текущего пользователя, без прав администратора, и добавляет её
+в меню «Пуск»; удаляется она в «Параметры» → «Приложения». Установщик не подписан, поэтому
+SmartScreen может о нём предупредить: **Подробнее → Выполнить в любом случае**. Рядом лежит `.zip` —
+переносная версия: распакуйте куда угодно и запустите `bin\geo-photo-library.exe`.
 
 ## Сборка (Fedora)
 
@@ -119,6 +126,26 @@ cargo run --release
   libsoup-3.0-dev libheif-dev dpkg-dev desktop-file-utils appstream` и Rust из rustup);
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak-бандл `target/flatpak/geo-photo-library.flatpak`
   (SDK ставится в пользовательскую установку, root не нужен).
+
+## Сборка (Windows)
+
+Тот же интерфейс GTK, сборка — в [MSYS2](https://www.msys2.org/): оболочка UCRT64 для x64,
+CLANGARM64 для ARM64. Поставьте пакеты (`P=mingw-w64-ucrt-x86_64` или `mingw-w64-clang-aarch64`)
+и запустите скрипт сборки; для установщика нужен ещё [Inno Setup](https://jrsoftware.org/isinfo.php):
+
+```sh
+pacman -S zip $P-toolchain $P-rust $P-pkgconf $P-gtk4 $P-libshumate $P-libheif $P-libsoup3 \
+  $P-glib-networking $P-librsvg $P-ntldd
+./packaging/windows/build-windows.sh   # → target/windows/GeoPhotoLibrary-<версия>-<арх>-setup.exe и .zip
+```
+
+Скрипт кладёт программу вместе с нужными ей библиотеками GTK, значками и модулями в
+`target/windows/GeoPhotoLibrary/`, поэтому она работает без MSYS2. Отличия от Linux:
+
+- нет кнопки «Моё местоположение» (она работает через портал геолокации Linux);
+- язык интерфейса и формат дат — из настроек Windows (`LANG` по-прежнему задаёт язык);
+- редактирование (Ctrl + двойной щелчок) открывает системное окно «Открыть с помощью», если
+  редактор не выбран в настройках.
 
 ## Сборка (macOS)
 
@@ -155,7 +182,8 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 Версия из Flatpak хранит те же файлы отдельно, в `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
 На macOS настройки и база лежат в `~/Library/Application Support/geo-photo-library/`,
-миниатюры — в `~/Library/Caches/geo-photo-library/thumbs/`.
+миниатюры — в `~/Library/Caches/geo-photo-library/thumbs/`. На Windows всё лежит в
+`%LOCALAPPDATA%\geo-photo-library\` (`config.toml`, `library.db`, `thumbs\`).
 
 Сеть нужна только для тайлов карты OpenStreetMap и поиска местности; фотографии никуда
 не отправляются. Местоположение определяется системой (GeoClue) только по нажатию кнопки
@@ -165,7 +193,8 @@ GTK и libheif не нужны — HEIC декодирует система.
 
 - CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`,
   и DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) — в контейнерах этих выпусков;
-  на macOS — тесты ядра и сборка DMG. На теге `v*` пакеты и DMG прикладываются к релизу GitHub,
+  на macOS — тесты ядра и сборка DMG; на Windows (x64 и ARM64, MSYS2) — тесты, установщик и ZIP.
+  На теге `v*` пакеты, DMG и установщики Windows прикладываются к релизу GitHub,
   а RPM и DEB добавляются в репозитории dnf и apt на GitHub Pages (`packaging/build-repo.sh`).
 - `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
 - `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.

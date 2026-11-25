@@ -178,8 +178,16 @@ pub fn set_preferred_apps(apps: PreferredApps) {
     PREFERRED.with(|p| *p.borrow_mut() = apps);
 }
 
+#[cfg(unix)]
 fn app_by_id(id: Option<String>) -> Option<gio::AppInfo> {
     gio::DesktopAppInfo::new(&id?).map(|a| a.upcast())
+}
+
+/// На Windows `.desktop` нет: программа ищется по id среди зарегистрированных в системе.
+#[cfg(windows)]
+fn app_by_id(id: Option<String>) -> Option<gio::AppInfo> {
+    let id = id?;
+    gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|x| x == id))
 }
 
 /// Запустить программу с файлом; `false`, если не получилось.
@@ -262,6 +270,7 @@ fn launch_with_portal(widget: &impl IsA<gtk::Widget>, path: &str, always_ask: bo
 /// Редактор изображений для файла: программа, зарегистрированная для его MIME-типа,
 /// из категорий RasterGraphics или Photography, но не просмотрщик (Viewer)
 /// и не эта программа. Раньше идут рекомендованные системой.
+#[cfg(unix)]
 fn find_editor(path: &str) -> Option<gio::AppInfo> {
     let (content_type, _) = gio::content_type_guess(Some(path), None);
     let own_id = format!("{}.desktop", crate::APP_ID);
@@ -276,6 +285,13 @@ fn find_editor(path: &str) -> Option<gio::AppInfo> {
     })
 }
 
+/// На Windows категорий программ (RasterGraphics…) нет — сразу окно выбора программы.
+#[cfg(windows)]
+fn find_editor(_path: &str) -> Option<gio::AppInfo> {
+    None
+}
+
+#[cfg_attr(windows, allow(dead_code))]
 fn is_editor_categories(categories: &str) -> bool {
     let has = |c: &str| categories.split(';').any(|x| x == c);
     (has("RasterGraphics") || has("Photography")) && !has("Viewer")

@@ -120,5 +120,5 @@ SRC=$(dirname "$(realpath "$0")")/..
 sed "s|@URL@|$URL|g" "$SRC/packaging/site/index.html" > "$SITE/index.html"
 cp "$SRC/data/icons/io.github.EvilX.GeoPhotoLibrary.svg" "$SITE/icon.svg"
 install -d "$SITE/screenshots"
-cp "$SRC"/docs/screenshots/{macos,map}-{en,ru}.png "$SITE/screenshots/"
+cp "$SRC"/docs/screenshots/{macos,map,windows}-{en,ru}.png "$SITE/screenshots/"
 find "$SITE" -name '*.rpm' -o -name '*.deb' | sed "s|$SITE/||" | sort

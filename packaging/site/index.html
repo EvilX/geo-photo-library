@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GeoPhotoLibrary</title>
-<meta name="description" content="A photo catalog for macOS and Linux that places your photos on a map using GPS coordinates from EXIF.">
+<meta name="description" content="A photo catalog for macOS, Linux and Windows that places your photos on a map using GPS coordinates from EXIF.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <meta property="og:title" content="GeoPhotoLibrary">
-<meta property="og:description" content="Your photos on a map — for macOS and Linux.">
+<meta property="og:description" content="Your photos on a map — for macOS, Linux and Windows.">
 <meta property="og:image" content="@URL@/screenshots/macos-en.png">
 <style>
 :root {
@@ -87,7 +87,7 @@ nav a.sponsor { color: var(--text); border: 1px solid var(--line); }
 .langs button:hover { color: var(--text); }
 .langs button[aria-pressed="true"] { background: var(--line); color: var(--text); }
 nav a.sponsor svg { color: #db61a2; }
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   nav a span.l { display: none; }
   nav a { padding: 8px 10px; }
   .brand span { display: none; }
@@ -195,6 +195,7 @@ footer a { color: var(--muted); }
   <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
   <symbol id="i-apple" viewBox="0 0 24 24"><path fill="currentColor" d="M16.37 12.6c-.02-2.33 1.9-3.45 1.99-3.5-1.08-1.59-2.77-1.8-3.37-1.83-1.43-.15-2.8.84-3.53.84-.73 0-1.85-.82-3.04-.8-1.56.02-3 .91-3.81 2.31-1.63 2.82-.42 7 1.17 9.29.78 1.12 1.7 2.38 2.91 2.33 1.17-.05 1.61-.75 3.02-.75 1.41 0 1.81.75 3.04.73 1.26-.02 2.05-1.14 2.82-2.27.89-1.3 1.25-2.56 1.27-2.62-.03-.01-2.44-.94-2.47-3.73zM14.05 5.75c.64-.78 1.08-1.86.96-2.94-.93.04-2.05.62-2.72 1.4-.6.69-1.12 1.79-.98 2.85 1.04.08 2.1-.53 2.74-1.31z"/></symbol>
   <symbol id="i-linux" viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 2c-2.3 0-3.6 1.9-3.6 4.4 0 1.3.2 2.2-.5 3.4-.8 1.3-2.6 3.4-3 5.6-.2 1 .1 1.6.5 2-.4.4-1.5.6-1.7 1.4-.2 1 .9 1.4 2.3 1.8 1.2.3 2.2.9 3 1.2 1.1.4 2.1-.1 2.4-1h1.4c.3.9 1.3 1.4 2.4 1 .8-.3 1.8-.9 3-1.2 1.4-.4 2.5-.8 2.3-1.8-.2-.8-1.3-1-1.7-1.4.4-.4.7-1 .5-2-.4-2.2-2.2-4.3-3-5.6-.7-1.2-.5-2.1-.5-3.4C16.1 3.9 14.8 2 12.5 2zm-1.3 3.6c.5 0 .8.6.8 1.2 0 .3-.1.6-.2.8l-.5-.2c.1-.2.1-.4.1-.6 0-.4-.2-.6-.3-.6-.2 0-.3.3-.3.6v.3l-.5-.1V7c0-.8.4-1.4.9-1.4zm2.6 0c.6 0 1 .6 1 1.4 0 .2 0 .4-.1.6l-.5-.1c.1-.1.1-.3.1-.5 0-.4-.2-.8-.5-.8-.2 0-.4.3-.4.7v.2l-.5-.2c0-.8.4-1.3.9-1.3zm-1.4 2.3c.6 0 1.6.4 2 .6.3.1.4.3.3.5-.1.3-.9.9-1.7 1.2-.4.2-.6.2-.9.2s-.6-.2-1-.5c-.4-.3-.9-.6-1-.9 0-.2.2-.4.5-.6.6-.3 1.2-.5 1.8-.5zm-2 3.3c.7.5 1.4.9 2.2.9.9 0 1.8-.6 2.4-1 .4 1 1.2 2.5 1.3 3.9.1.7 0 1.3-.3 1.6-.2-1-.9-1.2-1.6-1-.2.8-.5 1.4-1 1.8-1 .7-2.6.6-3.4-.3-.4-.4-.7-1-.8-1.6-.6-.1-1.1.2-1.3.8-.3-.4-.4-1-.2-1.8.4-1.4 1.6-2.4 2.7-3.3z"/></symbol>
+  <symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.2l7.4-1v7.2H3V5.2zm8.4-1.2L21 2.7v8.7h-9.6V4zM3 12.6h7.4v7.2L3 18.8v-6.2zm8.4 0H21v8.7l-9.6-1.3v-7.4z"/></symbol>
   <symbol id="i-heart" viewBox="0 0 16 16"><path fill="currentColor" d="M4.25 2.5c-1.34 0-2.75 1.13-2.75 3 0 2.12 1.68 4.03 3.38 5.43a20.4 20.4 0 003.12 2.13 20.4 20.4 0 003.12-2.13C12.82 9.53 14.5 7.62 14.5 5.5c0-1.87-1.41-3-2.75-3-1.38 0-2.6.9-3.04 2.27a.75.75 0 01-1.42 0C6.85 3.4 5.63 2.5 4.25 2.5z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></g></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
@@ -209,6 +210,7 @@ footer a { color: var(--muted); }
       <a href="https://github.com/EvilX/geo-photo-library" title="GitHub"><svg><use href="#i-github"/></svg><span class="l">GitHub</span></a>
       <a href="#macos" title="macOS"><svg><use href="#i-apple"/></svg><span class="l">macOS</span></a>
       <a href="#linux" title="Linux"><svg><use href="#i-linux"/></svg><span class="l">Linux</span></a>
+      <a href="#windows" title="Windows"><svg><use href="#i-windows"/></svg><span class="l">Windows</span></a>
       <a class="sponsor" href="https://github.com/sponsors/EvilX" title="Sponsor"><svg><use href="#i-heart"/></svg><span class="l" data-i18n="nav_sponsor">Sponsor</span></a>
       <div class="langs" role="group" aria-label="Language">
         <button type="button" data-lang="en">EN</button><button type="button" data-lang="ru">RU</button><button type="button" data-lang="el">EL</button>
@@ -223,10 +225,11 @@ footer a { color: var(--muted); }
       <img class="icon" src="icon.svg" alt="">
       <h1 data-i18n="h1">Your photos,<br><em>on the map</em></h1>
       <p class="lead" data-i18n="lead">A fast, private photo catalog that places every shot where it was taken — using GPS
-        coordinates from EXIF. Native on macOS, GTK4 on Linux, one Rust core underneath.</p>
+        coordinates from EXIF. Native on macOS, GTK4 on Linux and Windows, one Rust core underneath.</p>
       <div class="cta">
         <a class="btn primary" href="#macos"><svg><use href="#i-apple"/></svg><span data-i18n="cta_mac">Get for macOS</span></a>
         <a class="btn secondary" href="#linux"><svg><use href="#i-linux"/></svg><span data-i18n="cta_linux">Install on Linux</span></a>
+        <a class="btn secondary" href="#windows"><svg><use href="#i-windows"/></svg><span data-i18n="cta_win">Get for Windows</span></a>
       </div>
       <p class="meta"><span id="release"></span><span data-i18n="license">Free and open source · Apache 2.0</span></p>
 
@@ -310,6 +313,33 @@ sudo apt update &amp;&amp; sudo apt install geo-photo-library</code></pre></div>
         Building from source is described in the <a href="https://github.com/EvilX/geo-photo-library#readme">README</a>.</p>
     </div>
   </section>
+
+  <section class="platform" id="windows">
+    <div class="wrap">
+      <div class="head"><svg><use href="#i-windows"/></svg><h2>Windows</h2></div>
+      <p class="sub" data-i18n="win_sub">The same GTK4 interface with an OpenStreetMap map. Windows 10 (1809) or 11, x64 and ARM64.</p>
+      <div class="shot"><img data-shot="windows" src="screenshots/windows-en.png" width="1280" height="820" loading="lazy"
+        data-i18n-alt="win_alt" alt="GeoPhotoLibrary on Windows: photo previews on an OpenStreetMap world map and the photos in the visible area"></div>
+      <div class="steps">
+        <div class="step">
+          <h3><span class="n">1</span><span data-i18n="win_s1">Download</span></h3>
+          <p data-i18n="win_s1_t">Get the installer for your processor from the latest release.</p>
+          <div class="cta" style="justify-content:flex-start">
+            <a class="btn primary" id="win-x64" href="https://github.com/EvilX/geo-photo-library/releases/latest"><svg><use href="#i-download"/></svg>x64</a>
+            <a class="btn secondary" id="win-arm64" href="https://github.com/EvilX/geo-photo-library/releases/latest"><svg><use href="#i-download"/></svg>ARM64</a>
+          </div>
+        </div>
+        <div class="step">
+          <h3><span class="n">2</span><span data-i18n="win_s2">Install</span></h3>
+          <p data-i18n="win_s2_t">Run the installer — no administrator rights needed. It is not signed yet, so if SmartScreen warns, choose <b>More info → Run anyway</b>.</p>
+        </div>
+        <div class="step">
+          <h3><span class="n">3</span><span data-i18n="win_s3">Open</span></h3>
+          <p data-i18n="win_s3_t">Start <b>GeoPhotoLibrary</b> from the Start menu. Prefer no installer? A portable <code>.zip</code> is attached to every release.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer>
@@ -326,12 +356,18 @@ sudo apt update &amp;&amp; sudo apt install geo-photo-library</code></pre></div>
 var T = {
   ru: {
     title: 'GeoPhotoLibrary — ваши фото на карте',
-    desc: 'Каталог фотографий для macOS и Linux: снимки на карте по GPS-координатам из EXIF.',
+    desc: 'Каталог фотографий для macOS, Linux и Windows: снимки на карте по GPS-координатам из EXIF.',
     nav_sponsor: 'Поддержать',
     h1: 'Ваши фото —<br><em>на карте</em>',
-    lead: 'Быстрый каталог фотографий, который показывает каждый снимок там, где он сделан, — по GPS-координатам из EXIF. Нативное приложение на macOS, GTK4 на Linux и общее ядро на Rust.',
+    lead: 'Быстрый каталог фотографий, который показывает каждый снимок там, где он сделан, — по GPS-координатам из EXIF. Нативное приложение на macOS, GTK4 на Linux и Windows и общее ядро на Rust.',
     cta_mac: 'Скачать для macOS',
     cta_linux: 'Установить на Linux',
+    cta_win: 'Скачать для Windows',
+    win_sub: 'Тот же интерфейс GTK4 с картой OpenStreetMap. Windows 10 (1809) или 11, x64 и ARM64.',
+    win_alt: 'GeoPhotoLibrary на Windows: миниатюры фото на карте мира OpenStreetMap и снимки видимой области',
+    win_s1: 'Скачайте', win_s1_t: 'Установщик для вашего процессора — в последнем выпуске.',
+    win_s2: 'Установите', win_s2_t: 'Запустите установщик — права администратора не нужны. Он пока не подписан, поэтому если SmartScreen предупредит, выберите <b>Подробнее → Выполнить в любом случае</b>.',
+    win_s3: 'Откройте', win_s3_t: 'Запустите <b>GeoPhotoLibrary</b> из меню «Пуск». Без установки — переносная версия <code>.zip</code> приложена к каждому выпуску.',
     release: 'Последний выпуск <b>%s</b> · ',
     license: 'Бесплатно, открытый код · Apache 2.0',
     f1: 'Фото на карте', f1_t: 'Миниатюры, собранные в группы, а справа — снимки видимой области по датам.',
@@ -354,12 +390,18 @@ var T = {
   },
   el: {
     title: 'GeoPhotoLibrary — οι φωτογραφίες σας στον χάρτη',
-    desc: 'Κατάλογος φωτογραφιών για macOS και Linux: οι λήψεις στον χάρτη με βάση τις συντεταγμένες GPS από τα EXIF.',
+    desc: 'Κατάλογος φωτογραφιών για macOS, Linux και Windows: οι λήψεις στον χάρτη με βάση τις συντεταγμένες GPS από τα EXIF.',
     nav_sponsor: 'Υποστήριξη',
     h1: 'Οι φωτογραφίες σας,<br><em>στον χάρτη</em>',
-    lead: 'Ένας γρήγορος κατάλογος φωτογραφιών που τοποθετεί κάθε λήψη εκεί όπου τραβήχτηκε — με βάση τις συντεταγμένες GPS από τα EXIF. Εγγενής εφαρμογή στο macOS, GTK4 στο Linux και κοινός πυρήνας σε Rust.',
+    lead: 'Ένας γρήγορος κατάλογος φωτογραφιών που τοποθετεί κάθε λήψη εκεί όπου τραβήχτηκε — με βάση τις συντεταγμένες GPS από τα EXIF. Εγγενής εφαρμογή στο macOS, GTK4 σε Linux και Windows και κοινός πυρήνας σε Rust.',
     cta_mac: 'Λήψη για macOS',
     cta_linux: 'Εγκατάσταση στο Linux',
+    cta_win: 'Λήψη για Windows',
+    win_sub: 'Το ίδιο περιβάλλον GTK4 με χάρτη OpenStreetMap. Windows 10 (1809) ή 11, x64 και ARM64.',
+    win_alt: 'Το GeoPhotoLibrary στα Windows: μικρογραφίες φωτογραφιών σε παγκόσμιο χάρτη OpenStreetMap και οι φωτογραφίες της ορατής περιοχής',
+    win_s1: 'Λήψη', win_s1_t: 'Κατεβάστε το πρόγραμμα εγκατάστασης για τον επεξεργαστή σας από την τελευταία έκδοση.',
+    win_s2: 'Εγκατάσταση', win_s2_t: 'Εκτελέστε το πρόγραμμα εγκατάστασης — δεν χρειάζονται δικαιώματα διαχειριστή. Δεν είναι ακόμη υπογεγραμμένο, οπότε αν εμφανιστεί προειδοποίηση του SmartScreen, επιλέξτε <b>Περισσότερες πληροφορίες → Εκτέλεση ούτως ή άλλως</b>.',
+    win_s3: 'Άνοιγμα', win_s3_t: 'Ανοίξτε το <b>GeoPhotoLibrary</b> από το μενού Έναρξη. Χωρίς εγκατάσταση; Μια φορητή έκδοση <code>.zip</code> επισυνάπτεται σε κάθε έκδοση.',
     release: 'Τελευταία έκδοση <b>%s</b> · ',
     license: 'Δωρεάν, ανοιχτός κώδικας · Apache 2.0',
     f1: 'Φωτογραφίες στον χάρτη', f1_t: 'Μικρογραφίες σε ομάδες και, δεξιά, οι φωτογραφίες της ορατής περιοχής ανά ημερομηνία.',
@@ -470,6 +512,10 @@ fetch('https://api.github.com/repos/EvilX/geo-photo-library/releases/latest')
     apply(lang);
     var dmg = (rel.assets || []).find(function (a) { return /\.dmg$/.test(a.name); });
     if (dmg) document.getElementById('dmg').href = dmg.browser_download_url;
+    ['x64', 'arm64'].forEach(function (arch) {
+      var exe = (rel.assets || []).find(function (a) { return a.name.endsWith('-' + arch + '-setup.exe'); });
+      if (exe) document.getElementById('win-' + arch).href = exe.browser_download_url;
+    });
   })
   .catch(function () {});
 </script>

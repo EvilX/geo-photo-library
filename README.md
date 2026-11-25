@@ -5,9 +5,9 @@
 [![Latest release](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
 [![Sponsor](https://img.shields.io/github/sponsors/EvilX?label=Sponsor&logo=GitHub)](https://github.com/sponsors/EvilX)
 
-A photo catalog for Linux and macOS that places your photos on a map using GPS coordinates
+A photo catalog for Linux, Windows and macOS that places your photos on a map using GPS coordinates
 from EXIF. The Rust core (scanner, SQLite database, thumbnails) is shared; the interface is
-GTK4 with an OpenStreetMap map on Linux and a native SwiftUI one with a MapKit map on macOS
+GTK4 with an OpenStreetMap map on Linux and Windows and a native SwiftUI one with a MapKit map on macOS
 (see [Building (macOS)](#building-macos)).
 
 The macOS version was added in 1.1; nothing has changed feature-wise on Linux since 1.0.
@@ -15,6 +15,8 @@ The macOS version was added in 1.1; nothing has changed feature-wise on Linux si
 ![The macOS app: photos on an Apple Maps map and the photos in the visible area](docs/screenshots/macos-en.png)
 
 ![Map tab on Linux: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
+
+![The Windows version: the same GTK interface with an OpenStreetMap map](docs/screenshots/windows-en.png)
 
 ## Features
 
@@ -78,8 +80,8 @@ sudo apt update && sudo apt install geo-photo-library
 ```
 
 The same packages can also be downloaded and installed by hand — they are in the [latest release](https://github.com/EvilX/geo-photo-library/releases/latest):
-RPMs for Fedora 45 (x86_64 and aarch64), DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64) and
-a disk image for macOS.
+RPMs for Fedora 45 (x86_64 and aarch64), DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64),
+a disk image for macOS and installers for Windows.
 
 ```sh
 sudo dnf install ./geo-photo-library-*.fc45.*.rpm                # Fedora
@@ -88,7 +90,8 @@ sudo apt install ./geo-photo-library_*~ubuntu24.04_amd64.deb     # Ubuntu: your 
 
 Builds of the current `main` are made by GitHub Actions on every push: **Actions** tab → latest
 **CI** run → the `geo-photo-library-fc45-rpm` (x86_64), `geo-photo-library-fc45-aarch64-rpm` (ARM),
-`geo-photo-library-ubuntu<release>-<arch>-deb` or `geo-photo-library-macos-dmg` artifact (downloading artifacts requires signing in to GitHub).
+`geo-photo-library-ubuntu<release>-<arch>-deb`, `geo-photo-library-macos-dmg` or `geo-photo-library-windows-<x64|arm64>`
+artifact (downloading artifacts requires signing in to GitHub).
 
 The macOS disk image is for Apple silicon, macOS 14 or later. The app is not signed with
 a developer certificate and not notarized, so after dragging it to Applications remove the quarantine flag,
@@ -97,6 +100,12 @@ otherwise macOS will refuse to open it:
 ```sh
 xattr -dr com.apple.quarantine "/Applications/GeoPhotoLibrary.app"
 ```
+
+Windows 10 (1809) or 11, x64 or ARM64: run `GeoPhotoLibrary-<version>-<x64|arm64>-setup.exe`
+from the release. It installs for the current user, without administrator rights, and adds
+GeoPhotoLibrary to the Start menu; it is removed in Settings → Apps. The installer is not signed, so
+SmartScreen may warn about it: **More info → Run anyway**. The `.zip` next to it is a portable version:
+unpack it anywhere and run `bin\geo-photo-library.exe`.
 
 ## Building (Fedora)
 
@@ -116,6 +125,25 @@ Packages:
   libsoup-3.0-dev libheif-dev dpkg-dev desktop-file-utils appstream` and Rust from rustup);
 - `./packaging/flatpak/build-flatpak.sh` — Flatpak bundle `target/flatpak/geo-photo-library.flatpak`
   (the SDK goes into the user installation, no root needed).
+
+## Building (Windows)
+
+The same GTK interface, built in [MSYS2](https://www.msys2.org/): the UCRT64 shell for x64,
+CLANGARM64 for ARM64. Install the packages (`P=mingw-w64-ucrt-x86_64` or `mingw-w64-clang-aarch64`)
+and run the build script; the installer also needs [Inno Setup](https://jrsoftware.org/isinfo.php):
+
+```sh
+pacman -S zip $P-toolchain $P-rust $P-pkgconf $P-gtk4 $P-libshumate $P-libheif $P-libsoup3 \
+  $P-glib-networking $P-librsvg $P-ntldd
+./packaging/windows/build-windows.sh   # → target/windows/GeoPhotoLibrary-<version>-<arch>-setup.exe and .zip
+```
+
+The script copies the program together with the GTK libraries, icons and modules it needs into
+`target/windows/GeoPhotoLibrary/`, so it runs without MSYS2. Differences from Linux:
+
+- there is no "My location" button (it uses the Linux location portal);
+- the interface language and date format come from the Windows settings (`LANG` still overrides the language);
+- editing (Ctrl + double-click) opens the system "Open with" dialog unless an editor is chosen in Settings.
 
 ## Building (macOS)
 
@@ -152,7 +180,8 @@ The features are the same as on Linux, with the differences customary on macOS:
 
 The Flatpak version keeps the same files separately, in `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
 On macOS the settings and database live in `~/Library/Application Support/geo-photo-library/`,
-thumbnails in `~/Library/Caches/geo-photo-library/thumbs/`.
+thumbnails in `~/Library/Caches/geo-photo-library/thumbs/`. On Windows everything is in
+`%LOCALAPPDATA%\geo-photo-library\` (`config.toml`, `library.db`, `thumbs\`).
 
 The network is used only for OpenStreetMap tiles and place search; your photos are never uploaded.
 Your location is determined by the system (GeoClue) only when you press the button and is not stored.
@@ -161,7 +190,8 @@ Your location is determined by the system (GeoClue) only when you press the butt
 
 - CI (`.github/workflows/ci.yml`): clippy and tests, then RPM builds for x86_64 and aarch64 — in a `fedora:45` container,
   and DEBs for Ubuntu 24.04 and 26.04 (amd64 and arm64) — in containers of those releases;
-  on macOS — core tests and a DMG build. On a `v*` tag the packages and the DMG are attached to the GitHub release,
+  on macOS — core tests and a DMG build; on Windows (x64 and ARM64, MSYS2) — tests, the installer and the ZIP.
+  On a `v*` tag the packages, the DMG and the Windows installers are attached to the GitHub release,
   and the RPMs and DEBs are added to the dnf and apt repositories on GitHub Pages (`packaging/build-repo.sh`).
 - `GEO_PHOTO_LIBRARY_TRACE=1` — timing of UI operations.
 - `cargo run --release --example bench_thumbs -- <folder>` — thumbnail generation benchmark.

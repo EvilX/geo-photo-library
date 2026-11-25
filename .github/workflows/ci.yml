@@ -2,7 +2,8 @@
 # fedora:45, с теми же системными библиотеками (gtk4, libshumate, libheif), что и у целевой системы.
 # После тестов — и пакеты deb для Ubuntu 24.04 и 26.04 (amd64 и arm64), в контейнерах этих выпусков.
 # Отдельно, на macOS: тесты ядра без GTK и образ диска (DMG) с нативным приложением.
-# На теге v* собранные RPM, DEB и DMG прикладываются к релизу GitHub (задача release),
+# На Windows (x64 и ARM64, MSYS2) — тесты, установщик и переносная версия (ZIP).
+# На теге v* собранные RPM, DEB, DMG и установщики Windows прикладываются к релизу GitHub (задача release),
 # а RPM и DEB добавляются в репозитории dnf и apt на GitHub Pages (задача repo).
 name: CI
 
@@ -181,9 +182,75 @@ jobs:
           path: target/macos/*.dmg
           if-no-files-found: error
 
+  windows:
+    name: Windows (${{ matrix.arch }})
+    # GTK4 из MSYS2: UCRT64 для x64, CLANGARM64 для ARM64 — на раннерах своей архитектуры,
+    # без кросс-компиляции. Установщик — Inno Setup, переносная версия — ZIP.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            msystem: UCRT64
+          - arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # Иначе git на Windows меняет переводы строк, а скрипты bash с \r\n не работают.
+      - run: git config --global core.autocrlf false
+        shell: pwsh
+      - uses: actions/checkout@v7
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: zip
+          pacboy: >-
+            toolchain:p rust:p pkgconf:p gtk4:p libshumate:p libheif:p libsoup3:p
+            glib-networking:p librsvg:p ntldd:p
+
+      # Inno Setup — из релизов на GitHub, для текущего пользователя (без прав администратора).
+      - name: Inno Setup
+        run: |
+          url=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/jrsoftware/issrc/releases/latest \
+            | grep -o '"browser_download_url": *"[^"]*innosetup-[^"]*\.exe"' | head -1 | cut -d'"' -f4)
+          curl -fsSL -o is.exe "$url"
+          ./is.exe //VERYSILENT //SUPPRESSMSGBOXES //CURRENTUSER //NORESTART
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Готовые пакеты (target/windows) не кэшировать — как и DMG.
+      - name: Кэш Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            !target/windows
+          key: windows-${{ matrix.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: windows-${{ matrix.arch }}-cargo-
+
+      - name: Сборка, тесты и установщик
+        run: ./packaging/windows/build-windows.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: geo-photo-library-windows-${{ matrix.arch }}
+          path: |
+            target/windows/*-setup.exe
+            target/windows/*.zip
+          if-no-files-found: error
+
   release:
     name: Файлы к релизу
-    needs: [rpm, deb, dmg]
+    needs: [rpm, deb, dmg, windows]
     # Только для тегов v*: на push в main и в pull request задача пропускается.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest

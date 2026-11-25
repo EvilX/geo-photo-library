@@ -237,6 +237,8 @@ impl MapTab {
         let locate = gtk::Button::from_icon_name("find-location-symbolic");
         locate.set_tooltip_text(Some(i18n::my_location()));
         locate.add_css_class("map-search");
+        // Местоположение — через портал D-Bus (GeoClue), на Windows его нет.
+        locate.set_visible(cfg!(not(windows)));
         // Строка поиска и кнопка местоположения — в левом верхнем углу карты.
         let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         toolbar.set_halign(gtk::Align::Start);

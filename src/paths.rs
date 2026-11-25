@@ -1,12 +1,22 @@
-//! Пути приложения: XDG на Linux (через GLib), `~/Library` на macOS.
+//! Пути приложения: XDG на Linux (через GLib), `%LOCALAPPDATA%` на Windows, `~/Library` на macOS.
 use std::path::PathBuf;
 
 const DIR: &str = "geo-photo-library";
 
-#[cfg(feature = "gtk-ui")]
+#[cfg(all(feature = "gtk-ui", not(windows)))]
 fn dirs() -> (PathBuf, PathBuf, PathBuf) {
     use gtk::glib;
     (glib::user_config_dir(), glib::user_data_dir(), glib::user_cache_dir())
+}
+
+/// Windows: всё, включая миниатюры, — в `%LOCALAPPDATA%\geo-photo-library` (GLib отдаёт его
+/// как каталоги настроек и данных; его каталог кэша на Windows — `INetCache` браузера).
+/// Переменные `XDG_*_HOME` GLib учитывает и здесь — для тестов.
+#[cfg(all(feature = "gtk-ui", windows))]
+fn dirs() -> (PathBuf, PathBuf, PathBuf) {
+    use gtk::glib;
+    let cache = if std::env::var_os("XDG_CACHE_HOME").is_some() { glib::user_cache_dir() } else { glib::user_data_dir() };
+    (glib::user_config_dir(), glib::user_data_dir(), cache)
 }
 
 /// Без GLib (нативный интерфейс macOS): настройки и БД — в `Application Support`,

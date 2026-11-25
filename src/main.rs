@@ -1,3 +1,6 @@
+// На Windows — без консольного окна; `--scan` подключается к консоли, из которой запущен.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod geocode;
 mod location;
 mod ui;
@@ -15,6 +18,8 @@ const APP_NAME: &str = "GeoPhotoLibrary";
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--scan") {
+        #[cfg(windows)]
+        geo_photo_library::win::attach_parent_console();
         return cli_scan(args.get(2).map(PathBuf::from));
     }
 

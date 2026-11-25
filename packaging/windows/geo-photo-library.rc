@@ -1,0 +1,32 @@
+// Ресурсы exe для Windows: иконка (Проводник, панель задач) и сведения о версии.
+// VER_NUM и VER_STR — в version.h, его пишет build.rs из версии в Cargo.toml.
+#include <winver.h>
+#include "version.h"
+
+1 ICON "geo-photo-library.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION VER_NUM
+PRODUCTVERSION VER_NUM
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "EvilX"
+      VALUE "FileDescription", "GeoPhotoLibrary"
+      VALUE "FileVersion", VER_STR
+      VALUE "InternalName", "geo-photo-library"
+      VALUE "LegalCopyright", "Apache License 2.0"
+      VALUE "OriginalFilename", "geo-photo-library.exe"
+      VALUE "ProductName", "GeoPhotoLibrary"
+      VALUE "ProductVersion", VER_STR
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
