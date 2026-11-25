@@ -67,7 +67,8 @@ impl Photo {
     }
 
     pub fn file_name(&self) -> &str {
-        self.path.rsplit('/').next().unwrap_or(&self.path)
+        // На Windows разделитель — и «\», и «/».
+        self.path.rsplit(std::path::is_separator).next().unwrap_or(&self.path)
     }
 
     /// Дата съёмки в формате текущего языка, например `14.07.2023 12:30`.
@@ -408,5 +409,7 @@ mod tests {
         };
         assert_eq!(p.file_name(), "IMG_1.HEIC");
         assert!(p.display_date().contains("12:30"));
+        #[cfg(windows)]
+        assert_eq!(Photo { path: r"C:\Photos\IMG_2.jpg".into(), ..p }.file_name(), "IMG_2.jpg");
     }
 }

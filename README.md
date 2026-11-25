@@ -13,10 +13,13 @@ GTK4 with an OpenStreetMap map on Linux and Windows and a native SwiftUI one wit
 The macOS version was added in 1.1; nothing has changed feature-wise on Linux since 1.0.
 
 ![The macOS app: photos on an Apple Maps map and the photos in the visible area](docs/screenshots/macos-en.png)
+<p align="center"><em><b>macOS</b> — native SwiftUI app with Apple Maps</em></p>
 
 ![Map tab on Linux: photo previews on a world map and the photos in the visible area](docs/screenshots/map-en.png)
+<p align="center"><em><b>Linux</b> — GTK4 with an OpenStreetMap map</em></p>
 
 ![The Windows version: the same GTK interface with an OpenStreetMap map](docs/screenshots/windows-en.png)
+<p align="center"><em><b>Windows</b> — the same GTK4 interface</em></p>
 
 ## Features
 

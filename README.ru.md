@@ -13,10 +13,13 @@
 Версия для macOS появилась в 1.1; для Linux возможности с 1.0 не изменились.
 
 ![Приложение для macOS: фото на карте Apple и список фото из видимой области](docs/screenshots/macos-ru.png)
+<p align="center"><em><b>macOS</b> — нативное приложение на SwiftUI с картами Apple</em></p>
 
 ![Вкладка «Карта» на Linux: превью фото на карте мира и список фото из видимой области](docs/screenshots/map-ru.png)
+<p align="center"><em><b>Linux</b> — GTK4 и карта OpenStreetMap</em></p>
 
 ![Версия для Windows: тот же интерфейс GTK с картой OpenStreetMap](docs/screenshots/windows-ru.png)
+<p align="center"><em><b>Windows</b> — тот же интерфейс GTK4</em></p>
 
 ## Возможности
 
