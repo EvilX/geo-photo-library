@@ -1,6 +1,6 @@
 # <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> GeoPhotoLibrary
 
-[Русский](README.md) | **English**
+[Русский](README.ru.md) | **English**
 
 [![Latest release](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
 
@@ -120,6 +120,8 @@ A native app: the Rust core (scanner, database, thumbnails) is built as a static
 interface is SwiftUI with a MapKit map (`macos/`). Requires macOS 14 or later, Xcode with its
 license accepted (`sudo xcodebuild -license accept`) and Rust (rustup); GTK and libheif are not
 needed — HEIC is decoded by the system.
+
+![The macOS app: photos on an Apple Maps map and the photos in the visible area](docs/screenshots/macos-en.png)
 
 ```sh
 ./macos/build-app.sh --run   # → target/macos/GeoPhotoLibrary.app

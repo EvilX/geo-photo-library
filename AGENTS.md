@@ -2,8 +2,8 @@
 
 Инструкции для ИИ-агентов, работающих с репозиторием **GeoPhotoLibrary** —
 каталогизатором фотографий с поиском снимков на карте по GPS из EXIF: ядро на Rust + SQLite,
-интерфейс GTK4 с картой OSM на Linux и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (русский)
-и `README.en.md` (английский).
+интерфейс GTK4 с картой OSM на Linux и нативный SwiftUI + MapKit на macOS. Пользовательское описание — в `README.md` (английский, по умолчанию)
+и `README.ru.md` (русский).
 
 ## Язык и стиль
 
@@ -68,7 +68,7 @@ cargo test --release
 | `examples/bench_thumbs.rs` | бенчмарк этапов генерации миниатюр |
 | `packaging/` | RPM spec и `build-rpm.sh`, `build-deb.sh` (DEB для Ubuntu), `build-repo.sh` (репозитории dnf/apt для GitHub Pages); `flatpak/` — манифест Flatpak и `build-flatpak.sh` |
 | `data/` | иконка, `.desktop`, metainfo (ID `io.github.EvilX.GeoPhotoLibrary`) |
-| `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` |
+| `docs/screenshots/` | скриншоты для README: `map-ru.png`, `map-en.png` (Linux), `macos-ru.png`, `macos-en.png` |
 
 Данные пользователя: `~/.config/geo-photo-library/config.toml`,
 `~/.local/share/geo-photo-library/library.db`, `~/.cache/geo-photo-library/thumbs/`.
@@ -265,7 +265,7 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
 
 ## Документация
 
-- `README.md` (русский) и `README.en.md` (английский) держать согласованными: новая
+- `README.md` (английский) и `README.ru.md` (русский) держать согласованными: новая
   возможность — в оба сразу. Вверху каждого — ссылка на другой.
 - Скриншоты в `docs/screenshots/` снимаются на синтетической `testdata/library` (не на
   галерее пользователя — репозиторий публичный), без панели «Информация» (в ней виден
@@ -282,6 +282,18 @@ XDG_DATA_HOME=$X/data XDG_CACHE_HOME=$X/cache XDG_CONFIG_HOME=$X/cfg \
   ```
 
   Первый запуск сканирует выборку; если к моменту снимка скан не закончился, повторить.
+- Скриншоты macOS (`macos-<язык>.png`) — так же, на синтетической выборке, светлое оформление,
+  окно по умолчанию; снимок Retina уменьшить вдвое (`sips --resampleWidth 1427`):
+
+  ```sh
+  X=/tmp/gpl-mac; mkdir -p $X/config/geo-photo-library
+  for l in ru en; do
+    echo "library_path = \"$PWD/testdata/library\"" > $X/config/geo-photo-library/config.toml
+    GEO_PHOTO_LIBRARY_HOME=$X GEO_PHOTO_LIBRARY_APPEARANCE=light GEO_PHOTO_LIBRARY_SCREENSHOT=$X/$l.png \
+      GEO_PHOTO_LIBRARY_DELAY=30 target/macos/GeoPhotoLibrary.app/Contents/MacOS/GeoPhotoLibrary -AppleLanguages "($l)"
+    sips --resampleWidth 1427 $X/$l.png --out docs/screenshots/macos-$l.png
+  done
+  ```
 
 ## Тестовые данные
 

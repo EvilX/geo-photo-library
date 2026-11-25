@@ -1,6 +1,6 @@
 # <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> GeoPhotoLibrary
 
-**Русский** | [English](README.en.md)
+**Русский** | [English](README.md)
 
 [![Последний релиз](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
 
@@ -123,6 +123,8 @@ cargo run --release
 библиотеку, интерфейс — на SwiftUI с картой MapKit (`macos/`). Нужны macOS 14 или новее,
 Xcode с принятой лицензией (`sudo xcodebuild -license accept`) и Rust (rustup);
 GTK и libheif не нужны — HEIC декодирует система.
+
+![Приложение для macOS: фото на карте Apple и список фото из видимой области](docs/screenshots/macos-ru.png)
 
 ```sh
 ./macos/build-app.sh --run   # → target/macos/GeoPhotoLibrary.app
