@@ -127,8 +127,23 @@ impl Db {
             std::fs::create_dir_all(dir)?;
         }
         let conn = Connection::open(path)?;
-        conn.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(()))?;
         conn.busy_timeout(Duration::from_secs(10))?;
+        // На новой базе сканер и чтения интерфейса переводят её в WAL одновременно, и
+        // проигравшее соединение сразу получает «database is locked» — busy_timeout на этот
+        // PRAGMA не действует. Режим WAL хранится в файле: после короткой паузы переход
+        // другого соединения закончен, и повтор проходит.
+        let mut attempt = 0;
+        loop {
+            match conn.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(())) {
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if e.code == rusqlite::ErrorCode::DatabaseBusy && attempt < 200 =>
+                {
+                    attempt += 1;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                r => break r?,
+            }
+        }
         Self::init(conn)
     }
 
@@ -358,6 +373,27 @@ mod tests {
         assert_eq!(known["/raw.dng"].1, -1);
         let v: i32 = db.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, 3);
+    }
+
+    /// Сканер и чтения интерфейса открывают новую базу одновременно — никто не должен
+    /// получить «database is locked».
+    #[test]
+    fn concurrent_open_of_new_db() {
+        for round in 0..20 {
+            let dir = std::env::temp_dir().join(format!("gpl-db-open-{}-{round}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let path = dir.join("library.db");
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    let path = path.clone();
+                    std::thread::spawn(move || Db::open(&path).and_then(|db| db.count()).map_err(|e| e.to_string()))
+                })
+                .collect();
+            for t in threads {
+                assert_eq!(t.join().unwrap(), Ok(0));
+            }
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 
     #[test]

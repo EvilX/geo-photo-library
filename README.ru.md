@@ -1,0 +1,175 @@
+# <img src="data/icons/io.github.EvilX.GeoPhotoLibrary.svg" width="48" height="48" align="center" alt=""> GeoPhotoLibrary
+
+**Русский** | [English](README.en.md)
+
+[![Последний релиз](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
+
+Каталогизатор фотографий для Linux и macOS с поиском снимков на карте по GPS-координатам
+из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux — GTK4 с
+картой OpenStreetMap, на macOS — нативный, SwiftUI с картой MapKit
+(см. [Сборка (macOS)](#сборка-macos)).
+
+Версия для macOS появилась в 1.1; для Linux возможности с 1.0 не изменились.
+
+![Вкладка «Карта»: превью фото на карте мира и список фото из видимой области](docs/screenshots/map-ru.png)
+
+## Возможности
+
+Описание ниже — для Linux; отличия версии для macOS перечислены в разделе
+[Сборка (macOS)](#сборка-macos).
+
+- **Карта** — превью фотографий на карте с кластеризацией; справа — фото из видимой области,
+  по дате (сначала новые или сначала старые, выбор запоминается). Положение и масштаб карты
+  запоминаются между запусками.
+- **Поиск местности** — строка над картой: название города, адреса или достопримечательности,
+  Enter — перейти (геокодер Nominatim, нужен интернет). Несколько совпадений — список на выбор.
+- **Моё местоположение** — кнопка рядом со строкой поиска: карта переходит к текущему
+  местоположению и отмечает его точкой (через портал геолокации; службы геолокации должны быть
+  включены в настройках системы).
+- **Фильтр по датам** — кнопка с календарём слева от строки поиска: над картой открывается
+  панель «Всё время» и дерево год → месяц → день; на карте остаются фото выбранного периода,
+  положение и масштаб карты не меняются. Выбранный период виден на кнопке; щелчок по карте
+  закрывает панель.
+- **По датам** — дерево год → месяц → день и сетка миниатюр.
+- **Информация** — панель справа с данными файла и EXIF: камера, объектив, выдержка, диафрагма,
+  ISO, фокусное расстояние, координаты, высота и все теги. Следует за выбранным фото;
+  при нескольких выделенных панель пуста.
+  Открывается кнопкой «i» в заголовке окна или пунктом меню фото, закрывается той же кнопкой
+  или крестиком.
+- **Меню фото** (правая кнопка): копировать файл, просмотр, редактирование, показать на диске
+  (файловый менеджер открывает папку и выделяет файл), информация,
+  найти на карте (переход к месту съёмки; если в EXIF нет координат — предупреждение),
+  удалить в корзину (после подтверждения).
+- **Выделение нескольких фото:** Ctrl + щелчок (на macOS — ⌘ + щелчок) добавляет или снимает фото,
+  Shift + щелчок выделяет диапазон, рамка мышью — фото под ней, Ctrl+A (⌘A) — все.
+  Над несколькими фото меню предлагает только «Копировать» и «Удалить».
+- **Клавиатура в списке фото:** стрелки, Page Up/Page Down, Home/End переходят между фото,
+  с Shift — расширяют выделение.
+- Двойной щелчок — просмотр, Ctrl + двойной щелчок — редактирование. Просмотрщик и редактор
+  выбираются в настройках (по умолчанию — программа для типа файла и найденный графический редактор).
+- Под сетками фото — слайдер размера миниатюр от 50 до 200% с кнопками «−»/«+» (шаг 10%).
+- При запуске библиотека инкрементально пересканируется (новые, изменённые, удалённые файлы).
+- Форматы: JPEG, HEIC/HEIF (iPhone, Samsung), PNG, WebP, TIFF, DNG (только метаданные).
+- Языки интерфейса: английский, русский, греческий — по локали системы (`LANG`, `LC_MESSAGES`,
+  `LANGUAGE`), по умолчанию английский. Даты под фото — в формате системной локали дат
+  (`LC_TIME`): например, `12/21/2025 01:03 PM` в en_US и `21.12.2025 13:03` в ru_RU.
+
+## Установка
+
+Удобнее всего — из репозитория пакетов: тогда новые версии приходят с обычным обновлением системы.
+
+Fedora 45 (x86_64 и aarch64):
+
+```sh
+sudo dnf config-manager addrepo --from-repofile=https://evilx.github.io/geo-photo-library/geo-photo-library.repo
+sudo dnf install geo-photo-library
+```
+
+Ubuntu 24.04 и 26.04 (amd64 и arm64):
+
+```sh
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://evilx.github.io/geo-photo-library/key.gpg | sudo tee /etc/apt/keyrings/geo-photo-library.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/geo-photo-library.gpg] https://evilx.github.io/geo-photo-library/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/geo-photo-library.list
+sudo apt update && sudo apt install geo-photo-library
+```
+
+Те же пакеты можно скачать и поставить вручную — они в [последнем релизе](https://github.com/EvilX/geo-photo-library/releases/latest):
+RPM для Fedora 45 (x86_64 и aarch64), DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) и образ
+диска для macOS.
+
+```sh
+sudo dnf install ./geo-photo-library-*.fc45.*.rpm                # Fedora
+sudo apt install ./geo-photo-library_*~ubuntu24.04_amd64.deb     # Ubuntu: свой выпуск и архитектура
+```
+
+Сборки из текущего `main` GitHub Actions делает при каждом push: вкладка **Actions** →
+последний прогон **CI** → артефакт `geo-photo-library-fc45-rpm` (x86_64),
+`geo-photo-library-fc45-aarch64-rpm` (ARM), `geo-photo-library-ubuntu<выпуск>-<архитектура>-deb`
+или `geo-photo-library-macos-dmg`
+(скачивание артефактов доступно только после входа в GitHub).
+
+Образ диска для macOS — для Apple silicon, macOS 14 и новее. Приложение не подписано
+сертификатом разработчика и не нотаризовано, поэтому после перетаскивания в «Программы» снимите карантин, иначе macOS
+откажется его открыть:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/GeoPhotoLibrary.app"
+```
+
+## Сборка (Fedora)
+
+```sh
+sudo dnf install gcc gtk4-devel libshumate-devel libheif-devel
+cargo run --release
+```
+
+Без HEIC: `cargo build --release --no-default-features`.
+
+Сканирование без GUI: `geo-photo-library --scan <папка>`.
+
+Пакеты:
+
+- `./packaging/build-rpm.sh` — RPM в `target/rpmbuild/RPMS/<архитектура>/`;
+- `./packaging/build-deb.sh` — DEB в `target/deb/` (в Ubuntu: нужны `libgtk-4-dev libshumate-dev
+  libsoup-3.0-dev libheif-dev dpkg-dev desktop-file-utils appstream` и Rust из rustup);
+- `./packaging/flatpak/build-flatpak.sh` — Flatpak-бандл `target/flatpak/geo-photo-library.flatpak`
+  (SDK ставится в пользовательскую установку, root не нужен).
+
+## Сборка (macOS)
+
+Нативное приложение: ядро на Rust (сканер, база, миниатюры) собирается в статическую
+библиотеку, интерфейс — на SwiftUI с картой MapKit (`macos/`). Нужны macOS 14 или новее,
+Xcode с принятой лицензией (`sudo xcodebuild -license accept`) и Rust (rustup);
+GTK и libheif не нужны — HEIC декодирует система.
+
+```sh
+./macos/build-app.sh --run   # → target/macos/GeoPhotoLibrary.app
+./macos/build-dmg.sh         # → target/macos/GeoPhotoLibrary-<версия>-arm64.dmg
+```
+
+Возможности те же, что на Linux, с отличиями, принятыми в macOS:
+
+- карта и поиск местности — Apple (MapKit), а не OpenStreetMap и Nominatim;
+- «Моё местоположение» — через CoreLocation; при первом нажатии система спросит разрешение;
+- меню «Правка» — действия с выбранными фото: скопировать (⌘C), удалить (⌘⌫), выделить все (⌘A),
+  а для одного фото — ещё просмотр (⌘O), редактирование (⌘E), показать в Finder;
+- панель «Информация» — кнопка «i» в заголовке окна или ⌘I; пересканировать — ⌘R;
+- редактирование — ⌘ + двойной щелчок; в меню фото есть ещё «Показать в Finder»;
+- настройки (⌘,) применяются сразу; просмотрщик и редактор выбираются из установленных программ;
+- язык интерфейса и формат дат — из системных настроек;
+- просмотр открывается двойным щелчком (Enter в сетке фото не работает);
+- ширина панелей между запусками не запоминается.
+
+## Данные
+
+| Что | Где |
+| --- | --- |
+| Настройки (папка библиотеки, сортировка, масштаб миниатюр, положение карты, программы) | `~/.config/geo-photo-library/config.toml` |
+| База | `~/.local/share/geo-photo-library/library.db` |
+| Миниатюры | `~/.cache/geo-photo-library/thumbs/` |
+
+Версия из Flatpak хранит те же файлы отдельно, в `~/.var/app/io.github.EvilX.GeoPhotoLibrary/`.
+На macOS настройки и база лежат в `~/Library/Application Support/geo-photo-library/`,
+миниатюры — в `~/Library/Caches/geo-photo-library/thumbs/`.
+
+Сеть нужна только для тайлов карты OpenStreetMap и поиска местности; фотографии никуда
+не отправляются. Местоположение определяется системой (GeoClue) только по нажатию кнопки
+и никуда не сохраняется.
+
+## Разработка
+
+- CI (`.github/workflows/ci.yml`): clippy и тесты, затем сборка RPM для x86_64 и aarch64 — в контейнере `fedora:45`,
+  и DEB для Ubuntu 24.04 и 26.04 (amd64 и arm64) — в контейнерах этих выпусков;
+  на macOS — тесты ядра и сборка DMG. На теге `v*` пакеты и DMG прикладываются к релизу GitHub,
+  а RPM и DEB добавляются в репозитории dnf и apt на GitHub Pages (`packaging/build-repo.sh`).
+- `GEO_PHOTO_LIBRARY_TRACE=1` — замеры времени операций интерфейса.
+- `cargo run --release --example bench_thumbs -- <папка>` — бенчмарк генерации миниатюр.
+- Инструкции для ИИ-агентов и отладочные переменные окружения — в [AGENTS.md](AGENTS.md).
+
+## Лицензия
+
+Copyright 2026 Leonid Nasedkin.
+
+Распространяется по лицензии [Apache 2.0](LICENSE).
