@@ -3,6 +3,7 @@
 **Русский** | [English](README.md)
 
 [![Последний релиз](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
+[![Поддержать](https://img.shields.io/github/sponsors/EvilX?label=Sponsor&logo=GitHub)](https://github.com/sponsors/EvilX)
 
 Каталогизатор фотографий для Linux и macOS с поиском снимков на карте по GPS-координатам
 из EXIF. Ядро на Rust (сканер, база SQLite, миниатюры) общее; интерфейс на Linux — GTK4 с

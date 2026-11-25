@@ -3,6 +3,7 @@
 [Русский](README.ru.md) | **English**
 
 [![Latest release](https://img.shields.io/github/v/release/EvilX/geo-photo-library)](https://github.com/EvilX/geo-photo-library/releases/latest)
+[![Sponsor](https://img.shields.io/github/sponsors/EvilX?label=Sponsor&logo=GitHub)](https://github.com/sponsors/EvilX)
 
 A photo catalog for Linux and macOS that places your photos on a map using GPS coordinates
 from EXIF. The Rust core (scanner, SQLite database, thumbnails) is shared; the interface is
