@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.3.7
+Version:        1.3.8
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -62,6 +62,11 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Thu Nov 26 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.8-1
+- "Edit EXIF" window: a new EXIF tab to edit all tags, with a filter by tag name or value;
+  only changed tags are written, also for several photos
+- After editing, the photo date, orientation and thumbnail are updated without a rescan
+
 * Thu Nov 26 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.7-1
 - Edit photo coordinates on a map; they are written into the file EXIF (JPEG, HEIC, WebP)
 - "By date" tab: filter photos with or without coordinates
