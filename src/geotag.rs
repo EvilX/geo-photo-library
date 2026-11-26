@@ -99,12 +99,20 @@ pub fn write(path: &Path, changes: &Changes) -> Result<Stamp> {
 /// Содержимое файла с изменениями (проверенное).
 fn with_changes(original: &[u8], kind: FileExtension, changes: &Changes) -> Result<Vec<u8>> {
     let before = tags(original);
-    // Без EXIF — новый блок. Если EXIF есть, а little_exif его не разобрал, файл не трогаем:
-    // иначе все прежние теги пропали бы.
-    let mut md = match Metadata::new_from_vec(&original.to_vec(), kind) {
+    // Без EXIF — новый блок. Если EXIF есть, а little_exif его не разобрал, — ещё попытка
+    // с исправленными типами тегов; не вышло — файл не трогаем: иначе все прежние теги пропали бы.
+    let mut base = original.to_vec();
+    let mut md = match decode(&base, kind) {
         Ok(md) => md,
         Err(_) if before.is_none() => Metadata::new(),
-        Err(e) => return Err(e).context("EXIF"),
+        Err(e) => match fix_formats(&base) {
+            Some(fixed) => {
+                let md = decode(&fixed, kind).context("EXIF")?;
+                base = fixed;
+                md
+            }
+            None => return Err(e).context("EXIF"),
+        },
     };
     if let Some((lat, lon)) = changes.coords {
         md.set_tag(ExifTag::GPSVersionID(vec![2, 3, 0, 0]));
@@ -128,8 +136,10 @@ fn with_changes(original: &[u8], kind: FileExtension, changes: &Changes) -> Resu
         md.set_tag(tag);
         expected.push((key, Some(val)));
     }
-    let mut data = original.to_vec();
-    md.write_to_vec(&mut data, kind).context("EXIF")?;
+    let mut data = base;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| md.write_to_vec(&mut data, kind)))
+        .map_err(|_| anyhow!("сбой little_exif при записи"))?
+        .context("EXIF")?;
 
     // Проверка: изменённое читается так же, как его прочтёт сканер, и ни один прежний тег
     // (кроме координат и удалённых) не потерян.
@@ -156,6 +166,88 @@ fn with_changes(original: &[u8], kind: FileExtension, changes: &Changes) -> Resu
         }
     }
     Ok(data)
+}
+
+/// Разобрать EXIF файла little_exif. Его утверждения (`assert!`) на странных данных
+/// роняли бы поток — паника становится ошибкой.
+fn decode(data: &[u8], kind: FileExtension) -> Result<Metadata> {
+    std::panic::catch_unwind(|| Metadata::new_from_vec(&data.to_vec(), kind))
+        .map_err(|_| anyhow!("сбой little_exif при разборе"))?
+        .map_err(Into::into)
+}
+
+/// Копия файла, где у известных little_exif тегов исправлен тип, если в файле он другой,
+/// но того же размера: знаковое вместо беззнакового и наоборот (камеры пишут, например,
+/// ExifImageWidth как SLONG, и little_exif отказывается разбирать весь блок). Значения
+/// не меняются. `None` — EXIF не найден или исправлять нечего.
+fn fix_formats(original: &[u8]) -> Option<Vec<u8>> {
+    let exif = exif::Reader::new().read_from_container(&mut Cursor::new(original)).ok()?;
+    let tiff = exif.buf();
+    // Блок TIFF лежит в файле как есть — его место ищем по содержимому.
+    let head = &tiff[..tiff.len().min(64)];
+    let start = original.windows(head.len()).enumerate().find(|(i, w)| *w == head && original[*i..].starts_with(tiff))?.0;
+    let mut data = original.to_vec();
+    let fixed = fix_tiff(&mut data[start..start + tiff.len()]);
+    (fixed > 0).then_some(data)
+}
+
+/// Исправить типы тегов в блоке TIFF (см. [`fix_formats`]); возвращает число исправлений.
+fn fix_tiff(t: &mut [u8]) -> usize {
+    let le = match t.get(..2) {
+        Some(b"II") => true,
+        Some(b"MM") => false,
+        _ => return 0,
+    };
+    let u16_at = |t: &[u8], o: usize| t.get(o..o + 2).map(|b| if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) });
+    let u32_at = |t: &[u8], o: usize| {
+        t.get(o..o + 4).map(|b| if le { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) })
+    };
+    let Some(first) = u32_at(t, 4) else { return 0 };
+    let mut todo = vec![(first as usize, ExifTagGroup::GENERIC)];
+    let mut seen = HashSet::new();
+    let mut fixed = 0;
+    while let Some((ifd, group)) = todo.pop() {
+        // Защита от зацикленных ссылок в битых файлах.
+        if ifd == 0 || !seen.insert(ifd) {
+            continue;
+        }
+        let Some(n) = u16_at(t, ifd) else { continue };
+        for i in 0..n as usize {
+            let e = ifd + 2 + i * 12;
+            let (Some(tag), Some(format), Some(value)) = (u16_at(t, e), u16_at(t, e + 2), u32_at(t, e + 8)) else { break };
+            match (group, tag) {
+                (ExifTagGroup::GENERIC, 0x8769) => todo.push((value as usize, ExifTagGroup::EXIF)),
+                (ExifTagGroup::GENERIC, 0x8825) => todo.push((value as usize, ExifTagGroup::GPS)),
+                (ExifTagGroup::EXIF, 0xa005) => todo.push((value as usize, ExifTagGroup::INTEROP)),
+                _ => {}
+            }
+            let Some(expected) = ExifTag::from_u16(tag, &group).ok().map(|t| t.format().as_u16()) else { continue };
+            // Пары одного размера: BYTE/SBYTE, SHORT/SSHORT, LONG/SLONG, RATIONAL/SRATIONAL.
+            let twin = |f: u16| match f {
+                1 => 6,
+                6 => 1,
+                3 => 8,
+                8 => 3,
+                4 => 9,
+                9 => 4,
+                5 => 10,
+                10 => 5,
+                _ => 0,
+            };
+            if format != expected && twin(format) == expected {
+                let b = if le { expected.to_le_bytes() } else { expected.to_be_bytes() };
+                t[e + 2..e + 4].copy_from_slice(&b);
+                fixed += 1;
+            }
+        }
+        // Следующий IFD цепочки (IFD1 — миниатюра) — тоже основной группы.
+        if group == ExifTagGroup::GENERIC {
+            if let Some(next) = u32_at(t, ifd + 2 + n as usize * 12) {
+                todo.push((next as usize, ExifTagGroup::GENERIC));
+            }
+        }
+    }
+    fixed
 }
 
 /// Теги EXIF файла: (IFD, имя); `None` — EXIF нет.
@@ -709,6 +801,30 @@ mod tests {
         assert!(!Key::new(Group::Exif, 0x9000, None).unwrap().editable());
         assert!(!Key::new(Group::Tiff, 0x8769, None).unwrap().editable());
         image::open(&a).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn wrong_signedness_is_fixed() {
+        let dir = std::env::temp_dir().join(format!("gpl-exif-sign-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.jpg");
+        std::fs::write(&path, jpeg()).unwrap();
+        let width = Key::new(Group::Exif, 0xa002, None).unwrap().code();
+        write(&path, &Changes { coords: None, tags: vec![(width, "16".into())] }).unwrap();
+        // Как у некоторых камер: ExifImageWidth записан как SLONG (9), а не LONG (4).
+        let mut data = std::fs::read(&path).unwrap();
+        let at = data.windows(4).position(|w| w == [0x02, 0xa0, 0x04, 0x00]).unwrap();
+        data[at + 2] = 9;
+        std::fs::write(&path, &data).unwrap();
+        assert!(decode(&data, FileExtension::JPEG).is_err());
+
+        write_coords(&path, 55.04, 82.92).unwrap();
+        let m = metadata::read(&path);
+        assert!((m.lat.unwrap() - 55.04).abs() < 1e-6);
+        let one = fields(std::slice::from_ref(&path));
+        assert_eq!(field(&one, "PixelXDimension").value.as_deref(), Some("16"));
+        image::open(&path).unwrap();
         std::fs::remove_dir_all(&dir).ok();
     }
 
