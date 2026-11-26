@@ -62,7 +62,19 @@ struct MapTab: View {
                 ThumbScaleBar()
             }
         }
-        .onAppear { DebugHooks.finder = finder }
+        .onAppear {
+            finder.target = { [model] in model.map }
+            DebugHooks.finder = finder
+        }
+        .alert(
+            finder.alert?.title ?? "",
+            isPresented: Binding(get: { finder.alert != nil }, set: { if !$0 { finder.alert = nil } }),
+            presenting: finder.alert
+        ) { _ in
+            Button(Core.text("ok")) {}
+        } message: { alert in
+            Text(alert.detail)
+        }
     }
 }
 
@@ -174,6 +186,11 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
     var showResults = false
     private(set) var locating = false
 
+    /// Ошибка «Моего местоположения» — окно показывает тот, кто пользуется поиском.
+    var alert: AlertMessage?
+    /// Карта, к которой переходить (у вкладки — главная, у редактора координат — своя).
+    var target: () -> PlaceTarget? = { nil }
+
     /// Номер последнего запроса — ответы устаревших отбрасываются.
     private var generation = 0
     private let manager = CLLocationManager()
@@ -185,7 +202,7 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
     }
 
     /// Запрос уходит только по Enter. Одно найденное место — сразу переход к нему.
-    func search(_ model: AppModel) {
+    func search() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         generation += 1
@@ -205,7 +222,7 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
             switch result {
             case .success(let found) where found.count == 1:
                 showResults = false
-                go(to: found[0], model)
+                go(to: found[0])
             case .success(let found):
                 show(found, found.isEmpty ? Core.text("place_not_found") : nil)
             case .failure(let error as MKError) where error.code == .placemarkNotFound:
@@ -237,19 +254,16 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
     }
 
     /// Показать место целиком (по его области) или точку крупным планом.
-    func go(to place: Place, _ model: AppModel) {
+    func go(to place: Place) {
         showResults = false
-        model.map?.go(lat: place.lat, lon: place.lon, radius: place.radius, maxZoom: placeMaxZoom)
+        target()?.go(lat: place.lat, lon: place.lon, radius: place.radius, maxZoom: placeMaxZoom)
     }
 
     // MARK: Моё местоположение
 
-    private weak var model: AppModel?
-
     /// Разовый запрос местоположения: при первом система спросит разрешение.
-    func locate(_ model: AppModel) {
+    func locate() {
         guard !locating else { return }
-        self.model = model
         locating = true
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
@@ -260,7 +274,7 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
 
     private func fail(denied: Bool) {
         locating = false
-        model?.alert = AlertMessage(
+        alert = AlertMessage(
             title: Core.text("location_failed"),
             detail: Core.text(denied ? "location_denied" : "location_unavailable")
         )
@@ -283,9 +297,9 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
             guard locating, let fix = locations.last else { return }
             locating = false
             let (lat, lon) = (fix.coordinate.latitude, fix.coordinate.longitude)
-            model?.map?.markLocation(lat: lat, lon: lon)
+            target()?.markLocation(lat: lat, lon: lon)
             // Круг точности целиком в кадре.
-            model?.map?.go(lat: lat, lon: lon, radius: max(fix.horizontalAccuracy, 50), maxZoom: locationMaxZoom)
+            target()?.go(lat: lat, lon: lon, radius: max(fix.horizontalAccuracy, 50), maxZoom: locationMaxZoom)
         }
     }
 
@@ -298,9 +312,9 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
     }
 }
 
-/// Строка поиска над картой и кнопка «Моё местоположение».
+/// Строка поиска над картой, фильтр по датам и кнопка «Моё местоположение».
 struct MapSearchBar: View {
-    @Bindable var finder: PlaceFinder
+    var finder: PlaceFinder
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -326,46 +340,44 @@ struct MapSearchBar: View {
             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
             .help(Core.text("filter_by_date"))
 
-            HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                // Подсказка своя: системная на подложке-материале рисуется «живой»
-                // (vibrancy) и выглядит размытой. Цвет из NSColor от фона не зависит.
-                TextField("", text: $finder.query)
-                    .textFieldStyle(.plain)
-                    .accessibilityLabel(Core.text("search_place"))
-                    .background(alignment: .leading) {
-                        if finder.query.isEmpty {
-                            Text(Core.text("search_place"))
-                                .foregroundStyle(Color(nsColor: .placeholderTextColor))
-                                .lineLimit(1)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onSubmit { finder.search(model) }
-            }
-            .padding(.horizontal, 8)
-            .frame(width: 260, height: 28)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-            .popover(isPresented: $finder.showResults, arrowEdge: .bottom) {
-                results
-            }
+            PlaceSearchField(finder: finder)
+                .frame(width: 260, height: 28)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
 
-            Button {
-                finder.locate(model)
-            } label: {
-                if finder.locating {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "location")
+            LocateButton(finder: finder)
+                .frame(width: 28, height: 28)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+        }
+    }
+}
+
+/// Поле поиска местности со списком найденного во всплывающем окне. Запрос — по Enter.
+struct PlaceSearchField: View {
+    @Bindable var finder: PlaceFinder
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            // Подсказка своя: системная на подложке-материале рисуется «живой»
+            // (vibrancy) и выглядит размытой. Цвет из NSColor от фона не зависит.
+            TextField("", text: $finder.query)
+                .textFieldStyle(.plain)
+                .accessibilityLabel(Core.text("search_place"))
+                .background(alignment: .leading) {
+                    if finder.query.isEmpty {
+                        Text(Core.text("search_place"))
+                            .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                            .lineLimit(1)
+                            .allowsHitTesting(false)
+                    }
                 }
-            }
-            .buttonStyle(.plain)
-            .frame(width: 28, height: 28)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-            .disabled(finder.locating)
-            .help(Core.text("my_location"))
+                .onSubmit { finder.search() }
+        }
+        .padding(.horizontal, 8)
+        .popover(isPresented: $finder.showResults, arrowEdge: .bottom) {
+            results
         }
     }
 
@@ -378,7 +390,7 @@ struct MapSearchBar: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(finder.places) { place in
                         Button {
-                            finder.go(to: place, model)
+                            finder.go(to: place)
                         } label: {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(place.name)
@@ -400,6 +412,26 @@ struct MapSearchBar: View {
             .frame(width: 340)
             .frame(maxHeight: 320)
         }
+    }
+}
+
+/// Кнопка «Моё местоположение»; пока идёт запрос — индикатор.
+struct LocateButton: View {
+    var finder: PlaceFinder
+
+    var body: some View {
+        Button {
+            finder.locate()
+        } label: {
+            if finder.locating {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "location")
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(finder.locating)
+        .help(Core.text("my_location"))
     }
 }
 
@@ -581,6 +613,8 @@ struct PhotoMap: NSViewRepresentable {
         private var pendingSelect: Int64?
         private var location: LocationAnnotation?
         private var quitObserver: NSObjectProtocol?
+        /// Координаты фото изменились: с новым списком пересоздать все маркеры.
+        private var staleMarkers = false
 
         init(_ model: AppModel) {
             self.model = model
@@ -601,6 +635,11 @@ struct PhotoMap: NSViewRepresentable {
         func set(_ list: PhotoList) {
             guard list !== photos else { return }
             photos = list
+            if staleMarkers {
+                staleMarkers = false
+                map?.removeAnnotations(Array(markers.values))
+                markers = [:]
+            }
             // Индексы относятся к прежнему списку — список фото собрать заново.
             visible = nil
             position()
@@ -615,23 +654,15 @@ struct PhotoMap: NSViewRepresentable {
         // MARK: Положение
 
         private var hasSize: Bool {
-            guard let map else { return false }
-            return map.bounds.width >= 2 && map.bounds.height >= 2
+            map?.hasSize ?? false
         }
 
-        /// Зум Web Mercator (тайл 256) по ширине видимой области.
         private var zoom: Double {
-            guard let map, hasSize else { return 0 }
-            return mapPointZoom + log2(map.bounds.width / map.visibleMapRect.size.width)
+            map?.webZoom ?? 0
         }
 
         private func move(lat: Double, lon: Double, zoom: Double, animated: Bool) {
-            guard let map, hasSize else { return }
-            let scale = pow(2, mapPointZoom - zoom)
-            let (w, h) = (map.bounds.width * scale, map.bounds.height * scale)
-            let center = MKMapPoint(CLLocationCoordinate2D(latitude: lat, longitude: lon))
-            let rect = MKMapRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
-            map.setVisibleMapRect(rect, animated: animated)
+            map?.move(lat: lat, lon: lon, zoom: zoom, animated: animated)
         }
 
         /// Один раз, когда у карты появился размер: сохранённое положение, иначе все фото.
@@ -675,24 +706,20 @@ struct PhotoMap: NSViewRepresentable {
         func go(lat: Double, lon: Double, radius: Double?, maxZoom: Double) {
             guard let map, hasSize else { return }
             positioned = true
-            var target = placeZoom
-            if let radius, radius > 0 {
-                // Круг радиуса `radius` целиком в кадре с отступом; целый зум, как в версии GTK.
-                let side = max(min(map.bounds.width, map.bounds.height) - 80, 1)
-                let metersPerPixel = 2 * radius / side
-                target = log2(equatorMetersPerPixel * cos(lat * .pi / 180) / metersPerPixel).rounded(.down)
-            }
-            move(lat: lat, lon: lon, zoom: min(max(target, 3), maxZoom), animated: true)
+            map.go(lat: lat, lon: lon, radius: radius, maxZoom: maxZoom)
         }
 
         func markLocation(lat: Double, lon: Double) {
-            guard let map else { return }
-            if let location {
-                map.removeAnnotation(location)
-            }
-            let mark = LocationAnnotation(lat: lat, lon: lon)
-            location = mark
-            map.addAnnotation(mark)
+            location = map?.mark(location: location, lat: lat, lon: lon)
+        }
+
+        var currentView: (lat: Double, lon: Double, zoom: Double)? {
+            guard positioned, let map, hasSize else { return nil }
+            return (map.centerCoordinate.latitude, map.centerCoordinate.longitude, zoom)
+        }
+
+        func resetMarkers() {
+            staleMarkers = true
         }
 
         // MARK: Маркеры и список
@@ -770,5 +797,50 @@ struct PhotoMap: NSViewRepresentable {
                 move(lat: cluster.lat, lon: cluster.lon, zoom: zoom + clusterZoomStep, animated: true)
             }
         }
+    }
+}
+
+// MARK: Положение карты
+
+extension MKMapView {
+    var hasSize: Bool {
+        bounds.width >= 2 && bounds.height >= 2
+    }
+
+    /// Зум Web Mercator (тайл 256) по ширине видимой области.
+    var webZoom: Double {
+        hasSize ? mapPointZoom + log2(bounds.width / visibleMapRect.size.width) : 0
+    }
+
+    func move(lat: Double, lon: Double, zoom: Double, animated: Bool) {
+        guard hasSize else { return }
+        let scale = pow(2, mapPointZoom - zoom)
+        let (w, h) = (bounds.width * scale, bounds.height * scale)
+        let center = MKMapPoint(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+        let rect = MKMapRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
+        setVisibleMapRect(rect, animated: animated)
+    }
+
+    /// Показать точку с окрестностями радиуса `radius` метров; `nil` — крупным планом.
+    func go(lat: Double, lon: Double, radius: Double?, maxZoom: Double) {
+        guard hasSize else { return }
+        var target = placeZoom
+        if let radius, radius > 0 {
+            // Круг радиуса `radius` целиком в кадре с отступом; целый зум, как в версии GTK.
+            let side = max(min(bounds.width, bounds.height) - 80, 1)
+            let metersPerPixel = 2 * radius / side
+            target = log2(equatorMetersPerPixel * cos(lat * .pi / 180) / metersPerPixel).rounded(.down)
+        }
+        move(lat: lat, lon: lon, zoom: min(max(target, 3), maxZoom), animated: true)
+    }
+
+    /// Заменить отметку «я здесь» (`old`) новой; возвращает новую.
+    func mark(location old: LocationAnnotation?, lat: Double, lon: Double) -> LocationAnnotation {
+        if let old {
+            removeAnnotation(old)
+        }
+        let mark = LocationAnnotation(lat: lat, lon: lon)
+        addAnnotation(mark)
+        return mark
     }
 }

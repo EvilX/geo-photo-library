@@ -215,6 +215,55 @@ enum Core {
         take(gpl_text_trash_failed(name, e)) ?? e
     }
 
+    // MARK: Координаты
+
+    /// «Сохранить», для нескольких фото — с их числом.
+    static func saveCount(_ n: Int) -> String {
+        take(gpl_text_save_count(n)) ?? ""
+    }
+
+    static func confirmUpdateCoordinatesDetail(_ name: String) -> String {
+        take(gpl_text_confirm_update_coordinates_detail(name)) ?? ""
+    }
+
+    static func confirmSaveCoordinates(_ n: Int) -> String {
+        take(gpl_text_confirm_save_coordinates(n)) ?? ""
+    }
+
+    static func coordinatesSaved(_ subject: String) -> String {
+        take(gpl_text_coordinates_saved(subject)) ?? ""
+    }
+
+    static func coordinatesFailed(_ name: String, _ e: String) -> String {
+        take(gpl_text_coordinates_failed(name, e)) ?? e
+    }
+
+    /// Координата из поля ввода (точка или запятая).
+    static func parseCoord(_ text: String) -> Double? {
+        var v = 0.0
+        return gpl_parse_coord(text, &v) ? v : nil
+    }
+
+    /// Пара «широта, долгота» одной строкой — как её копируют из карт.
+    static func parseCoordPair(_ text: String) -> (lat: Double, lon: Double)? {
+        var (lat, lon) = (0.0, 0.0)
+        return gpl_parse_coord_pair(text, &lat, &lon) ? (lat, lon) : nil
+    }
+
+    static func formatCoord(_ v: Double) -> String {
+        take(gpl_format_coord(v)) ?? String(v)
+    }
+
+    static func validCoords(lat: Double, lon: Double) -> Bool {
+        gpl_valid_coords(lat, lon)
+    }
+
+    /// Записать координаты в EXIF файла и в БД; `nil` — успех, иначе текст ошибки.
+    /// Пишет файл — не из главного потока.
+    static func setCoords(_ photo: Photo, lat: Double, lon: Double) -> String? {
+        take(gpl_set_coords(photo.id, photo.path, lat, lon))
+    }
+
     static func dateLabel(year: Int32, month: UInt32 = 0, day: UInt32 = 0) -> String {
         take(gpl_text_date_label(year, month, day)) ?? ""
     }
@@ -324,9 +373,14 @@ enum Core {
         Int(gpl_db_count())
     }
 
-    static func dateCounts() -> [DateCount] {
+    /// Фильтр вкладки дат при запуске: `GEO_PHOTO_LIBRARY_GEO_FILTER` (отладка) или «Все фото».
+    static var debugGeoFilter: GeoFilter {
+        GeoFilter(rawValue: gpl_debug_geo_filter()) ?? .all
+    }
+
+    static func dateCounts(_ filter: GeoFilter) -> [DateCount] {
         var n = 0
-        return dateCounts(gpl_db_date_counts(&n), n)
+        return dateCounts(gpl_db_date_counts(filter.rawValue, &n), n)
     }
 
     /// Счётчики из ядра; память освобождается здесь.
@@ -337,8 +391,8 @@ enum Core {
         }
     }
 
-    static func photos(year: Int32, month: UInt32, day: UInt32) -> [Photo] {
-        PhotoList(gpl_db_photos_by_date(year, month, day)).photos
+    static func photos(year: Int32, month: UInt32, day: UInt32, filter: GeoFilter) -> [Photo] {
+        PhotoList(gpl_db_photos_by_date(year, month, day, filter.rawValue)).photos
     }
 
     /// Фото с координатами за период узла дерева дат; `nil` — за всё время.

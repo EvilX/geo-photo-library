@@ -32,6 +32,50 @@ const SCHEMA_VERSION: i32 = 3;
 
 const PHOTO_COLS: &str = "id, path, taken_at, lat, lon, thumb_path";
 
+/// Фильтр вкладки дат по координатам в EXIF.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GeoFilter {
+    /// Все фото.
+    #[default]
+    All,
+    /// Только с координатами.
+    With,
+    /// Только без координат.
+    Without,
+}
+
+impl GeoFilter {
+    /// Порядок пунктов в выпадающем списке; индекс — он же код в C-интерфейсе.
+    pub const ALL: [GeoFilter; 3] = [GeoFilter::All, GeoFilter::With, GeoFilter::Without];
+
+    pub fn index(self) -> u32 {
+        Self::ALL.iter().position(|&f| f == self).unwrap_or(0) as u32
+    }
+
+    pub fn from_index(i: u32) -> Self {
+        Self::ALL.get(i as usize).copied().unwrap_or_default()
+    }
+
+    /// Отладка: `GEO_PHOTO_LIBRARY_GEO_FILTER=all|with|without` — фильтр при запуске.
+    pub fn from_env() -> Option<Self> {
+        match std::env::var("GEO_PHOTO_LIBRARY_GEO_FILTER").ok()?.as_str() {
+            "all" => Some(GeoFilter::All),
+            "with" => Some(GeoFilter::With),
+            "without" => Some(GeoFilter::Without),
+            _ => None,
+        }
+    }
+
+    /// Условие SQL для `WHERE`.
+    fn sql(self) -> &'static str {
+        match self {
+            GeoFilter::All => "1",
+            GeoFilter::With => "lat IS NOT NULL AND lon IS NOT NULL",
+            GeoFilter::Without => "(lat IS NULL OR lon IS NULL)",
+        }
+    }
+}
+
 /// Фото для отображения в UI.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Photo {
@@ -245,26 +289,39 @@ impl Db {
         Ok(thumb)
     }
 
+    /// Координаты, записанные в файл фото, и его новые размер и время изменения —
+    /// чтобы сканер не обрабатывал файл заново.
+    pub fn set_coords(&self, id: i64, lat: f64, lon: f64, size: i64, mtime: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE photos SET lat = ?2, lon = ?3, size = ?4, mtime = ?5 WHERE id = ?1",
+            params![id, lat, lon, size, mtime],
+        )?;
+        Ok(())
+    }
+
     pub fn count(&self) -> Result<i64> {
         Ok(self.conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))?)
     }
 
-    pub fn date_counts(&self) -> Result<Vec<DateCount>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT year, month, day, COUNT(*) FROM photos GROUP BY year, month, day
+    pub fn date_counts(&self, filter: GeoFilter) -> Result<Vec<DateCount>> {
+        let sql = format!(
+            "SELECT year, month, day, COUNT(*) FROM photos WHERE {} GROUP BY year, month, day
              ORDER BY year, month, day",
-        )?;
+            filter.sql()
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], |r| {
             Ok(DateCount { year: r.get(0)?, month: r.get(1)?, day: r.get(2)?, count: r.get(3)? })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn photos_by_date(&self, year: i32, month: Option<u32>, day: Option<u32>) -> Result<Vec<Photo>> {
+    pub fn photos_by_date(&self, year: i32, month: Option<u32>, day: Option<u32>, filter: GeoFilter) -> Result<Vec<Photo>> {
         let sql = format!(
             "SELECT {PHOTO_COLS} FROM photos
-             WHERE year = ?1 AND (?2 IS NULL OR month = ?2) AND (?3 IS NULL OR day = ?3)
-             ORDER BY taken_at, path"
+             WHERE year = ?1 AND (?2 IS NULL OR month = ?2) AND (?3 IS NULL OR day = ?3) AND {}
+             ORDER BY taken_at, path",
+            filter.sql()
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![year, month, day], Photo::from_row)?;
@@ -322,14 +379,25 @@ mod tests {
         .unwrap();
         assert_eq!(db.count().unwrap(), 4);
 
-        let dc = db.date_counts().unwrap();
+        let dc = db.date_counts(GeoFilter::All).unwrap();
         assert_eq!(dc[0], DateCount { year: 2023, month: 7, day: 14, count: 2 });
         assert_eq!(dc.len(), 3);
 
-        let july = db.photos_by_date(2023, Some(7), None).unwrap();
+        let july = db.photos_by_date(2023, Some(7), None, GeoFilter::All).unwrap();
         assert_eq!(july.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), ["/b.jpg", "/a.jpg"]);
-        assert_eq!(db.photos_by_date(2023, None, None).unwrap().len(), 3);
-        assert_eq!(db.photos_by_date(2023, Some(8), Some(1)).unwrap().len(), 1);
+        assert_eq!(db.photos_by_date(2023, None, None, GeoFilter::All).unwrap().len(), 3);
+        assert_eq!(db.photos_by_date(2023, Some(8), Some(1), GeoFilter::All).unwrap().len(), 1);
+
+        // фильтр вкладки дат по координатам
+        let with = db.date_counts(GeoFilter::With).unwrap();
+        assert_eq!(with.iter().map(|c| (c.month, c.day, c.count)).collect::<Vec<_>>(), [(7, 14, 1), (8, 1, 1)]);
+        let without = db.date_counts(GeoFilter::Without).unwrap();
+        assert_eq!(without.iter().map(|c| (c.year, c.count)).collect::<Vec<_>>(), [(2023, 1), (2024, 1)]);
+        let paths = |f| db.photos_by_date(2023, Some(7), None, f).unwrap().into_iter().map(|p| p.path).collect::<Vec<_>>();
+        assert_eq!(paths(GeoFilter::With), ["/a.jpg"]);
+        assert_eq!(paths(GeoFilter::Without), ["/b.jpg"]);
+        assert_eq!(GeoFilter::from_index(GeoFilter::Without.index()), GeoFilter::Without);
+        assert_eq!(GeoFilter::from_index(7), GeoFilter::All);
 
         let geo = db.geotagged().unwrap();
         assert_eq!(geo.len(), 2);
@@ -355,7 +423,12 @@ mod tests {
         assert_eq!(thumbs, ["/a.jpg.thumb"]);
         assert_eq!(db.known_files().unwrap().len(), 3);
 
-        let p = db.photos_by_date(2023, Some(8), Some(1)).unwrap().remove(0);
+        let b = db.photos_by_date(2023, Some(7), Some(14), GeoFilter::Without).unwrap().remove(0);
+        db.set_coords(b.id, 40.0, -3.5, 7, 8).unwrap();
+        assert_eq!(db.known_files().unwrap()["/b.jpg"], (7, 8));
+        assert_eq!(db.photos_by_date(2023, Some(7), Some(14), GeoFilter::Without).unwrap().len(), 0);
+
+        let p = db.photos_by_date(2023, Some(8), Some(1), GeoFilter::All).unwrap().remove(0);
         assert_eq!(db.remove(p.id).unwrap(), Some(format!("{}.thumb", p.path)));
         assert_eq!(db.count().unwrap(), 2);
         assert_eq!(db.remove(p.id).unwrap(), None);

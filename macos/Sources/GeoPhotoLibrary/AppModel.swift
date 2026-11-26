@@ -13,6 +13,19 @@ enum AppTab: String, CaseIterable {
 }
 
 /// Период: год, месяц (`day == 0`) или день; `month == 0` — весь год.
+/// Фильтр вкладки дат по координатам; значение — код фильтра в ядре (`GeoFilter::index`).
+enum GeoFilter: UInt32, CaseIterable, Sendable {
+    case all, with, without
+
+    var title: String {
+        switch self {
+        case .all: Core.text("geo_all")
+        case .with: Core.text("geo_with")
+        case .without: Core.text("geo_without")
+        }
+    }
+}
+
 struct DatePeriod: Hashable {
     let year: Int32
     var month: UInt32 = 0
@@ -123,6 +136,14 @@ struct PhotoSelection: Equatable {
     }
 }
 
+/// Редактор координат для фото (лист над окном).
+struct CoordsEdit: Identifiable {
+    let id = UUID()
+    let photos: [Photo]
+    /// Положение главной карты — с него открывается карта редактора, если у фото нет координат.
+    let view: (lat: Double, lon: Double, zoom: Double)?
+}
+
 /// Сообщение в окне: заголовок и пояснение.
 struct AlertMessage: Identifiable {
     let id = UUID()
@@ -132,11 +153,20 @@ struct AlertMessage: Identifiable {
 
 /// Карта, которой модель отдаёт команды (её координатор регистрируется сам).
 @MainActor
-protocol MapController: AnyObject {
+protocol MapController: PlaceTarget {
     /// Сдвинуть карту к фото, не меняя зум.
     func center(on photo: Photo)
     /// Перейти к месту съёмки крупным планом и выделить фото в списке, когда оно появится.
     func show(_ photo: Photo)
+    /// Текущие центр и зум — с них открывается редактор координат фото без координат.
+    var currentView: (lat: Double, lon: Double, zoom: Double)? { get }
+    /// Пересоздать все маркеры: у фото изменились координаты, а маркеры хранятся по составу кластера.
+    func resetMarkers()
+}
+
+/// Карта, куда поиск местности и «Моё местоположение» переводят взгляд.
+@MainActor
+protocol PlaceTarget: AnyObject {
     /// Показать точку с окрестностями радиуса `radius` метров; `nil` — крупным планом.
     func go(lat: Double, lon: Double, radius: Double?, maxZoom: Double)
     /// Отметить текущее местоположение точкой.
@@ -161,6 +191,14 @@ final class AppModel {
     private(set) var scanning = false
 
     private(set) var dates: [DateNode] = []
+    /// Фильтр вкладки дат по координатам: смена перечитывает дерево дат.
+    var dateFilter = Core.debugGeoFilter {
+        didSet {
+            if dateFilter != oldValue {
+                reload(keepStatus: true)
+            }
+        }
+    }
     /// Фото с координатами на карте — за период фильтра `mapPeriod`.
     private(set) var geotagged = PhotoList.empty
     /// Все фото с координатами, без фильтра: по ним считается дерево фильтра.
@@ -222,6 +260,8 @@ final class AppModel {
     var alert: AlertMessage?
     /// Фото, удаление которых ждёт подтверждения в окне.
     var pendingTrash: [Photo]?
+    /// Открытый редактор координат.
+    var coordsEdit: CoordsEdit?
     weak var map: MapController?
 
     private var cancel: CancelToken?
@@ -376,8 +416,9 @@ final class AppModel {
         reloadGeneration += 1
         let generation = reloadGeneration
         let period = mapPeriod
+        let filter = dateFilter
         Task.detached(priority: .userInitiated) {
-            let counts = Core.dateCounts()
+            let counts = Core.dateCounts(filter)
             let all = Core.geotagged(nil)
             let geotagged = period == nil ? all : Core.geotagged(period)
             let total = Core.count()
@@ -514,6 +555,43 @@ final class AppModel {
             }
             await MainActor.run { self.reload(keepStatus: true) }
         }
+    }
+
+    /// Открыть редактор координат для фото.
+    func editCoords(_ photos: [Photo]) {
+        guard !photos.isEmpty else { return }
+        coordsEdit = CoordsEdit(photos: photos, view: map?.currentView)
+    }
+
+    /// Записать координаты в файлы и в БД (в фоне), затем перечитать БД. В строке
+    /// состояния — имя фото (или их число), при ошибке — первая из них и окно с ней.
+    func saveCoords(lat: Double, lon: Double, photos: [Photo]) {
+        Task.detached(priority: .userInitiated) {
+            var saved: [Photo] = []
+            var failure: String?
+            for photo in photos {
+                if let error = Core.setCoords(photo, lat: lat, lon: lon) {
+                    FileHandle.standardError.write(Data("Координаты \(photo.path): \(error)\n".utf8))
+                    failure = failure ?? Core.coordinatesFailed(photo.fileName, error)
+                } else {
+                    saved.append(photo)
+                }
+            }
+            await MainActor.run { [saved, failure] in
+                self.coordsSaved(saved, failure: failure)
+            }
+        }
+    }
+
+    private func coordsSaved(_ saved: [Photo], failure: String?) {
+        status = failure ?? Core.coordinatesSaved(saved.count == 1 ? saved[0].fileName : Core.photos(saved.count))
+        if let failure {
+            alert = AlertMessage(title: failure, detail: "")
+        }
+        guard !saved.isEmpty else { return }
+        // Маркеры хранятся по составу кластера — с новыми координатами их нужно пересоздать.
+        map?.resetMarkers()
+        reload(keepStatus: true)
     }
 
     /// Выделить фото на открытой вкладке (правый щелчок, меню).

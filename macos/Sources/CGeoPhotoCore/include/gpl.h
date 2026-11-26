@@ -29,6 +29,11 @@ char *gpl_text_trashed(const char *name);
 char *gpl_text_trash_failed(const char *name, const char *e);
 // Вопрос перед удалением: subject — имя файла или «5 фото».
 char *gpl_text_confirm_trash(const char *subject);
+char *gpl_text_save_count(size_t n);
+char *gpl_text_confirm_update_coordinates_detail(const char *name);
+char *gpl_text_confirm_save_coordinates(size_t n);
+char *gpl_text_coordinates_saved(const char *subject);
+char *gpl_text_coordinates_failed(const char *name, const char *e);
 // Подпись узла дерева дат и заголовок периода: month == 0 — год, day == 0 — месяц.
 char *gpl_text_date_label(int32_t year, uint32_t month, uint32_t day);
 char *gpl_text_date_title(int32_t year, uint32_t month, uint32_t day);
@@ -104,8 +109,9 @@ typedef struct {
     uint32_t count;
 } GplDateCount;
 
+// Фильтр вкладки дат по координатам: 0 — все фото, 1 — с координатами, 2 — без.
 // Число фото по дням, по возрастанию даты.
-GplDateCount *gpl_db_date_counts(size_t *len);
+GplDateCount *gpl_db_date_counts(uint32_t filter, size_t *len);
 void gpl_date_counts_free(GplDateCount *counts, size_t len);
 
 typedef struct {
@@ -120,11 +126,25 @@ typedef struct {
 
 typedef struct GplPhotos GplPhotos;
 
-// Фото за год, месяц (day == 0) или день; month == 0 — весь год. По дате съёмки.
-GplPhotos *gpl_db_photos_by_date(int32_t year, uint32_t month, uint32_t day);
+// Фильтр вкладки дат при запуске из GEO_PHOTO_LIBRARY_GEO_FILTER (отладка); 0 — все фото.
+uint32_t gpl_debug_geo_filter(void);
+// Фото за год, месяц (day == 0) или день; month == 0 — весь год. По дате съёмки;
+// filter — как в gpl_db_date_counts.
+GplPhotos *gpl_db_photos_by_date(int32_t year, uint32_t month, uint32_t day, uint32_t filter);
 // Фото с координатами за год, месяц (day == 0) или день (month == 0 — весь год);
 // year == 0 — за всё время. По дате съёмки.
 GplPhotos *gpl_db_geotagged(int32_t year, uint32_t month, uint32_t day);
+// Координата из поля ввода (точка или запятая); false — не число.
+bool gpl_parse_coord(const char *text, double *out);
+// Пара «широта, долгота» одной строкой (вставка из карт); false — не пара координат.
+bool gpl_parse_coord_pair(const char *text, double *lat, double *lon);
+// Координата для поля ввода (6 знаков после точки).
+char *gpl_format_coord(double v);
+// Допустимы ли координаты для записи в фото.
+bool gpl_valid_coords(double lat, double lon);
+// Записать координаты в EXIF файла фото и в БД. NULL — успех, иначе текст ошибки
+// (gpl_string_free). Пишет файл — не из главного потока.
+char *gpl_set_coords(int64_t id, const char *path, double lat, double lon);
 // Убрать из БД фото, перемещённое в корзину, вместе с миниатюрой.
 void gpl_db_remove(int64_t id);
 // Данные панели «Информация» в JSON (формат — в src/ffi.rs). Читает файл.

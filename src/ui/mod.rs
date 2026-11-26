@@ -1,10 +1,12 @@
 pub mod about;
+pub mod coords_dialog;
 pub mod date_tree;
 pub mod dates_tab;
 pub mod info_panel;
 pub mod map_tab;
 pub mod menu;
 pub mod photo_grid;
+pub mod place_search;
 pub mod settings;
 pub mod textures;
 pub mod update_banner;

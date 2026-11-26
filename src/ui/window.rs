@@ -1,6 +1,6 @@
 //! Главное окно: две вкладки, настройки, фоновое сканирование.
 use super::{
-    about,
+    about, coords_dialog,
     dates_tab::DatesTab,
     info_panel::InfoPanel,
     map_tab::MapTab,
@@ -13,7 +13,7 @@ use super::{
 use crate::{
     config::{self, Config, MapView, SortOrder},
     db::{Db, Photo},
-    i18n, paths, scanner, trace,
+    geotag, i18n, paths, scanner, trace,
 };
 use gtk::{gdk, gio, glib, prelude::*};
 use std::{
@@ -195,6 +195,12 @@ pub fn build(app: &gtk::Application) {
                 show_on_map(&s, photo);
             }
         });
+        let s = Rc::downgrade(&state);
+        grid.connect_edit_coords(move |photos| {
+            if let Some(s) = s.upgrade() {
+                edit_coords(&s, photos);
+            }
+        });
     }
 
     // Обработчики на виджетах, которыми владеет `App`, держат его слабой ссылкой:
@@ -261,6 +267,7 @@ pub fn build(app: &gtk::Application) {
     debug_date_filter(&state, &stack);
     debug_info(&state);
     debug_select(&state);
+    debug_edit_coords(&state);
     debug_locate(&state, &stack);
 }
 
@@ -341,6 +348,62 @@ fn show_on_map(state: &Rc<App>, photo: &Photo) {
     state.map.show_photo(photo);
 }
 
+/// Окно «Редактировать координаты» для выделенных фото. Без координат у фото карта
+/// открывается там же, где главная.
+fn edit_coords(state: &Rc<App>, photos: Vec<Photo>) {
+    let s = Rc::downgrade(state);
+    coords_dialog::show(state.window.upcast_ref(), photos, state.map.view(), move |lat, lon, photos| {
+        if let Some(s) = s.upgrade() {
+            save_coords(&s, lat, lon, photos);
+        }
+    });
+}
+
+/// Записать координаты в файлы (в фоне, параллельно), затем в БД; ошибку показать окном.
+fn save_coords(state: &Rc<App>, lat: f64, lon: f64, photos: Vec<Photo>) {
+    let s = Rc::downgrade(state);
+    glib::spawn_future_local(async move {
+        let results = gio::spawn_blocking(move || {
+            use rayon::prelude::*;
+            let _t = trace::span(format!("запись координат в {} файлов", photos.len()));
+            photos
+                .into_par_iter()
+                .map(|p| {
+                    let r = geotag::write_coords(std::path::Path::new(&p.path), lat, lon);
+                    (p, r)
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        let Some(s) = s.upgrade() else { return };
+        let mut saved = Vec::new();
+        let mut failed = None;
+        for (photo, res) in results {
+            match res.and_then(|st| s.db.set_coords(photo.id, lat, lon, st.size, st.mtime)) {
+                Ok(()) => saved.push(photo),
+                Err(e) => {
+                    eprintln!("Координаты {}: {e:#}", photo.path);
+                    failed.get_or_insert((photo, e));
+                }
+            }
+        }
+        if !saved.is_empty() {
+            // Маркеры карты хранятся по составу кластера — с новыми координатами их нужно пересоздать.
+            reload(&s, true);
+        }
+        let status = match (&failed, saved.as_slice()) {
+            (Some((photo, e)), _) => i18n::coordinates_failed(photo.file_name(), &format!("{e:#}")),
+            (None, [photo]) => i18n::coordinates_saved(photo.file_name()),
+            (None, many) => i18n::coordinates_saved(&i18n::photos(many.len())),
+        };
+        s.status.set_text(&status);
+        if failed.is_some() {
+            gtk::AlertDialog::builder().modal(true).message(status).buttons([i18n::ok()]).build().show(Some(&s.window));
+        }
+    });
+}
+
 /// Сетка фото на открытой вкладке.
 fn active_grid(state: &App) -> &super::photo_grid::PhotoGrid {
     match state.stack.visible_child_name().as_deref() {
@@ -389,6 +452,25 @@ fn debug_select(state: &Rc<App>) {
     };
     let state = state.clone();
     glib::timeout_add_seconds_local_once(4, move || active_grid(&state).select_first(n));
+}
+
+/// Отладка: `GEO_PHOTO_LIBRARY_EDIT_COORDS=1` — через 5 с открыть редактор координат
+/// для выделенных фото на открытой вкладке (без выделения — для первого фото).
+fn debug_edit_coords(state: &Rc<App>) {
+    if std::env::var_os("GEO_PHOTO_LIBRARY_EDIT_COORDS").is_none() {
+        return;
+    }
+    let state = state.clone();
+    glib::timeout_add_seconds_local_once(5, move || {
+        let grid = active_grid(&state);
+        let mut photos = grid.selected_photos();
+        if photos.is_empty() {
+            photos.extend(grid.photo(0));
+        }
+        if !photos.is_empty() {
+            edit_coords(&state, photos);
+        }
+    });
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_DATE_FILTER=open|<год>` — через 3 с открыть фильтр карты

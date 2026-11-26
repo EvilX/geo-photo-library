@@ -8,6 +8,7 @@ pub mod dng;
 #[cfg(feature = "ffi")]
 pub mod ffi;
 pub mod geo;
+pub mod geotag;
 pub mod i18n;
 pub mod metadata;
 pub mod paths;

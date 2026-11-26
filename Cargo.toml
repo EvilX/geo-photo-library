@@ -24,6 +24,8 @@ gtk = { package = "gtk4", version = "0.10", features = ["v4_14"], optional = tru
 shumate = { package = "libshumate", version = "0.7", optional = true }
 rusqlite = { version = "0.37", features = ["bundled"] }
 kamadak-exif = "0.6"
+# Writing GPS coordinates into JPEG, HEIC and WebP (kamadak-exif can only read).
+little_exif = "0.6.23"
 # Only libheif 1.17 functions are needed, so it also builds on Ubuntu 24.04 (by default the crate requires the newest one).
 libheif-rs = { version = "2", default-features = false, features = ["v1_17"], optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "rayon"] }

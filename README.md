@@ -38,7 +38,8 @@ The description below is for Linux; the differences of the macOS version are lis
   "All time" and a year → month → day tree; the map keeps only the photos of the chosen period
   while its position and zoom stay as they are. The chosen period is shown on the button; a click
   on the map closes the panel.
-- **By date** — a year → month → day tree and a thumbnail grid.
+- **By date** — a year → month → day tree and a thumbnail grid. The list above the tree shows
+  all photos, only those with GPS coordinates or only those without.
 - **Information** — a panel on the right with file and EXIF data: camera, lens, shutter speed,
   aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo
   and stays empty while several photos are selected.
@@ -46,10 +47,18 @@ The description below is for Linux; the differences of the macOS version are lis
   button or the cross.
 - **Photo menu** (right click): copy the file, view, edit, show in folder (the file manager opens
   the folder with the file selected), information, show on map (jumps to
-  where the photo was taken; warns if EXIF has no coordinates), move to trash (after confirmation).
+  where the photo was taken; warns if EXIF has no coordinates), edit coordinates, move to trash
+  (after confirmation).
+- **Edit coordinates** — a window with a map and a marker fixed in its center: move the map,
+  click a spot (the map centers on it), search for a place or use “My location”; the latitude and
+  longitude fields follow the marker and can also be typed in (a pasted “lat, lon” pair is
+  understood). For one photo the fields start with its coordinates, for several photos they are
+  empty and the Save button shows their number. Coordinates are written into the file's EXIF
+  (JPEG, HEIC and WebP; the rest of EXIF is kept). Replacing existing coordinates and saving for
+  several photos ask for confirmation.
 - **Selecting several photos:** Ctrl + click (⌘ + click on macOS) adds or removes a photo,
   Shift + click selects a range, dragging a rectangle selects the photos under it, Ctrl+A (⌘A)
-  selects all. For several photos the menu offers only Copy and Delete.
+  selects all. For several photos the menu offers only Copy, Edit Coordinates and Delete.
 - **Keyboard in the photo list:** arrows, Page Up/Page Down, Home/End move between photos,
   with Shift they extend the selection.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen

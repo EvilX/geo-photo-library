@@ -4,7 +4,11 @@ use super::{
     photo_grid::{self, PhotoGrid},
     textures::TextureCache,
 };
-use crate::{config::SortOrder, db::Db, i18n, trace};
+use crate::{
+    config::SortOrder,
+    db::{Db, GeoFilter},
+    i18n, trace,
+};
 use gtk::prelude::*;
 use std::{cell::Cell, rc::Rc};
 
@@ -16,6 +20,8 @@ pub struct DatesTab {
     pub zoom: gtk::Scale,
     db: Rc<Db>,
     tree: Rc<DateTree>,
+    /// Фильтр по координатам (выпадающий список над деревом).
+    filter: Cell<GeoFilter>,
     title: gtk::Label,
     grid: PhotoGrid,
     /// Что сейчас показано в сетке: узел и число фото — чтобы не перезагружать то же самое.
@@ -25,6 +31,17 @@ pub struct DatesTab {
 impl DatesTab {
     pub fn new(db: Rc<Db>, cache: Rc<TextureCache>) -> Rc<Self> {
         let tree = DateTree::new(false);
+        let labels: Vec<&str> = GeoFilter::ALL.iter().map(|&f| i18n::geo_filter_label(f)).collect();
+        let filter = gtk::DropDown::from_strings(&labels);
+        filter.set_tooltip_text(Some(i18n::geo_filter_tooltip()));
+        filter.set_margin_top(6);
+        filter.set_margin_bottom(6);
+        filter.set_margin_start(6);
+        filter.set_margin_end(6);
+        let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        left.append(&filter);
+        left.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        left.append(&tree.root);
 
         let grid = PhotoGrid::new(cache, 160, 12);
         let title = gtk::Label::new(None);
@@ -38,13 +55,34 @@ impl DatesTab {
         right.append(&photo_grid::pane_footer(&zoom));
 
         let root = gtk::Paned::new(gtk::Orientation::Horizontal);
-        root.set_start_child(Some(&tree.root));
+        root.set_start_child(Some(&left));
         root.set_end_child(Some(&right));
         root.set_resize_start_child(false);
         root.set_shrink_start_child(false);
         root.set_position(240);
 
-        let this = Rc::new(Self { root, sort, zoom, db, tree, title, grid, shown: Cell::new(None) });
+        let this = Rc::new(Self {
+            root,
+            sort,
+            zoom,
+            db,
+            tree,
+            filter: Cell::new(GeoFilter::All),
+            title,
+            grid,
+            shown: Cell::new(None),
+        });
+        let weak = Rc::downgrade(&this);
+        filter.connect_selected_notify(move |d| {
+            if let Some(t) = weak.upgrade() {
+                t.filter.set(GeoFilter::from_index(d.selected()));
+                // Число фото у выбранной даты может совпасть, а сами фото — другие.
+                t.reload(true);
+            }
+        });
+        if let Some(f) = GeoFilter::from_env() {
+            filter.set_selected(f.index());
+        }
         let weak = Rc::downgrade(&this);
         this.tree.connect_changed(move || {
             if let Some(t) = weak.upgrade() {
@@ -59,7 +97,7 @@ impl DatesTab {
     /// или `force` (после сканирования — миниатюры могли пересоздаться).
     pub fn reload(&self, force: bool) {
         let _t = trace::span("dates.reload");
-        let counts = self.db.date_counts().unwrap_or_else(|e| {
+        let counts = self.db.date_counts(self.filter.get()).unwrap_or_else(|e| {
             eprintln!("БД: {e:#}");
             Vec::new()
         });
@@ -91,7 +129,7 @@ impl DatesTab {
         }
         self.shown.set(Some((node.key(), node.count)));
         let _t = trace::span(format!("dates.load {}", node.title()));
-        let photos = self.db.photos_by_date(node.year, node.month, node.day).unwrap_or_default();
+        let photos = self.db.photos_by_date(node.year, node.month, node.day, self.filter.get()).unwrap_or_default();
         self.title.set_text(&format!("{} — {}", node.title(), i18n::photos(photos.len())));
         self.grid.set_photos(&photos);
     }

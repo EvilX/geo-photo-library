@@ -156,6 +156,19 @@ pub fn sort_label(order: crate::config::SortOrder) -> &'static str {
     }
 }
 
+pub fn geo_filter_label(filter: crate::db::GeoFilter) -> &'static str {
+    use crate::db::GeoFilter;
+    match filter {
+        GeoFilter::All => tr("All photos", "Все фото", "Όλες οι φωτογραφίες"),
+        GeoFilter::With => tr("With coordinates", "С координатами", "Με συντεταγμένες"),
+        GeoFilter::Without => tr("Without coordinates", "Без координат", "Χωρίς συντεταγμένες"),
+    }
+}
+
+pub fn geo_filter_tooltip() -> &'static str {
+    tr("Filter by coordinates", "Фильтр по координатам", "Φιλτράρισμα κατά συντεταγμένες")
+}
+
 pub fn thumb_size_tooltip() -> &'static str {
     tr("Thumbnail size", "Размер миниатюр", "Μέγεθος μικρογραφιών")
 }
@@ -251,6 +264,101 @@ pub fn move_to_trash() -> &'static str {
 
 pub fn trashed(name: &str) -> String {
     format!("{}: {name}", tr("Moved to trash", "Перемещено в корзину", "Μετακινήθηκε στα απορρίμματα"))
+}
+
+// ---------- Редактирование координат ----------
+
+pub fn edit_coordinates() -> &'static str {
+    tr("Edit Coordinates…", "Редактировать координаты…", "Επεξεργασία συντεταγμένων…")
+}
+
+/// Заголовок окна редактора координат.
+pub fn coordinates_title() -> &'static str {
+    tr("Coordinates", "Координаты", "Συντεταγμένες")
+}
+
+pub fn latitude() -> &'static str {
+    tr("Latitude", "Широта", "Γεωγραφικό πλάτος")
+}
+
+pub fn longitude() -> &'static str {
+    tr("Longitude", "Долгота", "Γεωγραφικό μήκος")
+}
+
+pub fn coordinates_hint() -> &'static str {
+    tr(
+        "Move the map or click it: the point is under the marker in the center",
+        "Двигайте карту или щёлкните по ней: точка — под меткой в центре",
+        "Μετακινήστε τον χάρτη ή κάντε κλικ σε αυτόν: το σημείο είναι κάτω από τον δείκτη στο κέντρο",
+    )
+}
+
+/// Кнопка «Сохранить» редактора; для нескольких фото — с их числом.
+pub fn save_count(n: usize) -> String {
+    if n > 1 {
+        format!("{} ({n})", save())
+    } else {
+        save().to_string()
+    }
+}
+
+pub fn update() -> &'static str {
+    tr("Update", "Обновить", "Ενημέρωση")
+}
+
+/// Подтверждение перезаписи: у одного фото уже есть координаты.
+pub fn confirm_update_coordinates() -> &'static str {
+    tr("Update coordinates?", "Обновить координаты?", "Ενημέρωση συντεταγμένων;")
+}
+
+pub fn confirm_update_coordinates_detail(name: &str) -> String {
+    match lang() {
+        Lang::En => format!("{name} already has coordinates. They will be replaced in the file."),
+        Lang::Ru => format!("У {name} уже есть координаты. Они будут заменены в файле."),
+        Lang::El => format!("Το {name} έχει ήδη συντεταγμένες. Θα αντικατασταθούν στο αρχείο."),
+    }
+}
+
+/// Подтверждение для нескольких фото — спрашивается всегда.
+pub fn confirm_save_coordinates(n: usize) -> String {
+    let photos = photos(n);
+    match lang() {
+        Lang::En => format!("Save coordinates for {photos}?"),
+        Lang::Ru => format!("Сохранить координаты для {photos}?"),
+        Lang::El => format!("Αποθήκευση συντεταγμένων για {photos};"),
+    }
+}
+
+pub fn confirm_save_coordinates_detail() -> &'static str {
+    tr(
+        "The coordinates will be written to the files. Existing coordinates will be replaced.",
+        "Координаты будут записаны в файлы. Прежние координаты будут заменены.",
+        "Οι συντεταγμένες θα γραφτούν στα αρχεία. Οι υπάρχουσες συντεταγμένες θα αντικατασταθούν.",
+    )
+}
+
+pub fn invalid_coordinates() -> &'static str {
+    tr("Invalid coordinates", "Неверные координаты", "Μη έγκυρες συντεταγμένες")
+}
+
+pub fn coords_format_unsupported() -> &'static str {
+    tr(
+        "Coordinates can only be written to JPEG, HEIC and WebP files",
+        "Координаты можно записать только в файлы JPEG, HEIC и WebP",
+        "Οι συντεταγμένες μπορούν να γραφτούν μόνο σε αρχεία JPEG, HEIC και WebP",
+    )
+}
+
+pub fn coordinates_saved(subject: &str) -> String {
+    format!("{}: {subject}", tr("Coordinates saved", "Координаты сохранены", "Οι συντεταγμένες αποθηκεύτηκαν"))
+}
+
+pub fn coordinates_failed(name: &str, e: &str) -> String {
+    match lang() {
+        Lang::En => format!("Could not save coordinates of {name}: {e}"),
+        Lang::Ru => format!("Не удалось сохранить координаты {name}: {e}"),
+        Lang::El => format!("Αδυναμία αποθήκευσης συντεταγμένων του {name}: {e}"),
+    }
 }
 
 pub fn trash_failed(name: &str, e: &str) -> String {

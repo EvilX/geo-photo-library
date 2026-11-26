@@ -18,6 +18,8 @@ pub type TrashResults = Vec<(Photo, Result<(), glib::Error>)>;
 type TrashedHandler = Box<dyn Fn(TrashResults)>;
 /// Обработчик пункта меню над фото («Информация», «Найти на карте»).
 type PhotoHandler = Box<dyn Fn(&Photo)>;
+/// Обработчик пункта меню над всеми выделенными фото («Редактировать координаты»).
+type PhotosHandler = Box<dyn Fn(Vec<Photo>)>;
 
 /// Обработчики действий контекстного меню, которые выполняет окно.
 #[derive(Clone, Default)]
@@ -25,6 +27,7 @@ struct Handlers {
     trashed: Rc<RefCell<Option<TrashedHandler>>>,
     info: Rc<RefCell<Option<PhotoHandler>>>,
     show_on_map: Rc<RefCell<Option<PhotoHandler>>>,
+    edit_coords: Rc<RefCell<Option<PhotosHandler>>>,
     picked: Rc<RefCell<Option<PhotoHandler>>>,
 }
 
@@ -235,6 +238,10 @@ impl PhotoGrid {
         *self.handlers.show_on_map.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn connect_edit_coords(&self, f: impl Fn(Vec<Photo>) + 'static) {
+        *self.handlers.edit_coords.borrow_mut() = Some(Box::new(f));
+    }
+
     /// Вызывается обычным щелчком по фото (без Ctrl и Shift).
     pub fn connect_picked(&self, f: impl Fn(&Photo) + 'static) {
         *self.handlers.picked.borrow_mut() = Some(Box::new(f));
@@ -310,6 +317,11 @@ impl PhotoGrid {
     pub fn selected_photo(&self) -> Option<Photo> {
         let set = self.selection.selection();
         (set.size() == 1).then(|| self.photo(set.minimum())).flatten()
+    }
+
+    /// Выделенные фото по порядку показа.
+    pub fn selected_photos(&self) -> Vec<Photo> {
+        selected_in(&self.selection)
     }
 
     /// Сколько фото выделено.
@@ -467,6 +479,7 @@ fn context_menu() -> gtk::PopoverMenu {
         vec![
             Item::new(i18n::info(), "photo.info", "help-about-symbolic"),
             Item::new(i18n::show_on_map(), "photo.show-on-map", "mark-location-symbolic"),
+            Item::new(i18n::edit_coordinates(), "photo.edit-coords", "find-location-symbolic"),
         ],
         vec![Item::new(i18n::delete(), "photo.trash", "user-trash-symbolic")],
     ])
@@ -476,6 +489,7 @@ fn context_menu() -> gtk::PopoverMenu {
 fn context_menu_many() -> gtk::PopoverMenu {
     icon_menu(vec![
         vec![Item::new(i18n::copy(), "photo.copy", "edit-copy-symbolic")],
+        vec![Item::new(i18n::edit_coordinates(), "photo.edit-coords", "find-location-symbolic")],
         vec![Item::new(i18n::delete(), "photo.trash", "user-trash-symbolic")],
     ])
 }
@@ -489,8 +503,8 @@ fn selected_in(selection: &gtk::MultiSelection) -> Vec<Photo> {
         .collect()
 }
 
-/// Действия контекстного меню (группа `photo`) над фото из `menu_photos`: копирование
-/// и удаление — над всеми, остальные — над первым (меню с ними открывается для одного фото).
+/// Действия контекстного меню (группа `photo`) над фото из `menu_photos`: копирование,
+/// координаты и удаление — над всеми, остальные — над первым (меню с ними открывается для одного фото).
 fn photo_actions(
     view: &gtk::GridView,
     menu_photos: &Rc<RefCell<Vec<Photo>>>,
@@ -521,6 +535,11 @@ fn photo_actions(
     add("show-on-map", |_, ps, handlers| {
         if let Some(f) = handlers.show_on_map.borrow().as_ref() {
             f(&ps[0]);
+        }
+    });
+    add("edit-coords", |_, ps, handlers| {
+        if let Some(f) = handlers.edit_coords.borrow().as_ref() {
+            f(ps.to_vec());
         }
     });
     // После подтверждения файлы перемещаются параллельно; обработчик получает все результаты разом.

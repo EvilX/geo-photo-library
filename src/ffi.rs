@@ -13,8 +13,8 @@
 
 use crate::{
     config::{snap_thumb_scale, Config, MapView, SortOrder},
-    db::{DateCount, Day, Db, Photo},
-    geo, i18n, metadata, paths, scanner, thumbs, trace, update,
+    db::{DateCount, Day, Db, GeoFilter, Photo},
+    geo, geotag, i18n, metadata, paths, scanner, thumbs, trace, update,
 };
 use image::RgbImage;
 use std::{
@@ -99,6 +99,10 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "sort_newest" => i18n::sort_label(SortOrder::Newest),
         "sort_oldest" => i18n::sort_label(SortOrder::Oldest),
         "sort_tooltip" => i18n::sort_tooltip(),
+        "geo_all" => i18n::geo_filter_label(GeoFilter::All),
+        "geo_with" => i18n::geo_filter_label(GeoFilter::With),
+        "geo_without" => i18n::geo_filter_label(GeoFilter::Without),
+        "geo_filter_tooltip" => i18n::geo_filter_tooltip(),
         "thumb_size_tooltip" => i18n::thumb_size_tooltip(),
         "thumbs_smaller" => i18n::thumbs_smaller(),
         "thumbs_larger" => i18n::thumbs_larger(),
@@ -121,6 +125,15 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "location_denied" => i18n::location_denied(),
         "location_purpose" => i18n::location_purpose(),
         "check_updates" => i18n::check_updates(),
+        "edit_coordinates" => i18n::edit_coordinates(),
+        "coordinates_title" => i18n::coordinates_title(),
+        "latitude" => i18n::latitude(),
+        "longitude" => i18n::longitude(),
+        "coordinates_hint" => i18n::coordinates_hint(),
+        "update" => i18n::update(),
+        "confirm_update_coordinates" => i18n::confirm_update_coordinates(),
+        "confirm_save_coordinates_detail" => i18n::confirm_save_coordinates_detail(),
+        "invalid_coordinates" => i18n::invalid_coordinates(),
         "open_site" => i18n::open_site(),
         _ => return ptr::null_mut(),
     };
@@ -170,6 +183,31 @@ pub unsafe extern "C" fn gpl_text_confirm_trash(subject: *const c_char) -> *mut 
 #[no_mangle]
 pub unsafe extern "C" fn gpl_text_trash_failed(name: *const c_char, e: *const c_char) -> *mut c_char {
     out_string(i18n::trash_failed(str_arg(name).unwrap_or(""), str_arg(e).unwrap_or("")))
+}
+
+#[no_mangle]
+pub extern "C" fn gpl_text_save_count(n: usize) -> *mut c_char {
+    out_string(i18n::save_count(n))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gpl_text_confirm_update_coordinates_detail(name: *const c_char) -> *mut c_char {
+    out_string(i18n::confirm_update_coordinates_detail(str_arg(name).unwrap_or("")))
+}
+
+#[no_mangle]
+pub extern "C" fn gpl_text_confirm_save_coordinates(n: usize) -> *mut c_char {
+    out_string(i18n::confirm_save_coordinates(n))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gpl_text_coordinates_saved(subject: *const c_char) -> *mut c_char {
+    out_string(i18n::coordinates_saved(str_arg(subject).unwrap_or("")))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gpl_text_coordinates_failed(name: *const c_char, e: *const c_char) -> *mut c_char {
+    out_string(i18n::coordinates_failed(str_arg(name).unwrap_or(""), str_arg(e).unwrap_or("")))
 }
 
 /// Подпись узла дерева дат: год; месяц (`day == 0`); день.
@@ -504,10 +542,12 @@ pub extern "C" fn gpl_db_count() -> i64 {
     query("число фото", Db::count)
 }
 
-/// Число фото по дням, по возрастанию даты. Освобождать `gpl_date_counts_free`.
+/// Число фото по дням, по возрастанию даты; `filter` — `GeoFilter::index` (0 — все,
+/// 1 — с координатами, 2 — без). Освобождать `gpl_date_counts_free`.
 #[no_mangle]
-pub unsafe extern "C" fn gpl_db_date_counts(len: *mut usize) -> *mut GplDateCount {
-    date_counts_out(query("даты", Db::date_counts), len)
+pub unsafe extern "C" fn gpl_db_date_counts(filter: u32, len: *mut usize) -> *mut GplDateCount {
+    let filter = GeoFilter::from_index(filter);
+    date_counts_out(query("даты", |db| db.date_counts(filter)), len)
 }
 
 unsafe fn date_counts_out(counts: Vec<DateCount>, len: *mut usize) -> *mut GplDateCount {
@@ -526,11 +566,19 @@ pub unsafe extern "C" fn gpl_date_counts_free(counts: *mut GplDateCount, len: us
     }
 }
 
-/// Фото за год, месяц (`day == 0`) или день (`month == 0` — весь год), по дате съёмки.
+/// Фильтр вкладки дат при запуске из `GEO_PHOTO_LIBRARY_GEO_FILTER` (отладка); 0 — все фото.
 #[no_mangle]
-pub extern "C" fn gpl_db_photos_by_date(year: i32, month: u32, day: u32) -> *mut GplPhotos {
+pub extern "C" fn gpl_debug_geo_filter() -> u32 {
+    GeoFilter::from_env().unwrap_or_default().index()
+}
+
+/// Фото за год, месяц (`day == 0`) или день (`month == 0` — весь год), по дате съёмки;
+/// `filter` — как в `gpl_db_date_counts`.
+#[no_mangle]
+pub extern "C" fn gpl_db_photos_by_date(year: i32, month: u32, day: u32, filter: u32) -> *mut GplPhotos {
     let some = |v: u32| (v != 0).then_some(v);
-    let photos = query("фото по дате", |db| db.photos_by_date(year, some(month), some(day)));
+    let filter = GeoFilter::from_index(filter);
+    let photos = query("фото по дате", |db| db.photos_by_date(year, some(month), some(day), filter));
     Box::into_raw(Box::new(GplPhotos::new(photos)))
 }
 
@@ -542,6 +590,56 @@ pub extern "C" fn gpl_db_geotagged(year: i32, month: u32, day: u32) -> *mut GplP
     let year = (year != 0).then_some(year);
     let photos = query("фото с координатами", |db| db.geotagged_by_date(year, some(month), some(day)));
     Box::into_raw(Box::new(GplPhotos::new(photos)))
+}
+
+/// Координата из поля ввода (точка или запятая); `false` — не число.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_parse_coord(text: *const c_char, out: *mut f64) -> bool {
+    match str_arg(text).and_then(geo::parse_coord) {
+        Some(v) if !out.is_null() => {
+            *out = v;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Пара «широта, долгота» одной строкой (вставка из карт); `false` — не пара координат.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_parse_coord_pair(text: *const c_char, lat: *mut f64, lon: *mut f64) -> bool {
+    match str_arg(text).and_then(geo::parse_coord_pair) {
+        Some((a, b)) if !lat.is_null() && !lon.is_null() => {
+            *lat = a;
+            *lon = b;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Координата для поля ввода (6 знаков после точки).
+#[no_mangle]
+pub extern "C" fn gpl_format_coord(v: f64) -> *mut c_char {
+    out_string(geo::format_coord(v))
+}
+
+/// Допустимы ли координаты для записи в фото.
+#[no_mangle]
+pub extern "C" fn gpl_valid_coords(lat: f64, lon: f64) -> bool {
+    metadata::valid_coords(lat, lon)
+}
+
+/// Записать координаты в EXIF файла фото и в БД. `NULL` — успех, иначе текст ошибки
+/// (освобождать `gpl_string_free`). Пишет файл — вызывать не из главного потока.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_set_coords(id: i64, path: *const c_char, lat: f64, lon: f64) -> *mut c_char {
+    let Some(path) = str_arg(path) else { return out_string("path") };
+    let result = geotag::write_coords(Path::new(path), lat, lon)
+        .and_then(|st| open_db()?.set_coords(id, lat, lon, st.size, st.mtime));
+    match result {
+        Ok(()) => ptr::null_mut(),
+        Err(e) => out_string(format!("{e:#}")),
+    }
 }
 
 /// Убрать из БД фото, перемещённое в корзину, вместе с его миниатюрой.
@@ -854,6 +952,22 @@ mod tests {
             assert_eq!(take(gpl_text_date_label(2023, 13, 1)), "2023");
         }
         assert_eq!(c_string("a\0b").as_bytes(), b"a");
+    }
+
+    #[test]
+    fn coords() {
+        unsafe {
+            let (mut a, mut b) = (0.0, 0.0);
+            assert!(gpl_parse_coord(c"55,5".as_ptr(), &mut a) && a == 55.5);
+            assert!(!gpl_parse_coord(c"x".as_ptr(), &mut a));
+            assert!(gpl_parse_coord_pair(c"55.75, 37.62".as_ptr(), &mut a, &mut b) && (a, b) == (55.75, 37.62));
+            assert!(!gpl_parse_coord_pair(c"55.75".as_ptr(), &mut a, &mut b));
+            assert_eq!(take(gpl_format_coord(-1.5)), "-1.500000");
+            assert!(!gpl_valid_coords(91.0, 0.0));
+            // Формат, в который координаты не записываются, — текст ошибки.
+            let err = gpl_set_coords(1, c"/nonexistent/a.png".as_ptr(), 10.0, 10.0);
+            assert_eq!(take(err), i18n::coords_format_unsupported());
+        }
     }
 
     #[test]

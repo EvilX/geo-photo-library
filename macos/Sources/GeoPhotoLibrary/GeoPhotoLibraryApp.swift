@@ -32,7 +32,7 @@ struct GeoPhotoLibraryApp: App {
                 Button(Core.text("about")) { showAbout() }
             }
             // Меню «Правка» — действия с выбранными фото, как в их контекстном меню:
-            // копирование и удаление — над всеми выделенными, остальное — только над одним.
+            // копирование, координаты и удаление — над всеми выделенными, остальное — только над одним.
             // Правку текста в строке поиска без этих пунктов обслуживает TextEditKeys.
             CommandGroup(replacing: .undoRedo) {}
             CommandGroup(replacing: .pasteboard) {
@@ -55,6 +55,9 @@ struct GeoPhotoLibraryApp: App {
                     .disabled(photo == nil)
                 Button(Core.text("show_in_finder")) { photo.map(model.showInFinder) }
                     .disabled(photo == nil)
+                Divider()
+                Button(Core.text("edit_coordinates")) { model.editCoords(selected.all) }
+                    .disabled(selected.isEmpty)
             }
             CommandGroup(after: .toolbar) {
                 Button(Core.text("rescan")) { model.rescan() }
@@ -212,6 +215,9 @@ struct ContentView: View {
         } message: { _ in
             Text(Core.text("confirm_trash_detail"))
         }
+        .sheet(item: $model.coordsEdit) { edit in
+            CoordsEditor(edit: edit).environment(model)
+        }
         .onAppear {
             // Запущенный не из .app (swift run) процесс сам не становится обычным приложением.
             NSApplication.shared.setActivationPolicy(.regular)
@@ -329,7 +335,8 @@ struct SettingsView: View {
 /// Проверка без участия человека (см. AGENTS.md), переменные `GEO_PHOTO_LIBRARY_*`:
 /// `SCREENSHOT=out.png` — через `DELAY` секунд (по умолчанию 6) сохранить окно в PNG и выйти;
 /// `ACTION=settings|about`, `INFO=1`, `SEARCH=<запрос>`, `LOCATE=1` — как в версии GTK;
-/// `PHOTO_ACTION=copy|show-on-map|trash` — через 3 с выполнить пункт меню для первого фото вкладки.
+/// `PHOTO_ACTION=copy|show-on-map|trash|edit-coords` — через 3 с выполнить пункт меню для первого фото вкладки.
+/// `EDIT_COORDS=1` — через 5 с открыть редактор координат для выделенных фото (без выделения — для первого).
 /// `APPEARANCE=dark|light` — оформление окна независимо от системного.
 /// `DATE_FILTER=open|<год>` — через 3 с открыть фильтр карты по датам (и выбрать год).
 @MainActor
@@ -374,7 +381,19 @@ enum DebugHooks {
                 case "copy": model.copy([photo])
                 case "show-on-map": model.showOnMap(photo)
                 case "trash": model.trash([photo])
+                case "edit-coords": model.editCoords([photo])
                 default: break
+                }
+            }
+        }
+        if env["GEO_PHOTO_LIBRARY_EDIT_COORDS"] != nil {
+            after(5) {
+                // Выделенные фото открытой вкладки, без выделения — первое.
+                let selected = model.selection.all
+                if !selected.isEmpty {
+                    model.editCoords(selected)
+                } else if let photo = firstPhoto() {
+                    model.editCoords([photo])
                 }
             }
         }
@@ -387,7 +406,7 @@ enum DebugHooks {
         if let query = env["GEO_PHOTO_LIBRARY_SEARCH"] {
             after(2) {
                 finder?.query = query
-                finder?.search(model)
+                finder?.search()
             }
         }
         if let filter = env["GEO_PHOTO_LIBRARY_DATE_FILTER"] {
@@ -406,7 +425,7 @@ enum DebugHooks {
             }
         }
         if env["GEO_PHOTO_LIBRARY_LOCATE"] != nil {
-            after(2) { finder?.locate(model) }
+            after(2) { finder?.locate() }
         }
         if let path = env["GEO_PHOTO_LIBRARY_SCREENSHOT"] {
             after(env["GEO_PHOTO_LIBRARY_DELAY"].flatMap(Double.init) ?? 6) {

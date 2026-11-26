@@ -25,8 +25,12 @@ pub fn read(path: &Path) -> PhotoMeta {
     let Ok(file) = File::open(path) else {
         return PhotoMeta::default();
     };
-    let mut reader = BufReader::new(file);
-    match Reader::new().read_from_container(&mut reader) {
+    read_from(&mut BufReader::new(file))
+}
+
+/// То же из открытого файла или из памяти.
+pub fn read_from(reader: &mut (impl std::io::BufRead + std::io::Seek)) -> PhotoMeta {
+    match Reader::new().read_from_container(reader) {
         Ok(exif) => from_exif(&exif),
         Err(_) => PhotoMeta::default(),
     }

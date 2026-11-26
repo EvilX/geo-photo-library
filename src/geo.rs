@@ -135,6 +135,32 @@ pub fn center(points: &[(f64, f64)]) -> Option<(f64, f64)> {
     Some(unproject((x0 + x1) / 2.0, (y0 + y1) / 2.0, 0.0))
 }
 
+/// Координата из поля ввода: десятичный разделитель — точка или запятая.
+pub fn parse_coord(s: &str) -> Option<f64> {
+    let v: f64 = s.trim().replace(',', ".").parse().ok()?;
+    v.is_finite().then_some(v)
+}
+
+/// Пара «широта, долгота» одной строкой — как её копируют из карт: `55.75, 37.62`,
+/// `55,75; 37,62`, `55.75 37.62`. `None`, если это не две допустимые координаты.
+pub fn parse_coord_pair(s: &str) -> Option<(f64, f64)> {
+    let s = s.trim();
+    let two = |parts: Vec<&str>| -> Option<(f64, f64)> {
+        let [a, b] = parts[..] else { return None };
+        let (lat, lon) = (parse_coord(a)?, parse_coord(b)?);
+        ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some((lat, lon))
+    };
+    two(s.split(';').collect())
+        .or_else(|| two(s.split(", ").collect()))
+        .or_else(|| two(s.split_whitespace().collect()))
+        .or_else(|| two(s.split(',').collect()))
+}
+
+/// Координата для поля ввода: 6 знаков после точки (~10 см).
+pub fn format_coord(v: f64) -> String {
+    format!("{v:.6}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +202,20 @@ mod tests {
         assert!(fit_zoom(&pts[..1], 800.0, 600.0, 0.0).is_infinite());
         let (lat, lon) = center(&pts).unwrap();
         assert!(lat > 55.75 && lat < 59.93 && lon > 30.31 && lon < 37.62);
+    }
+
+    #[test]
+    fn parse_coords() {
+        assert_eq!(parse_coord(" 55,75 "), Some(55.75));
+        assert_eq!(parse_coord("-37.6"), Some(-37.6));
+        assert_eq!(parse_coord("x"), None);
+        assert_eq!(parse_coord("inf"), None);
+        assert_eq!(parse_coord_pair("55.75, 37.62"), Some((55.75, 37.62)));
+        assert_eq!(parse_coord_pair("55,75; 37,62"), Some((55.75, 37.62)));
+        assert_eq!(parse_coord_pair("-33.85 151.21"), Some((-33.85, 151.21)));
+        assert_eq!(parse_coord_pair("55.75,37.62"), Some((55.75, 37.62)));
+        assert_eq!(parse_coord_pair("55.75"), None);
+        assert_eq!(parse_coord_pair("95, 10"), None);
+        assert_eq!(format_coord(55.0), "55.000000");
     }
 }

@@ -312,6 +312,8 @@ struct PhotoGrid: View {
                 let all = selection.all
                 Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy(all) }
                 Divider()
+                Button(Core.text("edit_coordinates"), systemImage: "mappin.circle") { model.editCoords(all) }
+                Divider()
                 Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash(all) }
             } else {
                 Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy([photo]) }
@@ -325,6 +327,7 @@ struct PhotoGrid: View {
                     model.infoOpen = true
                 }
                 Button(Core.text("show_on_map"), systemImage: "mappin.and.ellipse") { model.showOnMap(photo) }
+                Button(Core.text("edit_coordinates"), systemImage: "mappin.circle") { model.editCoords([photo]) }
                 Divider()
                 Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash([photo]) }
             }
