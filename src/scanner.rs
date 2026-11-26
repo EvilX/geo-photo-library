@@ -125,6 +125,11 @@ pub fn scan(
     Ok(stats)
 }
 
+/// Заново прочитать один файл (после записи EXIF): метаданные и миниатюра — как при сканировании.
+pub fn process_file(path: &Path, size: i64, mtime: i64, thumbs_dir: &Path) -> NewPhoto {
+    process(&Todo { path: path.to_path_buf(), size, mtime }, thumbs_dir)
+}
+
 fn process(t: &Todo, thumbs_dir: &Path) -> NewPhoto {
     let meta = metadata::read(&t.path);
     let taken_at = meta.taken_at.unwrap_or_else(|| {

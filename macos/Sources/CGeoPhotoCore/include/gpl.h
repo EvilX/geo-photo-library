@@ -31,9 +31,11 @@ char *gpl_text_trash_failed(const char *name, const char *e);
 char *gpl_text_confirm_trash(const char *subject);
 char *gpl_text_save_count(size_t n);
 char *gpl_text_confirm_update_coordinates_detail(const char *name);
-char *gpl_text_confirm_save_coordinates(size_t n);
-char *gpl_text_coordinates_saved(const char *subject);
-char *gpl_text_coordinates_failed(const char *name, const char *e);
+char *gpl_text_confirm_save_changes(size_t n);
+// tags — имена изменённых тегов через перевод строки.
+char *gpl_text_confirm_save_changes_detail(bool coords, const char *tags);
+char *gpl_text_changes_saved(const char *subject);
+char *gpl_text_changes_failed(const char *name, const char *e);
 // Подпись узла дерева дат и заголовок периода: month == 0 — год, day == 0 — месяц.
 char *gpl_text_date_label(int32_t year, uint32_t month, uint32_t day);
 char *gpl_text_date_title(int32_t year, uint32_t month, uint32_t day);
@@ -142,9 +144,15 @@ bool gpl_parse_coord_pair(const char *text, double *lat, double *lon);
 char *gpl_format_coord(double v);
 // Допустимы ли координаты для записи в фото.
 bool gpl_valid_coords(double lat, double lon);
-// Записать координаты в EXIF файла фото и в БД. NULL — успех, иначе текст ошибки
-// (gpl_string_free). Пишет файл — не из главного потока.
-char *gpl_set_coords(int64_t id, const char *path, double lat, double lon);
+// Поля вкладки «EXIF» для файлов paths (JSON-массив путей): JSON-массив
+// {key, name, value, editable}, value — null, если у фото значения разные. Читает файлы.
+char *gpl_exif_fields(const char *paths);
+// Проверить текст поля тега: NULL — подходит, иначе пояснение (gpl_string_free).
+char *gpl_exif_check(const char *key, const char *text);
+// Записать в EXIF файла координаты (если has_coords) и теги tags (JSON-массив пар
+// [ключ, текст], пустой текст — удалить тег), затем обновить запись в БД. NULL — успех,
+// иначе текст ошибки (gpl_string_free). Пишет файл — не из главного потока.
+char *gpl_save_edit(const char *path, bool has_coords, double lat, double lon, const char *tags);
 // Убрать из БД фото, перемещённое в корзину, вместе с миниатюрой.
 void gpl_db_remove(int64_t id);
 // Данные панели «Информация» в JSON (формат — в src/ffi.rs). Читает файл.

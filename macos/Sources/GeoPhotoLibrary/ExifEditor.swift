@@ -1,6 +1,7 @@
-// Редактор координат фото (лист над окном): метка всегда в центре карты, точку выбирают,
-// двигая карту под ней (перетаскивание, щелчок, поиск местности, «Моё местоположение»),
-// или вводят в поля широты и долготы.
+// Редактор EXIF фото (лист над окном). Вкладка «Координаты»: метка всегда в центре карты,
+// точку выбирают, двигая карту под ней (перетаскивание, щелчок, поиск местности,
+// «Моё местоположение»), или вводят в поля широты и долготы. Вкладка «EXIF»: все теги фото;
+// записываются только изменённые — и для нескольких фото тоже.
 import AppKit
 import MapKit
 import SwiftUI
@@ -10,19 +11,85 @@ private let pointZoom = 15.0
 /// Вид без точки и без положения главной карты.
 private let world = (lat: 30.0, lon: 0.0, zoom: 3.0)
 
-struct CoordsEditor: View {
-    let edit: CoordsEdit
+struct ExifEditor: View {
+    enum Tab { case coords, exif }
+
+    let edit: ExifEdit
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var tab = ProcessInfo.processInfo.environment["GEO_PHOTO_LIBRARY_EDIT_EXIF"] == "exif" ? Tab.exif : .coords
     @State private var finder = PlaceFinder()
     @State private var map = PointMapController()
     @State private var lat = ""
     @State private var lon = ""
     /// Текст полей, записанный программой (щелчок, поиск): его изменение — не ввод.
     @State private var filled = ("", "")
+    /// Теги EXIF; `nil` — ещё читаются.
+    @State private var fields: [ExifField]?
+    /// Текст полей тегов по ключу.
+    @State private var texts: [String: String] = [:]
+    @State private var query = ""
     @State private var confirming = false
 
     var body: some View {
+        VStack(spacing: 10) {
+            TabView(selection: $tab) {
+                coordsTab
+                    .padding(10)
+                    .tabItem { Text(Core.text("coordinates_title")) }
+                    .tag(Tab.coords)
+                exifTab
+                    .padding(10)
+                    .tabItem { Text(Core.text("exif_tab")) }
+                    .tag(Tab.exif)
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                Button(Core.text("cancel"), role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(Core.saveCount(edit.photos.count)) { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(changes.map(\.isEmpty) ?? true)
+            }
+        }
+        .padding(14)
+        .frame(minWidth: 640, idealWidth: 760, minHeight: 520, idealHeight: 640)
+        .onAppear {
+            finder.target = { [map] in map }
+            // Поля — координаты единственного фото; без них пустые, пока карту не сдвинут.
+            if let photo = single, photo.hasCoords {
+                fill(photo.lat, photo.lon)
+            }
+        }
+        .task {
+            // Теги читаются в фоне: у пачки фото — все файлы.
+            let photos = edit.photos
+            let loaded = await Task.detached(priority: .userInitiated) { Core.exifFields(photos) }.value
+            texts = Dictionary(uniqueKeysWithValues: loaded.map { ($0.key, $0.value ?? "") })
+            fields = loaded
+        }
+        .onChange(of: lat) { fieldsChanged(lat) }
+        .onChange(of: lon) { fieldsChanged(lon) }
+        // Перезапись координат одного фото и сохранение для нескольких — с подтверждением.
+        .alert(confirmTitle, isPresented: $confirming) {
+            Button(Core.text("cancel"), role: .cancel) {}
+            Button(edit.photos.count > 1 ? Core.text("save") : Core.text("update")) { commit() }
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text(confirmDetail)
+        }
+        .alert(
+            finder.alert?.title ?? "",
+            isPresented: Binding(get: { finder.alert != nil }, set: { if !$0 { finder.alert = nil } }),
+            presenting: finder.alert
+        ) { _ in
+            Button(Core.text("ok")) {}
+        } message: { alert in
+            Text(alert.detail)
+        }
+    }
+
+    private var coordsTab: some View {
         VStack(spacing: 10) {
             HStack(spacing: 6) {
                 PlaceSearchField(finder: finder)
@@ -58,40 +125,78 @@ struct CoordsEditor: View {
                 Text(Core.text("longitude"))
                 TextField("", text: $lon).frame(width: 110)
                 Spacer()
-                Button(Core.text("cancel"), role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button(Core.saveCount(edit.photos.count)) { save() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(value == nil)
             }
         }
-        .padding(14)
-        .frame(minWidth: 640, idealWidth: 760, minHeight: 480, idealHeight: 600)
-        .onAppear {
-            finder.target = { [map] in map }
-            // Поля — координаты единственного фото; без них пустые, пока карту не сдвинут.
-            if let photo = single, photo.hasCoords {
-                fill(photo.lat, photo.lon)
+    }
+
+    private var exifTab: some View {
+        VStack(spacing: 10) {
+            // Фильтр по мере ввода: по имени тега и по его значению.
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("", text: $query, prompt: Text(Core.text("exif_search")))
+                    .textFieldStyle(.plain)
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color(nsColor: .separatorColor)))
+            if let fields {
+                List(fields.filter(matches)) { field in
+                    tagRow(field)
+                }
+                .listStyle(.bordered(alternatesRowBackgrounds: true))
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            Text(Core.text("exif_hint"))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onChange(of: lat) { fieldsChanged(lat) }
-        .onChange(of: lon) { fieldsChanged(lon) }
-        // Перезапись координат одного фото и сохранение для нескольких — с подтверждением.
-        .alert(confirmTitle, isPresented: $confirming) {
-            Button(Core.text("cancel"), role: .cancel) {}
-            Button(edit.photos.count > 1 ? Core.text("save") : Core.text("update")) { commit() }
-                .keyboardShortcut(.defaultAction)
-        } message: {
-            Text(confirmDetail)
+    }
+
+    /// Тег подходит под строку поиска: по имени или значению (в том числе введённому).
+    private func matches(_ field: ExifField) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty {
+            return true
         }
-        .alert(
-            finder.alert?.title ?? "",
-            isPresented: Binding(get: { finder.alert != nil }, set: { if !$0 { finder.alert = nil } }),
-            presenting: finder.alert
-        ) { _ in
-            Button(Core.text("ok")) {}
-        } message: { alert in
-            Text(alert.detail)
+        let value = texts[field.key] ?? field.value ?? ""
+        return field.name.localizedCaseInsensitiveContains(q) || value.localizedCaseInsensitiveContains(q)
+    }
+
+    /// Строка тега: имя (жирное, если изменён) и поле; неверное значение — красное, с пояснением.
+    private func tagRow(_ field: ExifField) -> some View {
+        HStack(spacing: 12) {
+            Text(field.name)
+                .fontWeight(changed(field) != nil ? .bold : .regular)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 200, alignment: .leading)
+                .help(field.name)
+            if field.editable {
+                let error = changed(field).flatMap { Core.exifCheck(field.key, $0) }
+                TextField(
+                    "",
+                    text: Binding(get: { texts[field.key] ?? "" }, set: { texts[field.key] = $0 }),
+                    prompt: field.value == nil ? Text(Core.text("exif_mixed")) : nil
+                )
+                .textFieldStyle(.roundedBorder)
+                .foregroundStyle(error != nil ? Color.red : Color.primary)
+                .help(error ?? "")
+            } else {
+                Text(field.value ?? Core.text("exif_mixed"))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -100,7 +205,11 @@ struct CoordsEditor: View {
         edit.photos.count == 1 ? edit.photos[0] : nil
     }
 
+    /// Начальный вид карты. Если вкладку открыли заново (карта создаётся снова) — точка из полей.
     private var start: (lat: Double, lon: Double, zoom: Double) {
+        if let v = value {
+            return (v.lat, v.lon, pointZoom)
+        }
         if let photo = single, photo.hasCoords {
             return (photo.lat, photo.lon, pointZoom)
         }
@@ -115,15 +224,44 @@ struct CoordsEditor: View {
         return (a, b)
     }
 
+    /// Новый текст тега, если его изменили.
+    private func changed(_ field: ExifField) -> String? {
+        guard field.editable, let text = texts[field.key], text != (field.value ?? "") else { return nil }
+        return text
+    }
+
+    /// Что записать; `nil` — в полях ошибка (неверные координаты или значение тега).
+    private var changes: ExifChanges? {
+        var result = ExifChanges()
+        if !(lat.isEmpty && lon.isEmpty) {
+            guard let v = value else { return nil }
+            // Поля — с точностью 1e-6: координаты фото, показанные в них, — не изменение.
+            let same = single.map { $0.hasCoords && abs($0.lat - v.lat) < 1e-6 && abs($0.lon - v.lon) < 1e-6 } ?? false
+            if !same {
+                result.coords = v
+            }
+        }
+        for field in fields ?? [] {
+            if let text = changed(field) {
+                if Core.exifCheck(field.key, text) != nil {
+                    return nil
+                }
+                result.tags.append((field.key, text))
+            }
+        }
+        return result
+    }
+
     private var confirmTitle: String {
-        edit.photos.count > 1 ? Core.confirmSaveCoordinates(edit.photos.count) : Core.text("confirm_update_coordinates")
+        edit.photos.count > 1 ? Core.confirmSaveChanges(edit.photos.count) : Core.text("confirm_update_coordinates")
     }
 
     private var confirmDetail: String {
         if let photo = single {
             return Core.confirmUpdateCoordinatesDetail(photo.fileName)
         }
-        return Core.text("confirm_save_coordinates_detail")
+        let names = (fields ?? []).filter { changed($0) != nil }.map(\.name)
+        return Core.confirmSaveChangesDetail(coords: changes?.coords != nil, tags: names)
     }
 
     /// Записать координаты в поля.
@@ -153,8 +291,9 @@ struct CoordsEditor: View {
     }
 
     private func save() {
-        guard value != nil else { return }
-        if let photo = single, !photo.hasCoords {
+        guard let changes, !changes.isEmpty else { return }
+        // Одно фото: спросить, только если заменяются его координаты.
+        if let photo = single, !photo.hasCoords || changes.coords == nil {
             commit()
         } else {
             confirming = true
@@ -162,8 +301,8 @@ struct CoordsEditor: View {
     }
 
     private func commit() {
-        guard let v = value else { return }
-        model.saveCoords(lat: v.lat, lon: v.lon, photos: edit.photos)
+        guard let changes, !changes.isEmpty else { return }
+        model.saveEdit(changes, photos: edit.photos)
         dismiss()
     }
 }

@@ -56,7 +56,7 @@ struct GeoPhotoLibraryApp: App {
                 Button(Core.text("show_in_finder")) { photo.map(model.showInFinder) }
                     .disabled(photo == nil)
                 Divider()
-                Button(Core.text("edit_coordinates")) { model.editCoords(selected.all) }
+                Button(Core.text("edit_exif")) { model.editExif(selected.all) }
                     .disabled(selected.isEmpty)
             }
             CommandGroup(after: .toolbar) {
@@ -215,8 +215,8 @@ struct ContentView: View {
         } message: { _ in
             Text(Core.text("confirm_trash_detail"))
         }
-        .sheet(item: $model.coordsEdit) { edit in
-            CoordsEditor(edit: edit).environment(model)
+        .sheet(item: $model.exifEdit) { edit in
+            ExifEditor(edit: edit).environment(model)
         }
         .onAppear {
             // Запущенный не из .app (swift run) процесс сам не становится обычным приложением.
@@ -335,8 +335,9 @@ struct SettingsView: View {
 /// Проверка без участия человека (см. AGENTS.md), переменные `GEO_PHOTO_LIBRARY_*`:
 /// `SCREENSHOT=out.png` — через `DELAY` секунд (по умолчанию 6) сохранить окно в PNG и выйти;
 /// `ACTION=settings|about`, `INFO=1`, `SEARCH=<запрос>`, `LOCATE=1` — как в версии GTK;
-/// `PHOTO_ACTION=copy|show-on-map|trash|edit-coords` — через 3 с выполнить пункт меню для первого фото вкладки.
-/// `EDIT_COORDS=1` — через 5 с открыть редактор координат для выделенных фото (без выделения — для первого).
+/// `PHOTO_ACTION=copy|show-on-map|trash|edit-exif` — через 3 с выполнить пункт меню для первого фото вкладки.
+/// `EDIT_EXIF=1|exif` — через 5 с открыть редактор EXIF для выделенных фото (без выделения — для первого);
+/// `exif` — сразу на вкладке «EXIF».
 /// `APPEARANCE=dark|light` — оформление окна независимо от системного.
 /// `DATE_FILTER=open|<год>` — через 3 с открыть фильтр карты по датам (и выбрать год).
 @MainActor
@@ -381,19 +382,19 @@ enum DebugHooks {
                 case "copy": model.copy([photo])
                 case "show-on-map": model.showOnMap(photo)
                 case "trash": model.trash([photo])
-                case "edit-coords": model.editCoords([photo])
+                case "edit-exif": model.editExif([photo])
                 default: break
                 }
             }
         }
-        if env["GEO_PHOTO_LIBRARY_EDIT_COORDS"] != nil {
+        if env["GEO_PHOTO_LIBRARY_EDIT_EXIF"] != nil {
             after(5) {
                 // Выделенные фото открытой вкладки, без выделения — первое.
                 let selected = model.selection.all
                 if !selected.isEmpty {
-                    model.editCoords(selected)
+                    model.editExif(selected)
                 } else if let photo = firstPhoto() {
-                    model.editCoords([photo])
+                    model.editExif([photo])
                 }
             }
         }

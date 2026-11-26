@@ -2,6 +2,25 @@
 import CGeoPhotoCore
 import Foundation
 
+/// Поле вкладки «EXIF» (см. `gpl_exif_fields`).
+struct ExifField: Decodable, Identifiable {
+    let key: String
+    let name: String
+    /// `nil` — у выбранных фото значения разные.
+    let value: String?
+    let editable: Bool
+
+    var id: String { key }
+}
+
+/// Что записать в файлы: координаты и изменённые теги (пустой текст — удалить тег).
+struct ExifChanges {
+    var coords: (lat: Double, lon: Double)?
+    var tags: [(key: String, text: String)] = []
+
+    var isEmpty: Bool { coords == nil && tags.isEmpty }
+}
+
 struct Photo: Identifiable, Hashable {
     let id: Int64
     let path: String
@@ -226,16 +245,21 @@ enum Core {
         take(gpl_text_confirm_update_coordinates_detail(name)) ?? ""
     }
 
-    static func confirmSaveCoordinates(_ n: Int) -> String {
-        take(gpl_text_confirm_save_coordinates(n)) ?? ""
+    static func confirmSaveChanges(_ n: Int) -> String {
+        take(gpl_text_confirm_save_changes(n)) ?? ""
     }
 
-    static func coordinatesSaved(_ subject: String) -> String {
-        take(gpl_text_coordinates_saved(subject)) ?? ""
+    /// Что будет записано: координаты и (или) имена изменённых тегов.
+    static func confirmSaveChangesDetail(coords: Bool, tags: [String]) -> String {
+        take(gpl_text_confirm_save_changes_detail(coords, tags.joined(separator: "\n"))) ?? ""
     }
 
-    static func coordinatesFailed(_ name: String, _ e: String) -> String {
-        take(gpl_text_coordinates_failed(name, e)) ?? e
+    static func changesSaved(_ subject: String) -> String {
+        take(gpl_text_changes_saved(subject)) ?? ""
+    }
+
+    static func changesFailed(_ name: String, _ e: String) -> String {
+        take(gpl_text_changes_failed(name, e)) ?? e
     }
 
     /// Координата из поля ввода (точка или запятая).
@@ -258,10 +282,28 @@ enum Core {
         gpl_valid_coords(lat, lon)
     }
 
-    /// Записать координаты в EXIF файла и в БД; `nil` — успех, иначе текст ошибки.
+    // MARK: EXIF
+
+    /// Поля вкладки «EXIF» для фото (все теги их файлов). Читает файлы — не из главного потока.
+    static func exifFields(_ photos: [Photo]) -> [ExifField] {
+        guard let paths = try? JSONEncoder().encode(photos.map(\.path)),
+              let json = take(gpl_exif_fields(String(decoding: paths, as: UTF8.self)))
+        else { return [] }
+        return (try? JSONDecoder().decode([ExifField].self, from: Data(json.utf8))) ?? []
+    }
+
+    /// Проверить текст поля тега: `nil` — подходит, иначе пояснение.
+    static func exifCheck(_ key: String, _ text: String) -> String? {
+        take(gpl_exif_check(key, text))
+    }
+
+    /// Записать изменения в EXIF файла и обновить фото в БД; `nil` — успех, иначе текст ошибки.
     /// Пишет файл — не из главного потока.
-    static func setCoords(_ photo: Photo, lat: Double, lon: Double) -> String? {
-        take(gpl_set_coords(photo.id, photo.path, lat, lon))
+    static func saveEdit(_ photo: Photo, _ changes: ExifChanges) -> String? {
+        let tags = changes.tags.map { [$0.key, $0.text] }
+        let json = (try? JSONEncoder().encode(tags)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+        let c = changes.coords
+        return take(gpl_save_edit(photo.path, c != nil, c?.lat ?? 0, c?.lon ?? 0, json))
     }
 
     static func dateLabel(year: Int32, month: UInt32 = 0, day: UInt32 = 0) -> String {

@@ -27,7 +27,7 @@ struct Handlers {
     trashed: Rc<RefCell<Option<TrashedHandler>>>,
     info: Rc<RefCell<Option<PhotoHandler>>>,
     show_on_map: Rc<RefCell<Option<PhotoHandler>>>,
-    edit_coords: Rc<RefCell<Option<PhotosHandler>>>,
+    edit_exif: Rc<RefCell<Option<PhotosHandler>>>,
     picked: Rc<RefCell<Option<PhotoHandler>>>,
 }
 
@@ -238,8 +238,8 @@ impl PhotoGrid {
         *self.handlers.show_on_map.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn connect_edit_coords(&self, f: impl Fn(Vec<Photo>) + 'static) {
-        *self.handlers.edit_coords.borrow_mut() = Some(Box::new(f));
+    pub fn connect_edit_exif(&self, f: impl Fn(Vec<Photo>) + 'static) {
+        *self.handlers.edit_exif.borrow_mut() = Some(Box::new(f));
     }
 
     /// Вызывается обычным щелчком по фото (без Ctrl и Shift).
@@ -479,7 +479,7 @@ fn context_menu() -> gtk::PopoverMenu {
         vec![
             Item::new(i18n::info(), "photo.info", "help-about-symbolic"),
             Item::new(i18n::show_on_map(), "photo.show-on-map", "mark-location-symbolic"),
-            Item::new(i18n::edit_coordinates(), "photo.edit-coords", "find-location-symbolic"),
+            Item::new(i18n::edit_exif(), "photo.edit-exif", "document-edit-symbolic"),
         ],
         vec![Item::new(i18n::delete(), "photo.trash", "user-trash-symbolic")],
     ])
@@ -489,7 +489,7 @@ fn context_menu() -> gtk::PopoverMenu {
 fn context_menu_many() -> gtk::PopoverMenu {
     icon_menu(vec![
         vec![Item::new(i18n::copy(), "photo.copy", "edit-copy-symbolic")],
-        vec![Item::new(i18n::edit_coordinates(), "photo.edit-coords", "find-location-symbolic")],
+        vec![Item::new(i18n::edit_exif(), "photo.edit-exif", "document-edit-symbolic")],
         vec![Item::new(i18n::delete(), "photo.trash", "user-trash-symbolic")],
     ])
 }
@@ -537,8 +537,8 @@ fn photo_actions(
             f(&ps[0]);
         }
     });
-    add("edit-coords", |_, ps, handlers| {
-        if let Some(f) = handlers.edit_coords.borrow().as_ref() {
+    add("edit-exif", |_, ps, handlers| {
+        if let Some(f) = handlers.edit_exif.borrow().as_ref() {
             f(ps.to_vec());
         }
     });

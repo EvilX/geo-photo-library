@@ -1,11 +1,22 @@
-//! Окно «Редактировать координаты»: метка всегда в центре карты, точку выбирают, двигая
-//! карту под ней (перетаскивание, щелчок, поиск местности, «Моё местоположение»), или
-//! вводят в поля широты и долготы.
+//! Окно «Редактирование EXIF». Вкладка «Координаты»: метка всегда в центре карты, точку
+//! выбирают, двигая карту под ней (перетаскивание, щелчок, поиск местности, «Моё
+//! местоположение»), или вводят в поля широты и долготы. Вкладка «EXIF»: все теги фото;
+//! сохраняются только изменённые — и для нескольких фото тоже.
 use super::place_search::{self, PlaceSearch};
-use crate::{config::MapView, db::Photo, geo, i18n, metadata};
+use crate::{
+    config::MapView,
+    db::Photo,
+    geo,
+    geotag::{self, Changes, Field},
+    i18n, metadata,
+};
 use gtk::{gio, glib, prelude::*};
 use shumate::prelude::*;
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    path::PathBuf,
+    rc::Rc,
+};
 
 /// Зум, с которым показывается точка фото.
 const POINT_ZOOM: f64 = 15.0;
@@ -14,22 +25,25 @@ const CLICK_SLOP: f64 = 6.0;
 /// Вид без точки и без сохранённого положения карты.
 const WORLD: MapView = MapView { lat: 30.0, lon: 0.0, zoom: 2.0 };
 
-/// Открыть редактор координат для `photos`. Для одного фото поля заполнены его
+/// Открыть редактор EXIF для `photos`. Для одного фото поля координат заполнены его
 /// координатами (если есть), для нескольких — пустые. `view` — положение карты, если
 /// у фото нет координат. По «Сохранить» (после подтверждения) окно закрывается
-/// и вызывается `on_save(широта, долгота, фото)`.
+/// и вызывается `on_save(изменения, фото)`.
 pub fn show(
     parent: &gtk::Window,
     photos: Vec<Photo>,
     view: Option<MapView>,
-    on_save: impl Fn(f64, f64, Vec<Photo>) + 'static,
+    on_save: impl Fn(Changes, Vec<Photo>) + 'static,
 ) -> gtk::Window {
     let dialog = gtk::Window::builder()
-        .title(i18n::coordinates_title())
+        .title(match photos.as_slice() {
+            [p] => format!("{} — {}", i18n::edit_exif_title(), p.file_name()),
+            _ => i18n::edit_exif_title().to_string(),
+        })
         .transient_for(parent)
         .modal(true)
         .default_width(760)
-        .default_height(600)
+        .default_height(640)
         .build();
 
     // Карта со слоем «я здесь» и меткой точки поверх центра.
@@ -68,47 +82,85 @@ pub fn show(
     hint.set_xalign(0.0);
     hint.set_wrap(true);
 
+    let frame = gtk::Frame::new(None);
+    frame.set_child(Some(&map_overlay));
+    let coords_page = page();
+    coords_page.append(&toolbar);
+    coords_page.append(&frame);
+    coords_page.append(&hint);
+    coords_page.append(&fields);
+
+    // Вкладка «EXIF»: поиск тега и список; теги читаются в фоне.
+    let tag_search = gtk::SearchEntry::new();
+    tag_search.set_placeholder_text(Some(i18n::exif_search()));
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::None);
+    list.add_css_class("boxed-list");
+    let spinner = gtk::Spinner::new();
+    spinner.start();
+    spinner.set_size_request(32, 32);
+    spinner.set_vexpand(true);
+    let exif_stack = gtk::Stack::new();
+    exif_stack.add_named(&spinner, Some("loading"));
+    exif_stack.add_named(
+        &gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&list).build(),
+        Some("list"),
+    );
+    let exif_frame = gtk::Frame::new(None);
+    exif_frame.set_child(Some(&exif_stack));
+    let exif_hint = gtk::Label::new(Some(i18n::exif_hint()));
+    exif_hint.add_css_class("dim-label");
+    exif_hint.set_xalign(0.0);
+    exif_hint.set_wrap(true);
+    let exif_page = page();
+    exif_page.append(&tag_search);
+    exif_page.append(&exif_frame);
+    exif_page.append(&exif_hint);
+
+    let notebook = gtk::Notebook::new();
+    notebook.append_page(&coords_page, Some(&gtk::Label::new(Some(i18n::coordinates_title()))));
+    notebook.append_page(&exif_page, Some(&gtk::Label::new(Some(i18n::exif_tab()))));
+    notebook.set_vexpand(true);
+    // Отладка: `GEO_PHOTO_LIBRARY_EDIT_EXIF=exif` — открыть сразу вкладку «EXIF».
+    if std::env::var("GEO_PHOTO_LIBRARY_EDIT_EXIF").as_deref() == Ok("exif") {
+        notebook.set_current_page(Some(1));
+    }
+
     let cancel = gtk::Button::with_label(i18n::cancel());
     let save = gtk::Button::with_label(&i18n::save_count(photos.len()));
     save.add_css_class("suggested-action");
     save.set_sensitive(false);
     let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     buttons.set_halign(gtk::Align::End);
-    buttons.set_hexpand(true);
     buttons.append(&cancel);
     buttons.append(&save);
-    let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    bottom.append(&fields);
-    bottom.append(&buttons);
 
-    let frame = gtk::Frame::new(None);
-    frame.set_child(Some(&map_overlay));
     let content = gtk::Box::new(gtk::Orientation::Vertical, 10);
     content.set_margin_top(12);
     content.set_margin_bottom(12);
     content.set_margin_start(12);
     content.set_margin_end(12);
-    content.append(&toolbar);
-    content.append(&frame);
-    content.append(&hint);
-    content.append(&bottom);
+    content.append(&notebook);
+    content.append(&buttons);
     dialog.set_child(Some(&content));
     dialog.set_default_widget(Some(&save));
 
+    let initial = match photos.as_slice() {
+        [p] => p.coords(),
+        _ => None,
+    };
     let state = Rc::new(State {
         map: map.clone(),
         lat: lat.clone(),
         lon: lon.clone(),
         save: save.clone(),
+        initial,
+        tags: RefCell::default(),
         syncing: Cell::new(false),
         ready: Cell::new(false),
     });
 
     // Поля — координаты единственного фото; без них пустые, пока карту не сдвинут.
-    let initial = match photos.as_slice() {
-        [p] => p.coords(),
-        _ => None,
-    };
     if let Some((la, lo)) = initial {
         state.fill(la, lo);
     }
@@ -175,9 +227,36 @@ pub fn show(
             if let Some((la, lo)) = s.value() {
                 s.center_on(la, lo);
             }
-            s.save.set_sensitive(s.value().is_some());
+            s.update_save();
         });
     }
+
+    // Теги EXIF — в фоне: у пачки фото читаются все файлы.
+    let paths: Vec<PathBuf> = photos.iter().map(|p| PathBuf::from(&p.path)).collect();
+    let (s, list_w, stack_w) = (Rc::downgrade(&state), list.downgrade(), exif_stack.downgrade());
+    glib::spawn_future_local(async move {
+        let fields = gio::spawn_blocking(move || geotag::fields(&paths)).await.unwrap_or_default();
+        let (Some(s), Some(list), Some(stack)) = (s.upgrade(), list_w.upgrade(), stack_w.upgrade()) else { return };
+        s.show_tags(&list, fields);
+        stack.set_visible_child_name("list");
+    });
+    // Фильтр по мере ввода: по имени тега и по его значению (в том числе введённому).
+    let (l, s) = (list.downgrade(), Rc::downgrade(&state));
+    tag_search.connect_search_changed(move |e| {
+        let (Some(l), Some(s)) = (l.upgrade(), s.upgrade()) else { return };
+        let q = e.text().trim().to_lowercase();
+        let s = Rc::downgrade(&s);
+        l.set_filter_func(move |row| {
+            if q.is_empty() {
+                return true;
+            }
+            let Some(s) = s.upgrade() else { return true };
+            let tags = s.tags.borrow();
+            let Some(r) = usize::try_from(row.index()).ok().and_then(|i| tags.get(i)) else { return true };
+            let value = r.entry.as_ref().map(|e| e.text().to_string()).or_else(|| r.field.value.clone()).unwrap_or_default();
+            r.field.name.to_lowercase().contains(&q) || value.to_lowercase().contains(&q)
+        });
+    });
 
     // Найденное место и местоположение — переход; точка — новый центр карты.
     let s = Rc::downgrade(&state);
@@ -220,13 +299,14 @@ pub fn show(
     let on_save = Rc::new(on_save);
     save.connect_clicked(move |_| {
         let (Some(d), Some(s)) = (d.upgrade(), s.upgrade()) else { return };
-        let Some((la, lo)) = s.value() else { return };
+        let Some(changes) = s.changes().filter(|c| !c.is_empty()) else { return };
         let photos = photos.clone();
         let on_save = on_save.clone();
         let (message, detail, button) = match photos.as_slice() {
-            [p] if p.coords().is_none() => {
+            // Одно фото: спросить, только если заменяются его координаты.
+            [p] if p.coords().is_none() || changes.coords.is_none() => {
                 d.close();
-                on_save(la, lo, photos);
+                on_save(changes, photos);
                 return;
             }
             [p] => (
@@ -235,8 +315,8 @@ pub fn show(
                 i18n::update().to_string(),
             ),
             many => (
-                i18n::confirm_save_coordinates(many.len()),
-                i18n::confirm_save_coordinates_detail().to_string(),
+                i18n::confirm_save_changes(many.len()),
+                i18n::confirm_save_changes_detail(changes.coords.is_some(), &s.changed_names()),
                 i18n::save().to_string(),
             ),
         };
@@ -254,7 +334,7 @@ pub fn show(
                 if let Some(d) = dw.upgrade() {
                     d.close();
                 }
-                on_save(la, lo, photos);
+                on_save(changes, photos);
             }
         });
     });
@@ -270,12 +350,31 @@ pub fn show(
     dialog
 }
 
-/// Виджеты, которые меняются вместе: карта, поля и доступность «Сохранить».
+/// Поле тега на вкладке «EXIF».
+struct TagRow {
+    field: Field,
+    /// Поле ввода; у тегов только для чтения его нет.
+    entry: Option<gtk::Entry>,
+    name: gtk::Label,
+}
+
+impl TagRow {
+    /// Новый текст, если его изменили.
+    fn changed(&self) -> Option<String> {
+        let text = self.entry.as_ref()?.text().to_string();
+        (text != self.field.value.clone().unwrap_or_default()).then_some(text)
+    }
+}
+
+/// Виджеты, которые меняются вместе: карта, поля, теги и доступность «Сохранить».
 struct State {
     map: shumate::SimpleMap,
     lat: gtk::Entry,
     lon: gtk::Entry,
     save: gtk::Button,
+    /// Координаты единственного фото при открытии.
+    initial: Option<(f64, f64)>,
+    tags: RefCell<Vec<TagRow>>,
     /// Поля заполняются из программы — не разбирать их как ввод.
     syncing: Cell<bool>,
     /// Начальное положение выставлено: движение карты — выбор точки.
@@ -289,7 +388,7 @@ impl State {
         self.lat.set_text(&geo::format_coord(lat));
         self.lon.set_text(&geo::format_coord(lon));
         self.syncing.set(false);
-        self.save.set_sensitive(self.value().is_some());
+        self.update_save();
     }
 
     /// Центр карты сдвинулся: точка под меткой — в поля. Если центр уже совпадает с полями
@@ -317,6 +416,106 @@ impl State {
         let lat = geo::parse_coord(&self.lat.text())?;
         let lon = geo::parse_coord(&self.lon.text())?;
         metadata::valid_coords(lat, lon).then_some((lat, lon))
+    }
+
+    /// Что записать; `None` — в полях ошибка (неверные координаты или значение тега).
+    fn changes(&self) -> Option<Changes> {
+        let coords = if self.lat.text().is_empty() && self.lon.text().is_empty() {
+            None
+        } else {
+            let v = self.value()?;
+            // Поля — с точностью 1e-6: координаты фото, показанные в них, — не изменение.
+            let same = self.initial.is_some_and(|(a, b)| (a - v.0).abs() < 1e-6 && (b - v.1).abs() < 1e-6);
+            (!same).then_some(v)
+        };
+        let mut tags = Vec::new();
+        for row in self.tags.borrow().iter() {
+            if let Some(text) = row.changed() {
+                geotag::check(&row.field.key, &text).ok()?;
+                tags.push((row.field.key.clone(), text));
+            }
+        }
+        Some(Changes { coords, tags })
+    }
+
+    /// Имена изменённых тегов — для подтверждения.
+    fn changed_names(&self) -> Vec<String> {
+        self.tags.borrow().iter().filter(|r| r.changed().is_some()).map(|r| r.field.name.clone()).collect()
+    }
+
+    /// «Сохранить» доступна, если что-то изменено и ошибок нет.
+    fn update_save(&self) {
+        self.save.set_sensitive(self.changes().is_some_and(|c| !c.is_empty()));
+    }
+
+    /// Заполнить список тегов.
+    fn show_tags(self: &Rc<Self>, list: &gtk::ListBox, fields: Vec<Field>) {
+        let mut rows = Vec::new();
+        for field in fields {
+            let name = gtk::Label::new(Some(&field.name));
+            name.set_xalign(0.0);
+            name.set_width_chars(24);
+            name.set_max_width_chars(24);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            name.set_tooltip_text(Some(&field.name));
+            let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            row_box.set_margin_top(4);
+            row_box.set_margin_bottom(4);
+            row_box.set_margin_start(8);
+            row_box.set_margin_end(8);
+            row_box.append(&name);
+            let entry = if field.editable {
+                let e = gtk::Entry::new();
+                e.set_hexpand(true);
+                e.set_text(field.value.as_deref().unwrap_or(""));
+                if field.value.is_none() {
+                    e.set_placeholder_text(Some(i18n::exif_mixed()));
+                }
+                row_box.append(&e);
+                Some(e)
+            } else {
+                let v = gtk::Label::new(Some(field.value.as_deref().unwrap_or(i18n::exif_mixed())));
+                v.set_xalign(0.0);
+                v.set_hexpand(true);
+                v.set_selectable(true);
+                v.set_wrap(true);
+                v.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+                v.add_css_class("dim-label");
+                row_box.append(&v);
+                None
+            };
+            let row = gtk::ListBoxRow::new();
+            row.set_activatable(false);
+            row.set_child(Some(&row_box));
+            list.append(&row);
+            if let Some(e) = &entry {
+                let (s, key) = (Rc::downgrade(self), field.key.clone());
+                e.connect_changed(move |e| {
+                    let Some(s) = s.upgrade() else { return };
+                    // Неверное значение — красное поле с пояснением, изменённое — жирное имя.
+                    match geotag::check(&key, &e.text()) {
+                        Ok(()) => {
+                            e.remove_css_class("error");
+                            e.set_tooltip_text(None);
+                        }
+                        Err(msg) => {
+                            e.add_css_class("error");
+                            e.set_tooltip_text(Some(&msg));
+                        }
+                    }
+                    if let Some(r) = s.tags.borrow().iter().find(|r| r.field.key == key) {
+                        if r.changed().is_some() {
+                            r.name.add_css_class("exif-changed");
+                        } else {
+                            r.name.remove_css_class("exif-changed");
+                        }
+                    }
+                    s.update_save();
+                });
+            }
+            rows.push(TagRow { field, entry, name });
+        }
+        *self.tags.borrow_mut() = rows;
     }
 }
 
@@ -363,6 +562,16 @@ fn pin() -> gtk::DrawingArea {
         cr.fill().ok();
     });
     area
+}
+
+/// Страница вкладки с отступами.
+fn page() -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    b.set_margin_top(10);
+    b.set_margin_bottom(10);
+    b.set_margin_start(10);
+    b.set_margin_end(10);
+    b
 }
 
 fn coord_entry() -> gtk::Entry {

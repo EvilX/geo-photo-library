@@ -17,6 +17,11 @@ final class ThumbnailCache: @unchecked Sendable {
         cache.object(forKey: path as NSString)
     }
 
+    /// Убрать из кэша: файл миниатюры перезаписан (например, сменилась ориентация).
+    func forget(_ path: String) {
+        cache.removeObject(forKey: path as NSString)
+    }
+
     func image(_ path: String) async -> NSImage? {
         if let image = cached(path) {
             return image
@@ -312,7 +317,7 @@ struct PhotoGrid: View {
                 let all = selection.all
                 Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy(all) }
                 Divider()
-                Button(Core.text("edit_coordinates"), systemImage: "mappin.circle") { model.editCoords(all) }
+                Button(Core.text("edit_exif"), systemImage: "pencil.and.list.clipboard") { model.editExif(all) }
                 Divider()
                 Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash(all) }
             } else {
@@ -327,7 +332,7 @@ struct PhotoGrid: View {
                     model.infoOpen = true
                 }
                 Button(Core.text("show_on_map"), systemImage: "mappin.and.ellipse") { model.showOnMap(photo) }
-                Button(Core.text("edit_coordinates"), systemImage: "mappin.circle") { model.editCoords([photo]) }
+                Button(Core.text("edit_exif"), systemImage: "pencil.and.list.clipboard") { model.editExif([photo]) }
                 Divider()
                 Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash([photo]) }
             }

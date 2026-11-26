@@ -47,18 +47,22 @@ The description below is for Linux; the differences of the macOS version are lis
   button or the cross.
 - **Photo menu** (right click): copy the file, view, edit, show in folder (the file manager opens
   the folder with the file selected), information, show on map (jumps to
-  where the photo was taken; warns if EXIF has no coordinates), edit coordinates, move to trash
+  where the photo was taken; warns if EXIF has no coordinates), edit EXIF, move to trash
   (after confirmation).
-- **Edit coordinates** — a window with a map and a marker fixed in its center: move the map,
+- **Edit EXIF** — a window with two tabs. **Coordinates:** a map with a marker fixed in its center: move the map,
   click a spot (the map centers on it), search for a place or use “My location”; the latitude and
   longitude fields follow the marker and can also be typed in (a pasted “lat, lon” pair is
   understood). For one photo the fields start with its coordinates, for several photos they are
   empty and the Save button shows their number. Coordinates are written into the file's EXIF
   (JPEG, HEIC and WebP; the rest of EXIF is kept). Replacing existing coordinates and saving for
-  several photos ask for confirmation.
+  several photos ask for confirmation. **EXIF:** all tags of the photo with a filter by tag name or value as you type;
+  text, numbers and fractions (`1/250`, `2.8`) can be edited, an empty field removes the tag, and
+  common tags (description, author, copyright, dates) can be added. For several photos a tag with
+  different values shows “Different values”. Only changed tags are written — every photo keeps
+  the rest of its own EXIF. A new date or orientation updates the date tree and the thumbnail.
 - **Selecting several photos:** Ctrl + click (⌘ + click on macOS) adds or removes a photo,
   Shift + click selects a range, dragging a rectangle selects the photos under it, Ctrl+A (⌘A)
-  selects all. For several photos the menu offers only Copy, Edit Coordinates and Delete.
+  selects all. For several photos the menu offers only Copy, Edit EXIF and Delete.
 - **Keyboard in the photo list:** arrows, Page Up/Page Down, Home/End move between photos,
   with Shift they extend the selection.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen

@@ -268,11 +268,16 @@ pub fn trashed(name: &str) -> String {
 
 // ---------- Редактирование координат ----------
 
-pub fn edit_coordinates() -> &'static str {
-    tr("Edit Coordinates…", "Редактировать координаты…", "Επεξεργασία συντεταγμένων…")
+pub fn edit_exif() -> &'static str {
+    tr("Edit EXIF…", "Редактировать EXIF…", "Επεξεργασία EXIF…")
 }
 
-/// Заголовок окна редактора координат.
+/// Заголовок окна редактора EXIF.
+pub fn edit_exif_title() -> &'static str {
+    tr("Edit EXIF", "Редактирование EXIF", "Επεξεργασία EXIF")
+}
+
+/// Вкладка редактора EXIF с картой.
 pub fn coordinates_title() -> &'static str {
     tr("Coordinates", "Координаты", "Συντεταγμένες")
 }
@@ -320,44 +325,113 @@ pub fn confirm_update_coordinates_detail(name: &str) -> String {
 }
 
 /// Подтверждение для нескольких фото — спрашивается всегда.
-pub fn confirm_save_coordinates(n: usize) -> String {
+pub fn confirm_save_changes(n: usize) -> String {
     let photos = photos(n);
     match lang() {
-        Lang::En => format!("Save coordinates for {photos}?"),
-        Lang::Ru => format!("Сохранить координаты для {photos}?"),
-        Lang::El => format!("Αποθήκευση συντεταγμένων για {photos};"),
+        Lang::En => format!("Save changes for {photos}?"),
+        Lang::Ru => format!("Сохранить изменения для {photos}?"),
+        Lang::El => format!("Αποθήκευση αλλαγών για {photos};"),
     }
 }
 
-pub fn confirm_save_coordinates_detail() -> &'static str {
-    tr(
-        "The coordinates will be written to the files. Existing coordinates will be replaced.",
-        "Координаты будут записаны в файлы. Прежние координаты будут заменены.",
-        "Οι συντεταγμένες θα γραφτούν στα αρχεία. Οι υπάρχουσες συντεταγμένες θα αντικατασταθούν.",
-    )
+/// Что будет записано в файлы: координаты и (или) имена изменённых тегов.
+pub fn confirm_save_changes_detail(coords: bool, tags: &[String]) -> String {
+    let mut what = Vec::new();
+    if coords {
+        what.push(tr("coordinates", "координаты", "συντεταγμένες").to_string());
+    }
+    if !tags.is_empty() {
+        what.push(format!("{} {}", tr("tags", "теги", "ετικέτες"), tags.join(", ")));
+    }
+    let what = what.join("; ");
+    match lang() {
+        Lang::En => format!("Will be written to the files: {what}. Other tags will not change."),
+        Lang::Ru => format!("Будут записаны в файлы: {what}. Остальные теги не изменятся."),
+        Lang::El => format!("Θα γραφτούν στα αρχεία: {what}. Οι άλλες ετικέτες δεν θα αλλάξουν."),
+    }
 }
 
 pub fn invalid_coordinates() -> &'static str {
     tr("Invalid coordinates", "Неверные координаты", "Μη έγκυρες συντεταγμένες")
 }
 
-pub fn coords_format_unsupported() -> &'static str {
+pub fn exif_format_unsupported() -> &'static str {
     tr(
-        "Coordinates can only be written to JPEG, HEIC and WebP files",
-        "Координаты можно записать только в файлы JPEG, HEIC и WebP",
-        "Οι συντεταγμένες μπορούν να γραφτούν μόνο σε αρχεία JPEG, HEIC και WebP",
+        "EXIF can only be changed in JPEG, HEIC and WebP files",
+        "EXIF можно изменить только в файлах JPEG, HEIC и WebP",
+        "Το EXIF μπορεί να αλλάξει μόνο σε αρχεία JPEG, HEIC και WebP",
     )
 }
 
-pub fn coordinates_saved(subject: &str) -> String {
-    format!("{}: {subject}", tr("Coordinates saved", "Координаты сохранены", "Οι συντεταγμένες αποθηκεύτηκαν"))
+pub fn changes_saved(subject: &str) -> String {
+    format!("{}: {subject}", tr("Changes saved", "Изменения сохранены", "Οι αλλαγές αποθηκεύτηκαν"))
 }
 
-pub fn coordinates_failed(name: &str, e: &str) -> String {
+pub fn changes_failed(name: &str, e: &str) -> String {
     match lang() {
-        Lang::En => format!("Could not save coordinates of {name}: {e}"),
-        Lang::Ru => format!("Не удалось сохранить координаты {name}: {e}"),
-        Lang::El => format!("Αδυναμία αποθήκευσης συντεταγμένων του {name}: {e}"),
+        Lang::En => format!("Could not save changes to {name}: {e}"),
+        Lang::Ru => format!("Не удалось сохранить изменения {name}: {e}"),
+        Lang::El => format!("Αδυναμία αποθήκευσης αλλαγών στο {name}: {e}"),
+    }
+}
+
+// ---------- Вкладка «EXIF» редактора ----------
+
+pub fn exif_tab() -> &'static str {
+    "EXIF"
+}
+
+pub fn exif_hint() -> &'static str {
+    tr(
+        "Only changed tags are saved. An empty field removes the tag.",
+        "Сохраняются только изменённые теги. Пустое поле удаляет тег.",
+        "Αποθηκεύονται μόνο οι ετικέτες που άλλαξαν. Ένα κενό πεδίο αφαιρεί την ετικέτα.",
+    )
+}
+
+/// Подсказка в поле тега, значения которого у выбранных фото разные.
+pub fn exif_mixed() -> &'static str {
+    tr("Different values", "Разные значения", "Διαφορετικές τιμές")
+}
+
+pub fn exif_search() -> &'static str {
+    tr("Filter tags by name or value", "Фильтр тегов по имени или значению", "Φιλτράρισμα ετικετών κατά όνομα ή τιμή")
+}
+
+/// Значение «undefined», которое не показывается текстом.
+pub fn exif_bytes(n: usize) -> String {
+    match lang() {
+        Lang::En => format!("({n} bytes)"),
+        Lang::Ru => format!("({n} байт)"),
+        Lang::El => format!("({n} byte)"),
+    }
+}
+
+pub fn exif_expect_text() -> &'static str {
+    tr("Text without NUL characters", "Текст без символов NUL", "Κείμενο χωρίς χαρακτήρες NUL")
+}
+
+pub fn exif_expect_datetime() -> &'static str {
+    tr(
+        "Date and time as YYYY:MM:DD HH:MM:SS",
+        "Дата и время в виде ГГГГ:ММ:ДД ЧЧ:ММ:СС",
+        "Ημερομηνία και ώρα ως ΕΕΕΕ:ΜΜ:ΗΗ ΩΩ:ΛΛ:ΔΔ",
+    )
+}
+
+pub fn exif_expect_numbers() -> &'static str {
+    tr(
+        "Numbers separated by spaces (fractions as 1/250)",
+        "Числа через пробел (дроби — как 1/250)",
+        "Αριθμοί χωρισμένοι με κενά (κλάσματα ως 1/250)",
+    )
+}
+
+pub fn exif_expect_count(n: usize) -> String {
+    match lang() {
+        Lang::En => format!("{n} number(s) separated by spaces"),
+        Lang::Ru => format!("Чисел через пробел: {n}"),
+        Lang::El => format!("{n} αριθμ. χωρισμένοι με κενά"),
     }
 }
 

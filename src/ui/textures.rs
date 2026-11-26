@@ -129,6 +129,13 @@ impl TextureCache {
         }
     }
 
+    /// Убрать текстуру из кэша: файл миниатюры перезаписан (например, сменилась ориентация).
+    pub fn forget(&self, path: &str) {
+        if let Some(e) = self.entries.borrow_mut().remove(path) {
+            self.total_bytes.set(self.total_bytes.get().saturating_sub(e.bytes));
+        }
+    }
+
     pub fn clear(&self) {
         self.entries.borrow_mut().clear();
         self.total_bytes.set(0);

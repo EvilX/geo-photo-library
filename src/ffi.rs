@@ -125,14 +125,19 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "location_denied" => i18n::location_denied(),
         "location_purpose" => i18n::location_purpose(),
         "check_updates" => i18n::check_updates(),
-        "edit_coordinates" => i18n::edit_coordinates(),
+        "edit_exif" => i18n::edit_exif(),
+        "edit_exif_title" => i18n::edit_exif_title(),
+        "exif_tab" => i18n::exif_tab(),
+        "exif_hint" => i18n::exif_hint(),
+        "exif_mixed" => i18n::exif_mixed(),
+        "exif_search" => i18n::exif_search(),
+        "exif_format_unsupported" => i18n::exif_format_unsupported(),
         "coordinates_title" => i18n::coordinates_title(),
         "latitude" => i18n::latitude(),
         "longitude" => i18n::longitude(),
         "coordinates_hint" => i18n::coordinates_hint(),
         "update" => i18n::update(),
         "confirm_update_coordinates" => i18n::confirm_update_coordinates(),
-        "confirm_save_coordinates_detail" => i18n::confirm_save_coordinates_detail(),
         "invalid_coordinates" => i18n::invalid_coordinates(),
         "open_site" => i18n::open_site(),
         _ => return ptr::null_mut(),
@@ -196,18 +201,25 @@ pub unsafe extern "C" fn gpl_text_confirm_update_coordinates_detail(name: *const
 }
 
 #[no_mangle]
-pub extern "C" fn gpl_text_confirm_save_coordinates(n: usize) -> *mut c_char {
-    out_string(i18n::confirm_save_coordinates(n))
+pub extern "C" fn gpl_text_confirm_save_changes(n: usize) -> *mut c_char {
+    out_string(i18n::confirm_save_changes(n))
+}
+
+/// `tags` — имена изменённых тегов через перевод строки.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_text_confirm_save_changes_detail(coords: bool, tags: *const c_char) -> *mut c_char {
+    let tags: Vec<String> = str_arg(tags).unwrap_or("").lines().filter(|l| !l.is_empty()).map(str::to_owned).collect();
+    out_string(i18n::confirm_save_changes_detail(coords, &tags))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn gpl_text_coordinates_saved(subject: *const c_char) -> *mut c_char {
-    out_string(i18n::coordinates_saved(str_arg(subject).unwrap_or("")))
+pub unsafe extern "C" fn gpl_text_changes_saved(subject: *const c_char) -> *mut c_char {
+    out_string(i18n::changes_saved(str_arg(subject).unwrap_or("")))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn gpl_text_coordinates_failed(name: *const c_char, e: *const c_char) -> *mut c_char {
-    out_string(i18n::coordinates_failed(str_arg(name).unwrap_or(""), str_arg(e).unwrap_or("")))
+pub unsafe extern "C" fn gpl_text_changes_failed(name: *const c_char, e: *const c_char) -> *mut c_char {
+    out_string(i18n::changes_failed(str_arg(name).unwrap_or(""), str_arg(e).unwrap_or("")))
 }
 
 /// Подпись узла дерева дат: год; месяц (`day == 0`); день.
@@ -629,13 +641,40 @@ pub extern "C" fn gpl_valid_coords(lat: f64, lon: f64) -> bool {
     metadata::valid_coords(lat, lon)
 }
 
-/// Записать координаты в EXIF файла фото и в БД. `NULL` — успех, иначе текст ошибки
-/// (освобождать `gpl_string_free`). Пишет файл — вызывать не из главного потока.
+/// Поля вкладки «EXIF» для файлов `paths` (JSON-массив путей) — JSON-массив
+/// `{key, name, value, editable}`; `value` — `null`, если у фото значения разные.
+/// Читает файлы — вызывать не из главного потока.
 #[no_mangle]
-pub unsafe extern "C" fn gpl_set_coords(id: i64, path: *const c_char, lat: f64, lon: f64) -> *mut c_char {
+pub unsafe extern "C" fn gpl_exif_fields(paths: *const c_char) -> *mut c_char {
+    let paths: Vec<PathBuf> = str_arg(paths).and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+    let fields: Vec<serde_json::Value> = geotag::fields(&paths)
+        .into_iter()
+        .map(|f| serde_json::json!({ "key": f.key, "name": f.name, "value": f.value, "editable": f.editable }))
+        .collect();
+    out_string(serde_json::Value::Array(fields).to_string())
+}
+
+/// Проверить текст поля тега: `NULL` — подходит, иначе пояснение (освобождать `gpl_string_free`).
+#[no_mangle]
+pub unsafe extern "C" fn gpl_exif_check(key: *const c_char, text: *const c_char) -> *mut c_char {
+    match geotag::check(str_arg(key).unwrap_or(""), str_arg(text).unwrap_or("")) {
+        Ok(()) => ptr::null_mut(),
+        Err(e) => out_string(e),
+    }
+}
+
+/// Записать изменения в EXIF файла фото (координаты, если `has_coords`, и теги `tags` —
+/// JSON-массив пар `[ключ, текст]`), затем обновить запись в БД, как сканер. `NULL` —
+/// успех, иначе текст ошибки (освобождать `gpl_string_free`). Пишет файл — не из главного потока.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_save_edit(path: *const c_char, has_coords: bool, lat: f64, lon: f64, tags: *const c_char) -> *mut c_char {
     let Some(path) = str_arg(path) else { return out_string("path") };
-    let result = geotag::write_coords(Path::new(path), lat, lon)
-        .and_then(|st| open_db()?.set_coords(id, lat, lon, st.size, st.mtime));
+    let tags: Vec<(String, String)> = match str_arg(tags).map(serde_json::from_str).transpose() {
+        Ok(t) => t.unwrap_or_default(),
+        Err(e) => return out_string(format!("tags: {e}")),
+    };
+    let changes = geotag::Changes { coords: has_coords.then_some((lat, lon)), tags };
+    let result = geotag::apply(Path::new(path), &changes, &paths::thumbs_dir()).and_then(|p| open_db()?.update(&p));
     match result {
         Ok(()) => ptr::null_mut(),
         Err(e) => out_string(format!("{e:#}")),
@@ -965,8 +1004,13 @@ mod tests {
             assert_eq!(take(gpl_format_coord(-1.5)), "-1.500000");
             assert!(!gpl_valid_coords(91.0, 0.0));
             // Формат, в который координаты не записываются, — текст ошибки.
-            let err = gpl_set_coords(1, c"/nonexistent/a.png".as_ptr(), 10.0, 10.0);
-            assert_eq!(take(err), i18n::coords_format_unsupported());
+            let err = gpl_save_edit(c"/nonexistent/a.png".as_ptr(), true, 10.0, 10.0, ptr::null());
+            assert_eq!(take(err), i18n::exif_format_unsupported());
+            assert!(gpl_exif_check(c"exif:9003:2".as_ptr(), c"2024:01:02 03:04:05".as_ptr()).is_null());
+            assert_eq!(take(gpl_exif_check(c"exif:9003:2".as_ptr(), c"2024-01-02".as_ptr())), i18n::exif_expect_datetime());
+            let fields: serde_json::Value = serde_json::from_str(&take(gpl_exif_fields(c"[\"/nonexistent/a.jpg\"]".as_ptr()))).unwrap();
+            assert_eq!(fields[0]["name"], "ImageDescription");
+            assert_eq!(fields[0]["value"], "");
         }
     }
 

@@ -289,12 +289,32 @@ impl Db {
         Ok(thumb)
     }
 
-    /// Координаты, записанные в файл фото, и его новые размер и время изменения —
-    /// чтобы сканер не обрабатывал файл заново.
-    pub fn set_coords(&self, id: i64, lat: f64, lon: f64, size: i64, mtime: i64) -> Result<()> {
+    /// Обновить запись по файлу, заново прочитанному после записи EXIF (`scanner::process_file`):
+    /// дата, координаты, ориентация, миниатюра, а также новые размер и время изменения —
+    /// чтобы сканер не обрабатывал файл ещё раз. Записи нет — ничего не делает.
+    pub fn update(&self, p: &NewPhoto) -> Result<()> {
         self.conn.execute(
-            "UPDATE photos SET lat = ?2, lon = ?3, size = ?4, mtime = ?5 WHERE id = ?1",
-            params![id, lat, lon, size, mtime],
+            "UPDATE photos SET size = ?2, mtime = ?3, taken_at = ?4, year = ?5, month = ?6, day = ?7,
+                    lat = ?8, lon = ?9, width = ?10, height = ?11, orientation = ?12,
+                    camera_make = ?13, camera_model = ?14, thumb_path = ?15
+             WHERE path = ?1",
+            params![
+                p.path,
+                p.size,
+                p.mtime,
+                p.taken_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                p.taken_at.year(),
+                p.taken_at.month(),
+                p.taken_at.day(),
+                p.lat,
+                p.lon,
+                p.width,
+                p.height,
+                p.orientation,
+                p.make,
+                p.model,
+                p.thumb_path,
+            ],
         )?;
         Ok(())
     }
@@ -423,10 +443,13 @@ mod tests {
         assert_eq!(thumbs, ["/a.jpg.thumb"]);
         assert_eq!(db.known_files().unwrap().len(), 3);
 
-        let b = db.photos_by_date(2023, Some(7), Some(14), GeoFilter::Without).unwrap().remove(0);
-        db.set_coords(b.id, 40.0, -3.5, 7, 8).unwrap();
+        // обновление после записи EXIF: новые координаты, дата, размер и время изменения
+        let mut b = np("/b.jpg", "2023-07-15 10:00:00", Some((40.0, -3.5)));
+        (b.size, b.mtime) = (7, 8);
+        db.update(&b).unwrap();
         assert_eq!(db.known_files().unwrap()["/b.jpg"], (7, 8));
-        assert_eq!(db.photos_by_date(2023, Some(7), Some(14), GeoFilter::Without).unwrap().len(), 0);
+        assert_eq!(db.photos_by_date(2023, Some(7), Some(14), GeoFilter::All).unwrap().len(), 0);
+        assert_eq!(db.photos_by_date(2023, Some(7), Some(15), GeoFilter::With).unwrap().len(), 1);
 
         let p = db.photos_by_date(2023, Some(8), Some(1), GeoFilter::All).unwrap().remove(0);
         assert_eq!(db.remove(p.id).unwrap(), Some(format!("{}.thumb", p.path)));

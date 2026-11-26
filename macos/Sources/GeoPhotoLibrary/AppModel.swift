@@ -136,8 +136,8 @@ struct PhotoSelection: Equatable {
     }
 }
 
-/// Редактор координат для фото (лист над окном).
-struct CoordsEdit: Identifiable {
+/// Редактор EXIF для фото (лист над окном).
+struct ExifEdit: Identifiable {
     let id = UUID()
     let photos: [Photo]
     /// Положение главной карты — с него открывается карта редактора, если у фото нет координат.
@@ -222,6 +222,8 @@ final class AppModel {
     var mapExpanded: Set<String> = []
     /// Растёт при каждом изменении данных в БД — вкладки перечитывают по нему свои списки.
     private(set) var revision = 0
+    /// Перечитать список вкладки дат при следующем применении `reload` (фото изменены).
+    @ObservationIgnored private var forceDateReload = false
 
     /// Сортировка сеток: одна на обе вкладки, сохраняется в настройках.
     var newestFirst: Bool {
@@ -261,7 +263,7 @@ final class AppModel {
     /// Фото, удаление которых ждёт подтверждения в окне.
     var pendingTrash: [Photo]?
     /// Открытый редактор координат.
-    var coordsEdit: CoordsEdit?
+    var exifEdit: ExifEdit?
     weak var map: MapController?
 
     private var cancel: CancelToken?
@@ -411,8 +413,11 @@ final class AppModel {
         reload(keepStatus: true)
     }
 
-    /// Перечитать БД в фоне; данные заменяются, только если изменились.
-    func reload(keepStatus: Bool = false) {
+    /// Перечитать БД в фоне; данные заменяются, только если изменились. `force` — список
+    /// вкладки дат перечитывается, даже если даты и фото карты те же (изменены сами фото).
+    func reload(keepStatus: Bool = false, force: Bool = false) {
+        // Флаг живёт до применения: более позднее чтение заменит это, но список всё равно перечитается.
+        forceDateReload = forceDateReload || force
         reloadGeneration += 1
         let generation = reloadGeneration
         let period = mapPeriod
@@ -447,7 +452,8 @@ final class AppModel {
         // Чтения идут параллельно и могут ждать сканер: результат более раннего, пришедший
         // после более позднего, затёр бы свежие данные (например, пустой БД до первого скана).
         guard generation == reloadGeneration else { return }
-        var changed = false
+        var changed = forceDateReload
+        forceDateReload = false
         if loaded.counts != dateCounts {
             dateCounts = loaded.counts
             dates = DateNode.tree(loaded.counts)
@@ -557,41 +563,47 @@ final class AppModel {
         }
     }
 
-    /// Открыть редактор координат для фото.
-    func editCoords(_ photos: [Photo]) {
+    /// Открыть редактор EXIF для фото.
+    func editExif(_ photos: [Photo]) {
         guard !photos.isEmpty else { return }
-        coordsEdit = CoordsEdit(photos: photos, view: map?.currentView)
+        exifEdit = ExifEdit(photos: photos, view: map?.currentView)
     }
 
-    /// Записать координаты в файлы и в БД (в фоне), затем перечитать БД. В строке
+    /// Записать изменения в файлы и в БД (в фоне), затем перечитать БД. В строке
     /// состояния — имя фото (или их число), при ошибке — первая из них и окно с ней.
-    func saveCoords(lat: Double, lon: Double, photos: [Photo]) {
+    func saveEdit(_ changes: ExifChanges, photos: [Photo]) {
         Task.detached(priority: .userInitiated) {
             var saved: [Photo] = []
             var failure: String?
             for photo in photos {
-                if let error = Core.setCoords(photo, lat: lat, lon: lon) {
-                    FileHandle.standardError.write(Data("Координаты \(photo.path): \(error)\n".utf8))
-                    failure = failure ?? Core.coordinatesFailed(photo.fileName, error)
+                if let error = Core.saveEdit(photo, changes) {
+                    FileHandle.standardError.write(Data("EXIF \(photo.path): \(error)\n".utf8))
+                    failure = failure ?? Core.changesFailed(photo.fileName, error)
                 } else {
                     saved.append(photo)
                 }
             }
             await MainActor.run { [saved, failure] in
-                self.coordsSaved(saved, failure: failure)
+                self.editSaved(saved, failure: failure)
             }
         }
     }
 
-    private func coordsSaved(_ saved: [Photo], failure: String?) {
-        status = failure ?? Core.coordinatesSaved(saved.count == 1 ? saved[0].fileName : Core.photos(saved.count))
+    private func editSaved(_ saved: [Photo], failure: String?) {
+        status = failure ?? Core.changesSaved(saved.count == 1 ? saved[0].fileName : Core.photos(saved.count))
         if let failure {
             alert = AlertMessage(title: failure, detail: "")
         }
         guard !saved.isEmpty else { return }
+        // Миниатюры перезаписаны (могла смениться ориентация).
+        for photo in saved {
+            if let thumb = photo.thumbPath {
+                ThumbnailCache.shared.forget(thumb)
+            }
+        }
         // Маркеры хранятся по составу кластера — с новыми координатами их нужно пересоздать.
         map?.resetMarkers()
-        reload(keepStatus: true)
+        reload(keepStatus: true, force: true)
     }
 
     /// Выделить фото на открытой вкладке (правый щелчок, меню).
