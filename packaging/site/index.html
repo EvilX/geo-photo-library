@@ -131,7 +131,7 @@ h1 em {
 
 /* Возможности */
 .features {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px;
   margin: 56px 0 24px; text-align: left;
 }
 .feature { padding: 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
@@ -250,6 +250,11 @@ footer a { color: var(--muted); }
           <p data-i18n="f2_t">A year → month → day tree, and a date filter right on the map.</p>
         </div>
         <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z"/></g></svg></div>
+          <h3 data-i18n="f5">Videos too</h3>
+          <p data-i18n="f5_t">MP4, MOV, MKV and more next to your photos by date, with a frame preview and duration.</p>
+        </div>
+        <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z"/></g></svg></div>
           <h3 data-i18n="f3">Fast</h3>
           <p data-i18n="f3_t">Incremental scans in parallel; tens of thousands of photos stay smooth.</p>
@@ -257,7 +262,7 @@ footer a { color: var(--muted); }
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/></g></svg></div>
           <h3 data-i18n="f4">Private</h3>
-          <p data-i18n="f4_t">Your photos never leave your computer. JPEG, HEIC, PNG, WebP, TIFF, DNG.</p>
+          <p data-i18n="f4_t">Your photos never leave your computer. JPEG, HEIC, PNG, WebP, TIFF, DNG and videos.</p>
         </div>
       </div>
     </div>
@@ -378,7 +383,8 @@ var T = {
     f1: 'Фото на карте', f1_t: 'Миниатюры, собранные в группы, а справа — снимки видимой области по датам.',
     f2: 'По датам', f2_t: 'Дерево год → месяц → день и фильтр по датам прямо на карте.',
     f3: 'Быстро', f3_t: 'Параллельное сканирование только изменившихся файлов: и десятки тысяч фото не тормозят.',
-    f4: 'Приватно', f4_t: 'Фото не покидают ваш компьютер. JPEG, HEIC, PNG, WebP, TIFF, DNG.',
+    f4: 'Приватно', f4_t: 'Фото не покидают ваш компьютер. JPEG, HEIC, PNG, WebP, TIFF, DNG и видео.',
+    f5: 'И видео', f5_t: 'MP4, MOV, MKV и другие — рядом с фото по датам, с кадром-миниатюрой и длительностью.',
     mac_sub: 'Нативное приложение на SwiftUI с картами Apple. Apple silicon, macOS 14 и новее.',
     mac_alt: 'GeoPhotoLibrary на macOS: миниатюры фото на карте Apple и снимки видимой области',
     mac_s1: 'Скачайте', mac_s1_t: 'Образ диска — в последнем выпуске.', mac_dl: 'Скачать .dmg',
@@ -412,7 +418,8 @@ var T = {
     f1: 'Φωτογραφίες στον χάρτη', f1_t: 'Μικρογραφίες σε ομάδες και, δεξιά, οι φωτογραφίες της ορατής περιοχής ανά ημερομηνία.',
     f2: 'Ανά ημερομηνία', f2_t: 'Δέντρο έτος → μήνας → ημέρα και φίλτρο ημερομηνιών πάνω στον χάρτη.',
     f3: 'Γρήγορο', f3_t: 'Παράλληλη σάρωση μόνο των αλλαγμένων αρχείων — ομαλή λειτουργία ακόμη και με δεκάδες χιλιάδες φωτογραφίες.',
-    f4: 'Ιδιωτικό', f4_t: 'Οι φωτογραφίες σας δεν φεύγουν ποτέ από τον υπολογιστή σας. JPEG, HEIC, PNG, WebP, TIFF, DNG.',
+    f4: 'Ιδιωτικό', f4_t: 'Οι φωτογραφίες σας δεν φεύγουν ποτέ από τον υπολογιστή σας. JPEG, HEIC, PNG, WebP, TIFF, DNG και βίντεο.',
+    f5: 'Και βίντεο', f5_t: 'MP4, MOV, MKV και άλλα δίπλα στις φωτογραφίες ανά ημερομηνία, με καρέ προεπισκόπησης και διάρκεια.',
     mac_sub: 'Εγγενής εφαρμογή SwiftUI με τους Χάρτες της Apple. Apple silicon, macOS 14 ή νεότερο.',
     mac_alt: 'Το GeoPhotoLibrary στο macOS: μικρογραφίες φωτογραφιών στους Χάρτες της Apple και οι φωτογραφίες της ορατής περιοχής',
     mac_s1: 'Λήψη', mac_s1_t: 'Κατεβάστε το είδωλο δίσκου από την τελευταία έκδοση.', mac_dl: 'Λήψη .dmg',

@@ -111,7 +111,7 @@ typedef struct {
     uint32_t count;
 } GplDateCount;
 
-// Фильтр вкладки дат по координатам: 0 — все фото, 1 — с координатами, 2 — без.
+// Фильтр вкладки дат: 0 — все фото и видео, 1 — фото с координатами, 2 — фото без координат, 3 — видео.
 // Число фото по дням, по возрастанию даты.
 GplDateCount *gpl_db_date_counts(uint32_t filter, size_t *len);
 void gpl_date_counts_free(GplDateCount *counts, size_t len);
@@ -124,6 +124,8 @@ typedef struct {
     double lat;
     double lon;
     bool has_coords;
+    bool is_video;
+    double duration;        // длительность видео, с; < 0 — неизвестна (и у фото)
 } GplPhoto;
 
 typedef struct GplPhotos GplPhotos;
@@ -206,5 +208,7 @@ typedef struct {
 // Вызывается из потоков сканера, одновременно для разных файлов.
 typedef bool (*GplHeifDecoder)(const char *path, uint32_t min_side, GplImage *out);
 void gpl_set_heif_decoder(GplHeifDecoder decoder);
+// Декодер кадра видео (тот же договор: кадр в начале видео, уже повёрнутый; orig_* не нужны).
+void gpl_set_video_decoder(GplHeifDecoder decoder);
 
 #endif

@@ -14,7 +14,7 @@
 use crate::{
     config::{snap_thumb_scale, Config, MapView, SortOrder},
     db::{DateCount, Day, Db, GeoFilter, Photo},
-    geo, geotag, i18n, metadata, paths, scanner, thumbs, trace, update,
+    geo, geotag, i18n, metadata, paths, scanner, thumbs, trace, update, video,
 };
 use image::RgbImage;
 use std::{
@@ -102,6 +102,7 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "geo_all" => i18n::geo_filter_label(GeoFilter::All),
         "geo_with" => i18n::geo_filter_label(GeoFilter::With),
         "geo_without" => i18n::geo_filter_label(GeoFilter::Without),
+        "geo_video" => i18n::geo_filter_label(GeoFilter::Video),
         "geo_filter_tooltip" => i18n::geo_filter_tooltip(),
         "thumb_size_tooltip" => i18n::thumb_size_tooltip(),
         "thumbs_smaller" => i18n::thumbs_smaller(),
@@ -495,6 +496,9 @@ pub struct GplPhoto {
     pub lat: f64,
     pub lon: f64,
     pub has_coords: bool,
+    pub is_video: bool,
+    /// Длительность видео, с; меньше нуля — неизвестна (и у фото).
+    pub duration: f64,
 }
 
 /// Список фото: строки, на которые указывают элементы, живут вместе со списком.
@@ -528,6 +532,8 @@ impl GplPhotos {
                     lat,
                     lon,
                     has_coords: p.coords().is_some(),
+                    is_video: p.video,
+                    duration: p.duration.unwrap_or(-1.0),
                 }
             })
             .collect();
@@ -555,7 +561,7 @@ pub extern "C" fn gpl_db_count() -> i64 {
 }
 
 /// Число фото по дням, по возрастанию даты; `filter` — `GeoFilter::index` (0 — все,
-/// 1 — с координатами, 2 — без). Освобождать `gpl_date_counts_free`.
+/// 1 — фото с координатами, 2 — без, 3 — видео). Освобождать `gpl_date_counts_free`.
 #[no_mangle]
 pub unsafe extern "C" fn gpl_db_date_counts(filter: u32, len: *mut usize) -> *mut GplDateCount {
     let filter = GeoFilter::from_index(filter);
@@ -742,6 +748,7 @@ fn photo_info(path: &Path, coords: Option<(f64, f64)>) -> serde_json::Value {
         Info::Shooting,
         vec![
             taken,
+            row(Info::Duration, e.duration.map(video::format_duration)),
             row(Info::Camera, e.camera.clone()),
             row(Info::Lens, e.lens.clone()),
             row(Info::Exposure, e.exposure_time.map(|t| i18n::exposure(&metadata::format_exposure(t)))),
@@ -945,6 +952,28 @@ pub extern "C" fn gpl_set_heif_decoder(decoder: GplHeifDecoder) {
 fn decode_heif(path: &Path, min_side: u32) -> anyhow::Result<(RgbImage, (u32, u32))> {
     use anyhow::Context;
     let decoder = HEIF_DECODER.get().context("декодер HEIC не подключён")?;
+    call_decoder(*decoder, path, min_side)
+}
+
+static VIDEO_DECODER: OnceLock<GplHeifDecoder> = OnceLock::new();
+
+/// Подключить декодер кадров видео (на macOS — AVFoundation) вместо `ffmpeg`. Тот же договор,
+/// что у декодера HEIC: кадр в начале видео, уже повёрнутый; `orig_*` не используются.
+#[no_mangle]
+pub extern "C" fn gpl_set_video_decoder(decoder: GplHeifDecoder) {
+    if VIDEO_DECODER.set(decoder).is_ok() {
+        video::set_frame_decoder(decode_video);
+    }
+}
+
+fn decode_video(path: &Path, min_side: u32) -> anyhow::Result<RgbImage> {
+    use anyhow::Context;
+    let decoder = VIDEO_DECODER.get().context("декодер видео не подключён")?;
+    Ok(call_decoder(*decoder, path, min_side)?.0)
+}
+
+fn call_decoder(decoder: GplHeifDecoder, path: &Path, min_side: u32) -> anyhow::Result<(RgbImage, (u32, u32))> {
+    use anyhow::Context;
     let c_path = CString::new(path.as_os_str().as_encoded_bytes()).context("нулевой байт в пути")?;
     let mut out = GplImage { rgba: ptr::null_mut(), width: 0, height: 0, orig_width: 0, orig_height: 0 };
     // SAFETY: декодер получает действительные указатели; буфер по договорённости
@@ -1037,6 +1066,8 @@ mod tests {
             lat: Some(lat),
             lon: Some(lon),
             thumb_path: (id != 3).then(|| format!("/thumbs/{id}.jpg")),
+            video: id == 2,
+            duration: (id == 2).then_some(5.0),
         };
         // Два фото рядом в Лимасоле, одно в Афинах.
         let list = GplPhotos::new(vec![photo(1, 34.68, 32.96), photo(2, 34.6801, 32.9601), photo(3, 37.98, 23.73)]);
@@ -1046,6 +1077,7 @@ mod tests {
             let rows = std::slice::from_raw_parts(gpl_photos_data(photos), 3);
             assert_eq!(CStr::from_ptr(rows[1].path).to_str().unwrap(), "/lib/2.jpg");
             assert!(rows[2].thumb_path.is_null() && rows[2].has_coords);
+            assert!(rows[1].is_video && rows[1].duration == 5.0 && !rows[0].is_video && rows[0].duration < 0.0);
 
             // Вблизи Лимасола: один кластер из двух фото, Афины за пределами области.
             let view = gpl_map_view(photos, 34.68, 32.96, 10.0, 800.0, 600.0, 72.0);

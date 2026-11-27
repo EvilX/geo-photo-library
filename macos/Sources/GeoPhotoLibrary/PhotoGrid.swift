@@ -39,9 +39,18 @@ final class ThumbnailCache: @unchecked Sendable {
 }
 
 /// Квадратная миниатюра фото; пока она грузится (или её нет) — серая плашка.
+/// У видео — значок с длительностью в углу, без миниатюры — значок видео на плашке.
 struct Thumbnail: View {
     let path: String?
+    var video: Photo? = nil
     @State private var image: NSImage?
+
+    /// Длительность как в ядре (`video::format_duration`): `0:07`, `12:30`, `1:02:03`.
+    static func duration(_ secs: Double) -> String {
+        let s = Int(secs.rounded())
+        let (h, m, sec) = (s / 3600, s / 60 % 60, s % 60)
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
+    }
 
     var body: some View {
         Color.gray.opacity(0.25)
@@ -49,6 +58,20 @@ struct Thumbnail: View {
             .overlay {
                 if let image {
                     Image(nsImage: image).resizable().scaledToFill()
+                } else if video != nil, path == nil {
+                    Image(systemName: "video").font(.title).foregroundStyle(.secondary)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let video {
+                    Label(video.duration.map(Self.duration) ?? "", systemImage: "play.fill")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                        .padding(4)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -286,7 +309,7 @@ struct PhotoGrid: View {
 
     private func cell(_ photo: Photo) -> some View {
         VStack(spacing: 4) {
-            Thumbnail(path: photo.thumbPath)
+            Thumbnail(path: photo.thumbPath, video: photo.isVideo ? photo : nil)
             Text(photo.fileName).font(.caption).lineLimit(1).truncationMode(.middle)
             Text(PhotoDate.string(photo.takenAt)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
@@ -318,6 +341,7 @@ struct PhotoGrid: View {
                 Button(Core.text("copy"), systemImage: "doc.on.doc") { model.copy(all) }
                 Divider()
                 Button(Core.text("edit_exif"), systemImage: "pencil.and.list.clipboard") { model.editExif(all) }
+                    .disabled(all.allSatisfy(\.isVideo))
                 Divider()
                 Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash(all) }
             } else {
@@ -325,6 +349,7 @@ struct PhotoGrid: View {
                 Divider()
                 Button(Core.text("view"), systemImage: "eye") { model.open(photo) }
                 Button(Core.text("edit"), systemImage: "pencil") { model.edit(photo) }
+                    .disabled(photo.isVideo)
                 Button(Core.text("show_in_finder"), systemImage: "folder") { model.showInFinder(photo) }
                 Divider()
                 Button(Core.text("info"), systemImage: "info.circle") {
@@ -332,7 +357,9 @@ struct PhotoGrid: View {
                     model.infoOpen = true
                 }
                 Button(Core.text("show_on_map"), systemImage: "mappin.and.ellipse") { model.showOnMap(photo) }
+                    .disabled(photo.isVideo)
                 Button(Core.text("edit_exif"), systemImage: "pencil.and.list.clipboard") { model.editExif([photo]) }
+                    .disabled(photo.isVideo)
                 Divider()
                 Button(Core.text("delete"), systemImage: "trash", role: .destructive) { model.trash([photo]) }
             }

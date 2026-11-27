@@ -53,7 +53,7 @@ Architecture: $ARCH
 Maintainer: Leonid Nasedkin <leonidnasedkin@gmail.com>
 Installed-Size: $SIZE
 Depends: $DEPENDS, hicolor-icon-theme
-Recommends: libheif-plugin-libde265
+Recommends: libheif-plugin-libde265, ffmpeg
 Section: graphics
 Priority: optional
 Homepage: https://github.com/EvilX/geo-photo-library

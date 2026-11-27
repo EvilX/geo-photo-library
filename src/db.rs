@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS photos (
     orientation  INTEGER NOT NULL DEFAULT 1,
     camera_make  TEXT,
     camera_model TEXT,
-    thumb_path   TEXT
+    thumb_path   TEXT,
+    video        INTEGER NOT NULL DEFAULT 0,
+    duration     REAL
 );
 CREATE INDEX IF NOT EXISTS photos_ymd   ON photos(year, month, day);
 CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken_at);
@@ -28,25 +30,27 @@ CREATE INDEX IF NOT EXISTS photos_geo   ON photos(lat, lon);
 ";
 
 /// Версия формата данных (PRAGMA user_version).
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
-const PHOTO_COLS: &str = "id, path, taken_at, lat, lon, thumb_path";
+const PHOTO_COLS: &str = "id, path, taken_at, lat, lon, thumb_path, video, duration";
 
-/// Фильтр вкладки дат по координатам в EXIF.
+/// Фильтр вкладки дат: по координатам в EXIF (только фото) или только видео.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum GeoFilter {
-    /// Все фото.
+    /// Все фото и видео.
     #[default]
     All,
-    /// Только с координатами.
+    /// Фото с координатами.
     With,
-    /// Только без координат.
+    /// Фото без координат.
     Without,
+    /// Только видео (координат у них нет).
+    Video,
 }
 
 impl GeoFilter {
     /// Порядок пунктов в выпадающем списке; индекс — он же код в C-интерфейсе.
-    pub const ALL: [GeoFilter; 3] = [GeoFilter::All, GeoFilter::With, GeoFilter::Without];
+    pub const ALL: [GeoFilter; 4] = [GeoFilter::All, GeoFilter::With, GeoFilter::Without, GeoFilter::Video];
 
     pub fn index(self) -> u32 {
         Self::ALL.iter().position(|&f| f == self).unwrap_or(0) as u32
@@ -56,12 +60,13 @@ impl GeoFilter {
         Self::ALL.get(i as usize).copied().unwrap_or_default()
     }
 
-    /// Отладка: `GEO_PHOTO_LIBRARY_GEO_FILTER=all|with|without` — фильтр при запуске.
+    /// Отладка: `GEO_PHOTO_LIBRARY_GEO_FILTER=all|with|without|video` — фильтр при запуске.
     pub fn from_env() -> Option<Self> {
         match std::env::var("GEO_PHOTO_LIBRARY_GEO_FILTER").ok()?.as_str() {
             "all" => Some(GeoFilter::All),
             "with" => Some(GeoFilter::With),
             "without" => Some(GeoFilter::Without),
+            "video" => Some(GeoFilter::Video),
             _ => None,
         }
     }
@@ -70,8 +75,10 @@ impl GeoFilter {
     fn sql(self) -> &'static str {
         match self {
             GeoFilter::All => "1",
-            GeoFilter::With => "lat IS NOT NULL AND lon IS NOT NULL",
-            GeoFilter::Without => "(lat IS NULL OR lon IS NULL)",
+            GeoFilter::With => "video = 0 AND lat IS NOT NULL AND lon IS NOT NULL",
+            // Видео координат не получают — в «без координат» им не место.
+            GeoFilter::Without => "video = 0 AND (lat IS NULL OR lon IS NULL)",
+            GeoFilter::Video => "video = 1",
         }
     }
 }
@@ -86,6 +93,9 @@ pub struct Photo {
     pub lat: Option<f64>,
     pub lon: Option<f64>,
     pub thumb_path: Option<String>,
+    pub video: bool,
+    /// Длительность видео, с.
+    pub duration: Option<f64>,
 }
 
 impl Photo {
@@ -103,6 +113,8 @@ impl Photo {
             lat: r.get(3)?,
             lon: r.get(4)?,
             thumb_path: r.get(5)?,
+            video: r.get(6)?,
+            duration: r.get(7)?,
         })
     }
 
@@ -138,6 +150,8 @@ pub struct NewPhoto {
     pub make: Option<String>,
     pub model: Option<String>,
     pub thumb_path: Option<String>,
+    pub video: bool,
+    pub duration: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,6 +222,11 @@ impl Db {
             // v3: появилась поддержка DNG — повторить файлы без миниатюр.
             conn.execute_batch("UPDATE photos SET mtime = -1 WHERE thumb_path IS NULL")?;
         }
+        // v4: видео — столбцы `video` и `duration` (в новой базе их уже создала схема).
+        let has_video: bool = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('photos') WHERE name = 'video'", [], |r| r.get(0))?;
+        if !has_video {
+            conn.execute_batch("ALTER TABLE photos ADD COLUMN video INTEGER NOT NULL DEFAULT 0; ALTER TABLE photos ADD COLUMN duration REAL;")?;
+        }
         if version < SCHEMA_VERSION {
             conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         }
@@ -221,19 +240,27 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Видео без миниатюры: сканер повторяет их, когда кадры можно получить (поставили ffmpeg).
+    pub fn videos_without_thumbs(&self) -> Result<std::collections::HashSet<String>> {
+        let mut stmt = self.conn.prepare("SELECT path FROM photos WHERE video = 1 AND thumb_path IS NULL")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn upsert(&mut self, items: &[NewPhoto]) -> Result<()> {
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO photos (path, size, mtime, taken_at, year, month, day, lat, lon,
-                                     width, height, orientation, camera_make, camera_model, thumb_path)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                     width, height, orientation, camera_make, camera_model, thumb_path, video, duration)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(path) DO UPDATE SET
                     size=excluded.size, mtime=excluded.mtime, taken_at=excluded.taken_at,
                     year=excluded.year, month=excluded.month, day=excluded.day,
                     lat=excluded.lat, lon=excluded.lon, width=excluded.width, height=excluded.height,
                     orientation=excluded.orientation, camera_make=excluded.camera_make,
-                    camera_model=excluded.camera_model, thumb_path=excluded.thumb_path",
+                    camera_model=excluded.camera_model, thumb_path=excluded.thumb_path,
+                    video=excluded.video, duration=excluded.duration",
             )?;
             for p in items {
                 stmt.execute(params![
@@ -252,6 +279,8 @@ impl Db {
                     p.make,
                     p.model,
                     p.thumb_path,
+                    p.video,
+                    p.duration,
                 ])?;
             }
         }
@@ -296,7 +325,7 @@ impl Db {
         self.conn.execute(
             "UPDATE photos SET size = ?2, mtime = ?3, taken_at = ?4, year = ?5, month = ?6, day = ?7,
                     lat = ?8, lon = ?9, width = ?10, height = ?11, orientation = ?12,
-                    camera_make = ?13, camera_model = ?14, thumb_path = ?15
+                    camera_make = ?13, camera_model = ?14, thumb_path = ?15, video = ?16, duration = ?17
              WHERE path = ?1",
             params![
                 p.path,
@@ -314,6 +343,8 @@ impl Db {
                 p.make,
                 p.model,
                 p.thumb_path,
+                p.video,
+                p.duration,
             ],
         )?;
         Ok(())
@@ -384,6 +415,8 @@ mod tests {
             make: None,
             model: None,
             thumb_path: Some(format!("{path}.thumb")),
+            video: false,
+            duration: None,
         }
     }
 
@@ -417,6 +450,7 @@ mod tests {
         assert_eq!(paths(GeoFilter::With), ["/a.jpg"]);
         assert_eq!(paths(GeoFilter::Without), ["/b.jpg"]);
         assert_eq!(GeoFilter::from_index(GeoFilter::Without.index()), GeoFilter::Without);
+        assert_eq!(GeoFilter::from_index(3), GeoFilter::Video);
         assert_eq!(GeoFilter::from_index(7), GeoFilter::All);
 
         let geo = db.geotagged().unwrap();
@@ -457,6 +491,38 @@ mod tests {
         assert_eq!(db.remove(p.id).unwrap(), None);
     }
 
+    /// Видео — в «Все» и «Видео», но не в фильтрах по координатам.
+    #[test]
+    fn video_filter() {
+        let mut db = Db::open_in_memory().unwrap();
+        let mut v = np("/v.mp4", "2023-07-14 10:00:00", None);
+        (v.video, v.duration) = (true, Some(12.5));
+        db.upsert(&[np("/a.jpg", "2023-07-14 12:00:00", Some((55.7, 37.6))), np("/b.jpg", "2023-07-14 09:00:00", None), v])
+            .unwrap();
+        let paths = |f| db.photos_by_date(2023, None, None, f).unwrap().into_iter().map(|p| p.path).collect::<Vec<_>>();
+        assert_eq!(paths(GeoFilter::All), ["/b.jpg", "/v.mp4", "/a.jpg"]);
+        assert_eq!(paths(GeoFilter::With), ["/a.jpg"]);
+        assert_eq!(paths(GeoFilter::Without), ["/b.jpg"]);
+        assert_eq!(paths(GeoFilter::Video), ["/v.mp4"]);
+        assert_eq!(db.date_counts(GeoFilter::Video).unwrap()[0].count, 1);
+        let v = db.photos_by_date(2023, None, None, GeoFilter::Video).unwrap().remove(0);
+        assert!(v.video);
+        assert_eq!(v.duration, Some(12.5));
+    }
+
+    /// База v3 без столбцов видео получает их, записи сохраняются.
+    #[test]
+    fn migration_v3_to_v4_adds_video_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&SCHEMA.replace(",\n    video        INTEGER NOT NULL DEFAULT 0,\n    duration     REAL", "")).unwrap();
+        conn.execute_batch("PRAGMA user_version = 3; INSERT INTO photos (path, size, mtime, taken_at, year, month, day) VALUES ('/a.jpg', 1, 1, '2023-01-01 00:00:00', 2023, 1, 1)").unwrap();
+        let db = Db::init(conn).unwrap();
+        let p = db.photos_by_date(2023, None, None, GeoFilter::All).unwrap();
+        assert_eq!(p.len(), 1);
+        assert!(!p[0].video);
+        assert_eq!(db.known_files().unwrap()["/a.jpg"], (1, 1));
+    }
+
     #[test]
     fn migration_v2_to_v3_retries_missing_thumbs() {
         let mut db = Db::open_in_memory().unwrap();
@@ -469,7 +535,7 @@ mod tests {
         assert_eq!(known["/ok.jpg"].1, 1);
         assert_eq!(known["/raw.dng"].1, -1);
         let v: i32 = db.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, SCHEMA_VERSION);
     }
 
     /// Сканер и чтения интерфейса открывают новую базу одновременно — никто не должен
@@ -502,6 +568,8 @@ mod tests {
             lat: None,
             lon: None,
             thumb_path: None,
+            video: false,
+            duration: None,
         };
         assert_eq!(p.file_name(), "IMG_1.HEIC");
         assert!(p.display_date().contains("12:30"));

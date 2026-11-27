@@ -351,7 +351,12 @@ fn show_on_map(state: &Rc<App>, photo: &Photo) {
 
 /// Окно «Редактирование EXIF» для выделенных фото. Без координат у фото карта
 /// открывается там же, где главная.
-fn edit_exif(state: &Rc<App>, photos: Vec<Photo>) {
+/// Редактор EXIF — только для фото: видео из списка отбрасываются.
+fn edit_exif(state: &Rc<App>, mut photos: Vec<Photo>) {
+    photos.retain(|p| !p.video);
+    if photos.is_empty() {
+        return;
+    }
     let s = Rc::downgrade(state);
     exif_dialog::show(state.window.upcast_ref(), photos, state.map.view(), move |changes, photos| {
         if let Some(s) = s.upgrade() {

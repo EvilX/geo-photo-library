@@ -13,15 +13,16 @@ enum AppTab: String, CaseIterable {
 }
 
 /// Период: год, месяц (`day == 0`) или день; `month == 0` — весь год.
-/// Фильтр вкладки дат по координатам; значение — код фильтра в ядре (`GeoFilter::index`).
+/// Фильтр вкладки дат по координатам (у фото) или только видео; значение — код фильтра в ядре (`GeoFilter::index`).
 enum GeoFilter: UInt32, CaseIterable, Sendable {
-    case all, with, without
+    case all, with, without, video
 
     var title: String {
         switch self {
         case .all: Core.text("geo_all")
         case .with: Core.text("geo_with")
         case .without: Core.text("geo_without")
+        case .video: Core.text("geo_video")
         }
     }
 }
@@ -478,8 +479,9 @@ final class AppModel {
     // MARK: Действия с фото
 
     /// Просмотр: программа из настроек, иначе — программа по умолчанию для типа файла.
+    /// Видео — всегда в программе по умолчанию: просмотрщик из настроек — для фото.
     func open(_ photo: Photo) {
-        if !Apps.open(photo.url, with: viewerID) {
+        if photo.isVideo || !Apps.open(photo.url, with: viewerID) {
             NSWorkspace.shared.open(photo.url)
         }
     }
@@ -487,7 +489,9 @@ final class AppModel {
     /// Редактирование: редактор из настроек, иначе найденный графический редактор,
     /// иначе — программа по умолчанию.
     func edit(_ photo: Photo) {
-        if !Apps.open(photo.url, with: editorID), !Apps.open(photo.url, with: Apps.findEditor(for: photo.url)) {
+        if photo.isVideo {
+            NSWorkspace.shared.open(photo.url)
+        } else if !Apps.open(photo.url, with: editorID), !Apps.open(photo.url, with: Apps.findEditor(for: photo.url)) {
             NSWorkspace.shared.open(photo.url)
         }
     }
@@ -563,8 +567,9 @@ final class AppModel {
         }
     }
 
-    /// Открыть редактор EXIF для фото.
+    /// Открыть редактор EXIF для фото; видео из списка отбрасываются.
     func editExif(_ photos: [Photo]) {
+        let photos = photos.filter { !$0.isVideo }
         guard !photos.isEmpty else { return }
         exifEdit = ExifEdit(photos: photos, view: map?.currentView)
     }

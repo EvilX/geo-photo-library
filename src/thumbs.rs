@@ -52,9 +52,19 @@ pub fn generate(src: &Path, orientation: u32, out: &Path) -> Result<(u32, u32)> 
         }
         apply_orientation(thumb, orientation)
     };
+    write(&thumb, out)?;
+    Ok((w, h))
+}
+
+/// Миниатюра из готового (уже повёрнутого) изображения — кадра видео.
+pub fn save(img: DynamicImage, out: &Path) -> Result<()> {
+    write(&square(img), out)
+}
+
+fn write(thumb: &DynamicImage, out: &Path) -> Result<()> {
     let file = BufWriter::new(File::create(out).with_context(|| format!("создание {}", out.display()))?);
     JpegEncoder::new_with_quality(file, 85).encode_image(&thumb.to_rgb8())?;
-    Ok((w, h))
+    Ok(())
 }
 
 /// Центральный квадрат, уменьшенный до THUMB_SIZE (без увеличения).

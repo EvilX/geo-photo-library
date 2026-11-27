@@ -84,12 +84,26 @@ pub struct ExifDetails {
     /// Высота над уровнем моря, м.
     pub altitude: Option<f64>,
     pub software: Option<String>,
+    /// Длительность видео, с.
+    pub duration: Option<f64>,
     /// Все теги основного изображения: (имя тега, значение).
     pub all: Vec<(String, String)>,
 }
 
 /// Подробный EXIF файла; `None` — файла нет или в нём нет EXIF.
+/// У видео EXIF нет — поля берутся из контейнера (`video::read`), список тегов пуст.
 pub fn read_details(path: &Path) -> Option<ExifDetails> {
+    if crate::video::is_video(path) {
+        let v = crate::video::read(path);
+        return Some(ExifDetails {
+            taken_at: v.taken_at,
+            camera: camera_name(v.make.as_deref(), v.model.as_deref()),
+            width: v.dims.map(|d| d.0),
+            height: v.dims.map(|d| d.1),
+            duration: v.duration,
+            ..Default::default()
+        });
+    }
     let file = File::open(path).ok()?;
     let exif = Reader::new().read_from_container(&mut BufReader::new(file)).ok()?;
     Some(details(&exif))
@@ -144,6 +158,7 @@ fn details(exif: &Exif) -> ExifDetails {
         height: num(Tag::PixelYDimension).or_else(|| num(Tag::ImageLength)),
         altitude,
         software: ascii(exif, Tag::Software),
+        duration: None,
         all,
     }
 }

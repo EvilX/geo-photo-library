@@ -4,7 +4,7 @@ use super::{
     date_tree::{DateTree, NodeKey},
     photo_grid::{self, PhotoGrid},
     place_search::{self, PlaceSearch},
-    textures::{set_thumbnail, TextureCache},
+    textures::{set_thumbnail, TextureCache, PHOTO_ICON},
 };
 use crate::{
     config::{MapView, SortOrder},
@@ -566,7 +566,7 @@ impl MapTab {
         let cover = members[0];
         let image = gtk::Image::new();
         image.set_pixel_size(MARKER_SIZE);
-        set_thumbnail(&self.cache, &image, cover.thumb_path.as_deref(), || true);
+        set_thumbnail(&self.cache, &image, cover.thumb_path.as_deref(), PHOTO_ICON, || true);
         image.add_css_class("map-thumb");
         image.set_overflow(gtk::Overflow::Hidden);
         // Место под бейдж в правом верхнем углу.

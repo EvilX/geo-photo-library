@@ -22,6 +22,8 @@ BuildRequires:  pkgconfig(libsoup-3.0)
 BuildRequires:  desktop-file-utils
 BuildRequires:  appstream
 Requires:       hicolor-icon-theme
+# Video thumbnails (a frame from the start of the video).
+Recommends:     /usr/bin/ffmpeg
 
 %description
 GeoPhotoLibrary indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),

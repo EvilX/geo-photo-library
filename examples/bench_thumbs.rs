@@ -9,6 +9,9 @@ mod dng;
 #[path = "../src/thumbs.rs"]
 #[allow(dead_code)]
 mod thumbs;
+#[path = "../src/video.rs"]
+#[allow(dead_code)]
+mod video;
 
 use image::codecs::jpeg::JpegEncoder;
 use std::{path::PathBuf, time::Instant};

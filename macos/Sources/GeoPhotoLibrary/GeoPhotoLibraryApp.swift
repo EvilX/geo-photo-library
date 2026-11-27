@@ -52,12 +52,12 @@ struct GeoPhotoLibraryApp: App {
                     .disabled(photo == nil)
                 Button(Core.text("edit")) { photo.map(model.edit) }
                     .keyboardShortcut("e")
-                    .disabled(photo == nil)
+                    .disabled(photo == nil || photo?.isVideo == true)
                 Button(Core.text("show_in_finder")) { photo.map(model.showInFinder) }
                     .disabled(photo == nil)
                 Divider()
                 Button(Core.text("edit_exif")) { model.editExif(selected.all) }
-                    .disabled(selected.isEmpty)
+                    .disabled(selected.all.allSatisfy(\.isVideo))
             }
             CommandGroup(after: .toolbar) {
                 Button(Core.text("rescan")) { model.rescan() }

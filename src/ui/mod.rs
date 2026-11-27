@@ -15,6 +15,14 @@ pub mod window;
 pub const CSS: &str = "
 .photo-thumb { border-radius: 6px; }
 .photo-caption { font-size: smaller; opacity: 0.8; }
+.video-badge {
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    border-radius: 4px;
+    padding: 0 4px;
+    margin: 4px;
+    font-size: smaller;
+}
 .map-thumb {
     border: 2px solid white;
     border-radius: 8px;

@@ -1,7 +1,7 @@
 //! Инкрементальное сканирование папки библиотеки.
 use crate::{
     db::{Db, NewPhoto},
-    i18n, metadata, thumbs,
+    i18n, metadata, thumbs, video,
 };
 use anyhow::{bail, Result};
 use rayon::prelude::*;
@@ -36,10 +36,12 @@ pub struct ScanStats {
     pub removed: usize,
 }
 
+/// Фото или видео (`video::EXTENSIONS`).
 pub fn is_supported(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+        || video::is_video(path)
 }
 
 fn is_hidden(e: &DirEntry) -> bool {
@@ -74,6 +76,8 @@ pub fn scan(
     std::fs::create_dir_all(thumbs_dir)?;
     let mut db = Db::open(db_path)?;
     let known = db.known_files()?;
+    // Видео без миниатюры (не было ffmpeg) — повторить, если кадр теперь можно получить.
+    let retry = if video::frames_available() { db.videos_without_thumbs()? } else { HashSet::new() };
 
     let mut stats = ScanStats::default();
     let mut found = HashSet::new();
@@ -98,7 +102,8 @@ pub fn scan(
             .map_or(0, |d| d.as_secs() as i64);
         found.insert(path_str.to_owned());
         match known.get(path_str) {
-            Some(&(s, m)) if s == size && m == mtime => continue,
+            Some(&(s, m)) if s == size && m == mtime && !retry.contains(path_str) => continue,
+            Some(&(s, m)) if s == size && m == mtime => {}
             Some(_) => stats.updated += 1,
             None => stats.added += 1,
         }
@@ -130,13 +135,19 @@ pub fn process_file(path: &Path, size: i64, mtime: i64, thumbs_dir: &Path) -> Ne
     process(&Todo { path: path.to_path_buf(), size, mtime }, thumbs_dir)
 }
 
+/// Время изменения файла как местное — дата съёмки, если в файле её нет.
+fn mtime_local(mtime: i64) -> chrono::NaiveDateTime {
+    chrono::DateTime::from_timestamp(mtime, 0)
+        .map(|d| d.with_timezone(&chrono::Local).naive_local())
+        .unwrap_or_default()
+}
+
 fn process(t: &Todo, thumbs_dir: &Path) -> NewPhoto {
+    if video::is_video(&t.path) {
+        return process_video(t, thumbs_dir);
+    }
     let meta = metadata::read(&t.path);
-    let taken_at = meta.taken_at.unwrap_or_else(|| {
-        chrono::DateTime::from_timestamp(t.mtime, 0)
-            .map(|d| d.with_timezone(&chrono::Local).naive_local())
-            .unwrap_or_default()
-    });
+    let taken_at = meta.taken_at.unwrap_or_else(|| mtime_local(t.mtime));
     let out = thumbs::thumb_path(thumbs_dir, &t.path);
     let (thumb_path, dims) = match thumbs::generate(&t.path, meta.orientation, &out) {
         Ok(d) => (out.to_str().map(str::to_owned), Some(d)),
@@ -158,6 +169,37 @@ fn process(t: &Todo, thumbs_dir: &Path) -> NewPhoto {
         make: meta.make,
         model: meta.model,
         thumb_path,
+        video: false,
+        duration: None,
+    }
+}
+
+/// Видео: дата, длительность и размеры из контейнера, миниатюра — кадр; координат нет.
+fn process_video(t: &Todo, thumbs_dir: &Path) -> NewPhoto {
+    let meta = video::read(&t.path);
+    let out = thumbs::thumb_path(thumbs_dir, &t.path);
+    let thumb_path = match video::frame(&t.path, thumbs::THUMB_SIZE).and_then(|f| thumbs::save(f.into(), &out)) {
+        Ok(()) => out.to_str().map(str::to_owned),
+        Err(e) => {
+            eprintln!("миниатюра {}: {e:#}", t.path.display());
+            None
+        }
+    };
+    NewPhoto {
+        path: t.path.to_string_lossy().into_owned(),
+        size: t.size,
+        mtime: t.mtime,
+        taken_at: meta.taken_at.unwrap_or_else(|| mtime_local(t.mtime)),
+        lat: None,
+        lon: None,
+        width: meta.dims.map(|d| d.0),
+        height: meta.dims.map(|d| d.1),
+        orientation: 1,
+        make: meta.make,
+        model: meta.model,
+        thumb_path,
+        video: true,
+        duration: meta.duration,
     }
 }
 
@@ -196,7 +238,8 @@ mod tests {
     fn supported() {
         assert!(is_supported(Path::new("/a/IMG_0001.HEIC")));
         assert!(is_supported(Path::new("/a/20230714_123045.jpg")));
-        assert!(!is_supported(Path::new("/a/video.mp4")));
+        assert!(is_supported(Path::new("/a/video.MOV")));
+        assert!(!is_supported(Path::new("/a/notes.txt")));
         assert!(!is_supported(Path::new("/a/noext")));
     }
 

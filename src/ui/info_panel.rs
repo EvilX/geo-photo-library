@@ -4,6 +4,7 @@ use crate::{
     db::Photo,
     i18n::{self, Info},
     metadata::{self, ExifDetails},
+    video,
 };
 use gtk::{gio, glib, pango, prelude::*};
 use std::{cell::Cell, path::Path, rc::Rc};
@@ -167,6 +168,7 @@ impl InfoPanel {
             Info::Shooting,
             vec![
                 (Info::Taken, taken),
+                (Info::Duration, e.duration.map(video::format_duration)),
                 (Info::Camera, e.camera.clone()),
                 (Info::Lens, e.lens.clone()),
                 (Info::Exposure, e.exposure_time.map(|t| i18n::exposure(&metadata::format_exposure(t)))),

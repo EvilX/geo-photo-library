@@ -30,6 +30,9 @@ struct Photo: Identifiable, Hashable {
     let lat: Double
     let lon: Double
     let hasCoords: Bool
+    let isVideo: Bool
+    /// Длительность видео, с.
+    let duration: Double?
 
     var fileName: String { (path as NSString).lastPathComponent }
     var url: URL { URL(fileURLWithPath: path) }
@@ -110,7 +113,9 @@ final class PhotoList: @unchecked Sendable {
                 thumbPath: r.thumb_path.map { String(cString: $0) },
                 lat: r.lat,
                 lon: r.lon,
-                hasCoords: r.has_coords
+                hasCoords: r.has_coords,
+                isVideo: r.is_video,
+                duration: r.duration >= 0 ? r.duration : nil
             )
         }
     }
@@ -189,6 +194,7 @@ enum Core {
             .first(where: supported.contains) ?? "en"
         gpl_init(lang)
         gpl_set_heif_decoder(decodeHeif)
+        gpl_set_video_decoder(decodeVideoFrame)
     }
 
     // MARK: Строки

@@ -144,14 +144,19 @@ impl TextureCache {
 
 /// Показать миниатюру в `image`: сразу из кэша, иначе после фоновой загрузки.
 /// `still_valid` проверяется перед установкой — виджет мог быть переиспользован.
+/// Значок фото без миниатюры.
+pub const PHOTO_ICON: &str = "image-x-generic-symbolic";
+
+/// Без миниатюры — значок `icon` (фото или видео).
 pub fn set_thumbnail(
     cache: &Rc<TextureCache>,
     image: &gtk::Image,
     thumb: Option<&str>,
+    icon: &str,
     still_valid: impl Fn() -> bool + 'static,
 ) {
     let Some(path) = thumb else {
-        image.set_icon_name(Some("image-x-generic-symbolic"));
+        image.set_icon_name(Some(icon));
         return;
     };
     if let Some(t) = cache.get(path) {
@@ -211,7 +216,11 @@ fn launch_app(widget: &impl IsA<gtk::Widget>, app: &gio::AppInfo, path: &str) ->
 
 /// Открыть фото в просмотрщике из настроек, иначе — в программе по умолчанию для
 /// его типа. Если её нет, система сама предложит выбрать программу.
+/// Видео — всегда в программе по умолчанию: просмотрщик из настроек — для фото.
 pub fn open_external(widget: &impl IsA<gtk::Widget>, path: &str) {
+    if crate::video::is_video(std::path::Path::new(path)) {
+        return launch_with_portal(widget, path, false);
+    }
     let viewer = PREFERRED.with(|p| p.borrow().viewer.clone());
     if app_by_id(viewer).is_some_and(|app| launch_app(widget, &app, path)) {
         return;
@@ -222,6 +231,9 @@ pub fn open_external(widget: &impl IsA<gtk::Widget>, path: &str) {
 /// Открыть фото в редакторе из настроек, иначе — в найденном графическом редакторе.
 /// Если ни один не запустился, показать окно выбора программы.
 pub fn open_in_editor(widget: &impl IsA<gtk::Widget>, path: &str) {
+    if crate::video::is_video(std::path::Path::new(path)) {
+        return launch_with_portal(widget, path, false);
+    }
     let editor = PREFERRED.with(|p| p.borrow().editor.clone());
     for app in [app_by_id(editor), find_editor(path)].into_iter().flatten() {
         if launch_app(widget, &app, path) {

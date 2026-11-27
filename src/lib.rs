@@ -1,4 +1,4 @@
-//! Ядро GeoPhotoLibrary: сканер, БД, миниатюры, EXIF, геометрия карты, локализация.
+//! Ядро GeoPhotoLibrary: сканер, БД, миниатюры, EXIF, видео, геометрия карты, локализация.
 //!
 //! От интерфейса не зависит: на Linux и Windows его использует приложение GTK (`src/main.rs`,
 //! фича `gtk-ui`), на macOS — приложение на Swift через C-интерфейс (`ffi`, см. `macos/`).
@@ -16,5 +16,6 @@ pub mod scanner;
 pub mod thumbs;
 pub mod trace;
 pub mod update;
+pub mod video;
 #[cfg(windows)]
 pub mod win;

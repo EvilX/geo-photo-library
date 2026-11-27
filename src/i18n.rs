@@ -159,9 +159,10 @@ pub fn sort_label(order: crate::config::SortOrder) -> &'static str {
 pub fn geo_filter_label(filter: crate::db::GeoFilter) -> &'static str {
     use crate::db::GeoFilter;
     match filter {
-        GeoFilter::All => tr("All photos", "Все фото", "Όλες οι φωτογραφίες"),
+        GeoFilter::All => tr("Photos and videos", "Фото и видео", "Φωτογραφίες και βίντεο"),
         GeoFilter::With => tr("With coordinates", "С координатами", "Με συντεταγμένες"),
         GeoFilter::Without => tr("Without coordinates", "Без координат", "Χωρίς συντεταγμένες"),
+        GeoFilter::Video => tr("Videos", "Видео", "Βίντεο"),
     }
 }
 
@@ -683,6 +684,7 @@ pub enum Info {
     Software,
     Coordinates,
     Altitude,
+    Duration,
 }
 
 pub fn info_label(key: Info) -> &'static str {
@@ -707,6 +709,7 @@ pub fn info_label(key: Info) -> &'static str {
         Info::Software => tr("Software", "Программа", "Λογισμικό"),
         Info::Coordinates => tr("Coordinates", "Координаты", "Συντεταγμένες"),
         Info::Altitude => tr("Altitude", "Высота", "Υψόμετρο"),
+        Info::Duration => tr("Duration", "Длительность", "Διάρκεια"),
     }
 }
 

@@ -39,7 +39,7 @@ The description below is for Linux; the differences of the macOS version are lis
   while its position and zoom stay as they are. The chosen period is shown on the button; a click
   on the map closes the panel.
 - **By date** — a year → month → day tree and a thumbnail grid. The list above the tree shows
-  all photos, only those with GPS coordinates or only those without.
+  all photos and videos, only photos with GPS coordinates, only photos without them, or only videos.
 - **Information** — a panel on the right with file and EXIF data: camera, lens, shutter speed,
   aperture, ISO, focal length, coordinates, altitude and all tags. It follows the selected photo
   and stays empty while several photos are selected.
@@ -74,6 +74,12 @@ The description below is for Linux; the differences of the macOS version are lis
   [website](https://evilx.github.io/geo-photo-library/). Turned off in Settings
   («Check for updates at startup»).
 - Formats: JPEG, HEIC/HEIF (iPhone, Samsung), PNG, WebP, TIFF, DNG (metadata only).
+- **Videos** (MP4, MOV, M4V, 3GP, MKV, WebM, AVI, MTS): shown by date (from the MP4/QuickTime
+  container, otherwise the file time) with a ▶ badge and duration on the thumbnail; they have no
+  coordinates and are not on the map. They open in the system's default player. The thumbnail is
+  a frame from the start of the video: on macOS it is made by the system, on Linux and Windows by
+  the `ffmpeg` program — without it videos get an icon instead (after installing ffmpeg the thumbnails
+  appear on the next scan).
 - Interface languages: English, Russian, Greek — from the system locale (`LANG`, `LC_MESSAGES`,
   `LANGUAGE`), English by default. Photo dates follow the system date format (`LC_TIME`),
   e.g. `12/21/2025 01:03 PM` in en_US and `21/12/25 13:03` in en_GB.

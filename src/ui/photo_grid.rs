@@ -1,14 +1,14 @@
 //! Сетка миниатюр, используется на обеих вкладках.
 use super::menu::{icon_menu, Item};
-use super::textures::{copy_to_clipboard, open_external, open_in_editor, set_thumbnail, show_in_folder, TextureCache};
+use super::textures::{copy_to_clipboard, open_external, open_in_editor, set_thumbnail, show_in_folder, TextureCache, PHOTO_ICON};
 use crate::{
     config::{self, SortOrder},
     db::Photo,
-    i18n,
+    i18n, video,
 };
 use gtk::{gdk, gio, glib, graphene, pango, prelude::*};
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     rc::Rc,
 };
 
@@ -77,6 +77,9 @@ impl PhotoGrid {
         // а если оно среди нескольких выделенных — со всеми выделенными (меню короче:
         // только копирование и удаление).
         let menu_photos: Rc<RefCell<Vec<Photo>>> = Rc::default();
+        // Группа действий меню создаётся вместе с видом — ниже; до показа меню в ней
+        // отключаются пункты, неприменимые к видео.
+        let actions: Rc<OnceCell<gio::SimpleActionGroup>> = Rc::default();
         let handlers = Handlers::default();
         let (popover, popover_many) = (context_menu(), context_menu_many());
         for p in [&popover, &popover_many] {
@@ -86,7 +89,8 @@ impl PhotoGrid {
 
         let factory = gtk::SignalListItemFactory::new();
         let (cur_size, all_images) = (size.clone(), images.clone());
-        let (pop, pop_many, mp, sel) = (popover.clone(), popover_many.clone(), menu_photos.clone(), selection.clone());
+        let (pop, pop_many, mp, sel, acts) =
+            (popover.clone(), popover_many.clone(), menu_photos.clone(), selection.clone(), actions.clone());
         let picked = handlers.picked.clone();
         factory.connect_setup(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
@@ -103,6 +107,21 @@ impl PhotoGrid {
             }
             image.add_css_class("photo-thumb");
             image.set_overflow(gtk::Overflow::Hidden);
+            // Значок видео с длительностью — в правом нижнем углу миниатюры.
+            // Значок, а не символ «▶»: его есть не в каждом шрифте.
+            let badge = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+            let play = gtk::Image::from_icon_name("media-playback-start-symbolic");
+            play.set_pixel_size(10);
+            badge.append(&play);
+            badge.append(&gtk::Label::new(None));
+            badge.add_css_class("video-badge");
+            badge.set_halign(gtk::Align::End);
+            badge.set_valign(gtk::Align::End);
+            badge.set_can_target(false);
+            let overlay = gtk::Overlay::new();
+            overlay.set_child(Some(&image));
+            overlay.add_overlay(&badge);
+            overlay.set_halign(gtk::Align::Center);
             let label = gtk::Label::new(None);
             label.add_css_class("photo-caption");
             label.set_ellipsize(pango::EllipsizeMode::End);
@@ -110,14 +129,14 @@ impl PhotoGrid {
             let b = gtk::Box::new(gtk::Orientation::Vertical, 4);
             b.set_margin_top(4);
             b.set_margin_bottom(4);
-            b.append(&image);
+            b.append(&overlay);
             b.append(&label);
             item.set_child(Some(&b));
 
             let click = gtk::GestureClick::new();
             click.set_button(gdk::BUTTON_SECONDARY);
-            let (weak_item, pop, pop_many, mp, sel) =
-                (item.downgrade(), pop.clone(), pop_many.clone(), mp.clone(), sel.clone());
+            let (weak_item, pop, pop_many, mp, sel, acts) =
+                (item.downgrade(), pop.clone(), pop_many.clone(), mp.clone(), sel.clone(), acts.clone());
             click.connect_pressed(move |g, _, x, y| {
                 let Some(item) = weak_item.upgrade() else { return };
                 let Some(obj) = item.item().and_downcast::<glib::BoxedAnyObject>() else { return };
@@ -129,6 +148,9 @@ impl PhotoGrid {
                 } else {
                     sel.select_item(pos, true);
                     *mp.borrow_mut() = vec![obj.borrow::<Photo>().clone()];
+                }
+                if let Some(group) = acts.get() {
+                    enable_for(group, &mp.borrow());
                 }
                 let pop = if many { &pop_many } else { &pop };
                 let (Some(cell), Some(parent)) = (g.widget(), pop.parent()) else { return };
@@ -165,12 +187,21 @@ impl PhotoGrid {
             let Some(obj) = item.item().and_downcast::<glib::BoxedAnyObject>() else { return };
             let photo = obj.borrow::<Photo>();
             let b = item.child().and_downcast::<gtk::Box>().unwrap();
-            let image = b.first_child().and_downcast::<gtk::Image>().unwrap();
-            let label = image.next_sibling().and_downcast::<gtk::Label>().unwrap();
+            let overlay = b.first_child().and_downcast::<gtk::Overlay>().unwrap();
+            let image = overlay.child().and_downcast::<gtk::Image>().unwrap();
+            let badge = image.next_sibling().and_downcast::<gtk::Box>().unwrap();
+            let label = overlay.next_sibling().and_downcast::<gtk::Label>().unwrap();
+            badge.set_visible(photo.video);
+            if let Some(duration) = badge.last_child().and_downcast::<gtk::Label>() {
+                let text = photo.duration.filter(|_| photo.video).map(video::format_duration);
+                duration.set_visible(text.is_some());
+                duration.set_text(text.as_deref().unwrap_or_default());
+            }
             // Ячейка переиспользуется при прокрутке: ставим текстуру, только если
             // к моменту загрузки в ней всё ещё тот же элемент.
             let (weak_item, expected) = (item.downgrade(), obj.clone().upcast::<glib::Object>());
-            set_thumbnail(&cache, &image, photo.thumb_path.as_deref(), move || {
+            let icon = if photo.video { VIDEO_ICON } else { PHOTO_ICON };
+            set_thumbnail(&cache, &image, photo.thumb_path.as_deref(), icon, move || {
                 weak_item.upgrade().and_then(|i| i.item()).as_ref() == Some(&expected)
             });
             label.set_text(&photo.display_date());
@@ -188,7 +219,9 @@ impl PhotoGrid {
             pop.unparent();
             pop_many.unparent();
         });
-        view.insert_action_group("photo", Some(&photo_actions(&view, &menu_photos, &handlers)));
+        let group = photo_actions(&view, &menu_photos, &handlers);
+        view.insert_action_group("photo", Some(&group));
+        let _ = actions.set(group);
         view.set_max_columns(max_columns);
         view.set_min_columns(1);
         // Двойной щелчок или Enter — просмотр, с Ctrl — редактирование.
@@ -494,6 +527,20 @@ fn context_menu_many() -> gtk::PopoverMenu {
     ])
 }
 
+/// Значок видео без миниатюры (нет `ffmpeg`).
+const VIDEO_ICON: &str = "video-x-generic-symbolic";
+
+/// Пункты меню, которые не применимы к видео: редактор фото, карта (координат у видео нет)
+/// и EXIF. Над несколькими фото «Редактировать EXIF» доступен, если среди них есть фото.
+fn enable_for(group: &gio::SimpleActionGroup, photos: &[Photo]) {
+    let any_photo = photos.iter().any(|p| !p.video);
+    for name in ["edit", "show-on-map", "edit-exif"] {
+        if let Some(a) = group.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+            a.set_enabled(any_photo);
+        }
+    }
+}
+
 /// Выделенные фото по порядку показа.
 fn selected_in(selection: &gtk::MultiSelection) -> Vec<Photo> {
     let set = selection.selection();
@@ -539,7 +586,7 @@ fn photo_actions(
     });
     add("edit-exif", |_, ps, handlers| {
         if let Some(f) = handlers.edit_exif.borrow().as_ref() {
-            f(ps.to_vec());
+            f(ps.iter().filter(|p| !p.video).cloned().collect());
         }
     });
     // После подтверждения файлы перемещаются параллельно; обработчик получает все результаты разом.
