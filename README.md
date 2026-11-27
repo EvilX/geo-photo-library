@@ -64,7 +64,8 @@ The description below is for Linux; the differences of the macOS version are lis
   Shift + click selects a range, dragging a rectangle selects the photos under it, Ctrl+A (⌘A)
   selects all. For several photos the menu offers only Copy, Edit EXIF and Delete.
 - **Keyboard in the photo list:** arrows, Page Up/Page Down, Home/End move between photos,
-  with Shift they extend the selection.
+  with Shift they extend the selection. On Linux and Windows: Ctrl+C copies, Delete moves to
+  the trash, Menu or Shift+F10 opens the photo menu, F5 rescans the library.
 - Double click opens the photo in a viewer, Ctrl + double click in an editor. Both are chosen
   in Settings (by default, the app for the file type and a detected image editor).
 - A slider under the photo grids scales thumbnails from 50 to 200%, with −/+ buttons (10% steps).
@@ -189,7 +190,7 @@ The features are the same as on Linux, with the differences customary on macOS:
 - "My location" uses CoreLocation; the system asks for permission on first use;
 - the Edit menu acts on the selected photos: copy (⌘C), delete (⌘⌫), select all (⌘A), and for
   a single photo also view (⌘O), edit (⌘E), show in Finder;
-- the Information panel — the "i" button in the title bar or ⌘I; rescan — ⌘R;
+- the Information panel — the "i" button in the title bar or ⌘I; rescan — ⌘R; tabs — ⌘1 and ⌘2;
 - editing — ⌘ + double-click; the photo menu also has "Show in Finder";
 - settings (⌘,) apply immediately; the viewer and editor are chosen from the installed apps;
 - the interface language and date format come from the system settings;

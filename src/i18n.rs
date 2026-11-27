@@ -94,6 +94,11 @@ pub fn about() -> &'static str {
     tr("About", "О программе", "Σχετικά")
 }
 
+/// Подпись списка авторов в окне «О программе» на macOS (в GTK её ставит сам `AboutDialog`).
+pub fn authors() -> &'static str {
+    tr("Authors", "Авторы", "Δημιουργοί")
+}
+
 /// Краткое описание программы (окно «О программе»).
 pub fn app_summary() -> &'static str {
     tr(
@@ -267,6 +272,12 @@ pub fn trashed(name: &str) -> String {
     format!("{}: {name}", tr("Moved to trash", "Перемещено в корзину", "Μετακινήθηκε στα απορρίμματα"))
 }
 
+/// Ход перемещения нескольких фото в корзину (строка состояния).
+pub fn trashing(done: usize, total: usize) -> String {
+    let word = tr("Moving to trash", "Перемещение в корзину", "Μετακίνηση στα απορρίμματα");
+    format!("{word} {done} / {total}")
+}
+
 // ---------- Редактирование координат ----------
 
 pub fn edit_exif() -> &'static str {
@@ -376,6 +387,21 @@ pub fn changes_failed(name: &str, e: &str) -> String {
     }
 }
 
+/// Ход записи изменений в файлы нескольких фото (строка состояния).
+pub fn saving_progress(done: usize, total: usize) -> String {
+    let word = tr("Saving changes", "Сохранение изменений", "Αποθήκευση αλλαγών");
+    format!("{word} {done} / {total}")
+}
+
+/// Действие с фото отклонено: предыдущие изменения в их файлы ещё записываются.
+pub fn changes_in_progress() -> &'static str {
+    tr(
+        "Changes to these photos are still being saved. Try again in a moment.",
+        "Изменения этих фото ещё сохраняются. Повторите чуть позже.",
+        "Οι αλλαγές σε αυτές τις φωτογραφίες αποθηκεύονται ακόμη. Δοκιμάστε ξανά σε λίγο.",
+    )
+}
+
 // ---------- Вкладка «EXIF» редактора ----------
 
 pub fn exif_tab() -> &'static str {
@@ -444,6 +470,79 @@ pub fn trash_failed(name: &str, e: &str) -> String {
     }
 }
 
+// ---------- Строка состояния и сообщения окна GTK ----------
+
+/// Идёт запись изменений в файлы: `subject` — имя файла или «5 фото».
+pub fn saving_changes(subject: &str) -> String {
+    format!("{}: {subject}…", tr("Saving changes", "Сохранение изменений", "Αποθήκευση αλλαγών"))
+}
+
+/// Итог записи изменений в несколько фото, когда часть не удалась.
+pub fn changes_summary(saved: usize, failed: usize) -> String {
+    match lang() {
+        Lang::En => format!("Saved: {saved}, failed: {failed}"),
+        Lang::Ru => format!("Сохранено: {saved}, не удалось: {failed}"),
+        Lang::El => format!("Αποθηκεύτηκαν: {saved}, απέτυχαν: {failed}"),
+    }
+}
+
+/// Причина ошибки, когда подробностей нет (сбой фоновой задачи).
+pub fn internal_error() -> &'static str {
+    tr("internal error", "внутренняя ошибка", "εσωτερικό σφάλμα")
+}
+
+/// Заголовок окна об ошибке при запуске: БД не открылась.
+pub fn db_open_failed() -> &'static str {
+    tr(
+        "Could not open the library database",
+        "Не удалось открыть базу данных библиотеки",
+        "Αδυναμία ανοίγματος της βάσης δεδομένων της βιβλιοθήκης",
+    )
+}
+
+pub fn db_error(e: &str) -> String {
+    format!("{}: {e}", tr("Database error", "Ошибка базы данных", "Σφάλμα βάσης δεδομένων"))
+}
+
+/// Не запустился просмотрщик, редактор или файловый менеджер.
+pub fn open_failed(name: &str, e: &str) -> String {
+    match lang() {
+        Lang::En => format!("Could not open {name}: {e}"),
+        Lang::Ru => format!("Не удалось открыть {name}: {e}"),
+        Lang::El => format!("Αδυναμία ανοίγματος του {name}: {e}"),
+    }
+}
+
+/// Предупреждение в редакторе EXIF: `n` из `total` выбранных файлов изменить нельзя (PNG, DNG, TIFF).
+pub fn exif_not_writable(n: usize, total: usize) -> String {
+    let what = match lang() {
+        Lang::En if total == 1 => "This file cannot be changed".to_string(),
+        Lang::En if n == total => "None of the selected files can be changed".to_string(),
+        Lang::En => format!("{n} of {total} files will be skipped"),
+        Lang::Ru if total == 1 => "Этот файл изменить нельзя".to_string(),
+        Lang::Ru if n == total => "Ни один из выбранных файлов изменить нельзя".to_string(),
+        Lang::Ru => format!("Файлов, которые будут пропущены: {n} из {total}"),
+        Lang::El if total == 1 => "Αυτό το αρχείο δεν μπορεί να αλλάξει".to_string(),
+        Lang::El if n == total => "Κανένα από τα επιλεγμένα αρχεία δεν μπορεί να αλλάξει".to_string(),
+        Lang::El => format!("{n} από {total} αρχεία θα παραλειφθούν"),
+    };
+    format!("{what}: {}", exif_format_unsupported())
+}
+
+/// Строка в списке под поиском местности, пока идёт запрос.
+pub fn searching_place() -> &'static str {
+    tr("Searching…", "Поиск…", "Αναζήτηση…")
+}
+
+/// Пустой список фото вкладки «Карта»: в видимой области снимков нет.
+pub fn no_photos_in_area() -> &'static str {
+    tr(
+        "No photos in this area of the map",
+        "В этой области карты фотографий нет",
+        "Δεν υπάρχουν φωτογραφίες σε αυτή την περιοχή του χάρτη",
+    )
+}
+
 // ---------- Сканер и CLI ----------
 
 pub fn scan_cancelled() -> &'static str {
@@ -479,6 +578,11 @@ pub fn cli_summary(found: usize, added: usize, updated: usize, removed: usize) -
 
 pub fn error() -> &'static str {
     tr("Error", "Ошибка", "Σφάλμα")
+}
+
+/// Сбой внутри ядра (паника), пойманный на границе интерфейса C.
+pub fn core_failure(e: &str) -> String {
+    format!("{}: {e}", tr("Internal error", "Внутренняя ошибка", "Εσωτερικό σφάλμα"))
 }
 
 // ---------- Настройки ----------

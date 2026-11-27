@@ -1,7 +1,7 @@
 use crate::paths;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Порядок фото в сетках миниатюр.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,20 +103,68 @@ impl Default for Config {
 
 impl Config {
     pub fn load() -> Self {
-        std::fs::read_to_string(paths::config_file())
-            .ok()
-            .and_then(|s| toml::from_str(&s).ok())
-            .unwrap_or_default()
+        Self::load_from(&paths::config_file())
+    }
+
+    /// Прочитать настройки из файла. Файла нет — значения по умолчанию. Файл не разобран
+    /// (ошибка синтаксиса, правили руками) — тоже они, но сам файл сохраняется рядом как
+    /// `config.toml.bak`: иначе первое же сохранение настроек молча затёрло бы его.
+    fn load_from(path: &Path) -> Self {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("Не удалось прочитать настройки {}: {e}", path.display());
+                }
+                return Self::default();
+            }
+        };
+        let parsed = std::str::from_utf8(&bytes)
+            .map_err(|e| e.to_string())
+            .and_then(|text| toml::from_str::<Self>(text).map_err(|e| e.to_string()));
+        match parsed {
+            Ok(config) => config,
+            Err(e) => {
+                let backup = backup_path(path);
+                eprintln!("Настройки {} не разобраны, используются значения по умолчанию: {e}", path.display());
+                match std::fs::copy(path, &backup) {
+                    Ok(_) => eprintln!("Прежний файл настроек сохранён как {}", backup.display()),
+                    Err(e) => eprintln!("Не удалось сохранить копию настроек {}: {e}", backup.display()),
+                }
+                Self::default()
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {
-        let path = paths::config_file();
+        self.save_to(&paths::config_file())
+    }
+
+    /// Запись через временный файл и переименование: при сбое посреди записи прежние
+    /// настройки остаются целыми.
+    fn save_to(&self, path: &Path) -> Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, toml::to_string_pretty(self)?)?;
+        let tmp = with_suffix(path, ".tmp");
+        std::fs::write(&tmp, toml::to_string_pretty(self)?)?;
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
+        }
         Ok(())
     }
+}
+
+/// Копия неразобранного файла настроек: `config.toml` → `config.toml.bak`.
+fn backup_path(path: &Path) -> PathBuf {
+    with_suffix(path, ".bak")
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 #[cfg(test)]
@@ -174,5 +222,30 @@ mod tests {
         let c = Config { check_updates: false, map_view: Some(MapView { lat: 1.0, lon: 2.0, zoom: 3.0 }), ..Config::default() };
         let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
         assert!(!back.check_updates);
+    }
+
+    #[test]
+    fn broken_file_is_kept() {
+        let dir = std::env::temp_dir().join(format!("gpl-config-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("sub").join("config.toml");
+        // Файла нет — значения по умолчанию, копия не создаётся.
+        assert!(Config::load_from(&path).library_path.is_none());
+        assert!(!backup_path(&path).exists());
+        // Сохранение создаёт каталог и не оставляет временный файл.
+        let c = Config { library_path: Some("/p".into()), thumb_scale: 150, ..Config::default() };
+        c.save_to(&path).unwrap();
+        assert!(!with_suffix(&path, ".tmp").exists());
+        let back = Config::load_from(&path);
+        assert_eq!((back.library_path, back.thumb_scale), (Some("/p".into()), 150));
+        assert!(!backup_path(&path).exists());
+        // Испорченный файл: значения по умолчанию, а его содержимое — в копии, и
+        // следующее сохранение её не трогает.
+        let broken = "library_path = \"/photos\nthumb_scale = ";
+        std::fs::write(&path, broken).unwrap();
+        assert!(Config::load_from(&path).library_path.is_none());
+        Config::default().save_to(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(backup_path(&path)).unwrap(), broken);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

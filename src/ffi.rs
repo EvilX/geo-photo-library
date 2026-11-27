@@ -8,7 +8,9 @@
 //! - списки и снимки карты освобождать своей функцией `*_free`; указатели внутрь них
 //!   действительны до этого момента;
 //! - функции не держат общего состояния (каждый запрос сам открывает БД), поэтому их
-//!   можно вызывать из любого потока; тяжёлые (`gpl_scan`, запросы к БД) — не из главного.
+//!   можно вызывать из любого потока; тяжёлые (`gpl_scan`, запросы к БД) — не из главного;
+//! - паника внутри ядра не выходит за границу C (это аварийно завершило бы приложение):
+//!   функции, которые делают настоящую работу, ловят её ([`guarded`]) и сообщают как об ошибке.
 #![allow(clippy::missing_safety_doc)]
 
 use crate::{
@@ -45,6 +47,24 @@ fn out_string(s: impl AsRef<str>) -> *mut c_char {
     c_string(s).into_raw()
 }
 
+/// Выполнить `f`, поймав панику: её текст — в stderr и в `on_panic`, который возвращает то же,
+/// что функция возвращает при обычной ошибке. Паника в потоке rayon доходит сюда же —
+/// rayon передаёт её вызвавшему потоку.
+fn guarded<T>(what: &str, on_panic: impl FnOnce(String) -> T, f: impl FnOnce() -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(payload) => {
+            let text = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "panic".to_owned());
+            eprintln!("паника в {what}: {text}");
+            on_panic(text)
+        }
+    }
+}
+
 unsafe fn set_err(err: *mut *mut c_char, e: &anyhow::Error) {
     if !err.is_null() {
         *err = out_string(format!("{e:#}"));
@@ -75,6 +95,7 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "tab_map" => i18n::tab_map(),
         "settings" => i18n::settings(),
         "app_summary" => i18n::app_summary(),
+        "authors" => i18n::authors(),
         "rescan" => i18n::rescan(),
         "searching" => i18n::searching(),
         "stopping_scan" => i18n::stopping_scan(),
@@ -118,6 +139,8 @@ pub unsafe extern "C" fn gpl_text(key: *const c_char) -> *mut c_char {
         "all_time" => i18n::all_time(),
         "select_all" => i18n::select_all(),
         "cancel" => i18n::cancel(),
+        "save" => i18n::save(),
+        "changes_in_progress" => i18n::changes_in_progress(),
         "move_to_trash" => i18n::move_to_trash(),
         "confirm_trash_detail" => i18n::confirm_trash_detail(),
         "filter_by_date" => i18n::filter_by_date(),
@@ -154,6 +177,17 @@ pub extern "C" fn gpl_text_photos(n: usize) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn gpl_text_processing(done: usize, total: usize) -> *mut c_char {
     out_string(i18n::processing(done, total))
+}
+
+/// Ход перемещения фото в корзину и записи изменений в файлы — для строки состояния.
+#[no_mangle]
+pub extern "C" fn gpl_text_trashing(done: usize, total: usize) -> *mut c_char {
+    out_string(i18n::trashing(done, total))
+}
+
+#[no_mangle]
+pub extern "C" fn gpl_text_saving_progress(done: usize, total: usize) -> *mut c_char {
+    out_string(i18n::saving_progress(done, total))
 }
 
 #[no_mangle]
@@ -371,7 +405,9 @@ pub unsafe extern "C" fn gpl_update_newer(json: *const u8, len: usize) -> *mut c
     if json.is_null() {
         return ptr::null_mut();
     }
-    match update::newer_than_current(std::slice::from_raw_parts(json, len)) {
+    // Ответ пришёл из сети — разбор не должен уронить приложение.
+    let bytes = std::slice::from_raw_parts(json, len);
+    match guarded("gpl_update_newer", |_| None, || update::newer_than_current(bytes)) {
         Some(v) => out_string(v),
         None => ptr::null_mut(),
     }
@@ -440,6 +476,7 @@ unsafe impl Sync for Ctx {}
 
 /// Сканирует папку `root` в БД приложения; блокирует поток до конца. `progress`
 /// вызывается из этого же потока. Возвращает `GPL_SCAN_*`; при ошибке её текст — в `err`.
+/// Паника внутри (например, декодера в потоке сканера) — тоже `GPL_SCAN_ERROR` с текстом.
 #[no_mangle]
 pub unsafe extern "C" fn gpl_scan(
     root: *const c_char,
@@ -459,7 +496,12 @@ pub unsafe extern "C" fn gpl_scan(
     };
     let never = AtomicBool::new(false);
     let cancel = cancel.as_ref().map_or(&never, |c| &c.0);
-    match scanner::scan(&paths::db_path(), Path::new(root), &paths::thumbs_dir(), &report, cancel) {
+    let result = guarded(
+        "gpl_scan",
+        |text| Err(anyhow::anyhow!(i18n::core_failure(&text))),
+        || scanner::scan(&paths::db_path(), Path::new(root), &paths::thumbs_dir(), &report, cancel),
+    );
+    match result {
         Ok(s) => {
             if !stats.is_null() {
                 *stats = GplScanStats { found: s.found, added: s.added, updated: s.updated, removed: s.removed };
@@ -547,25 +589,32 @@ fn open_db() -> anyhow::Result<Db> {
     Db::open(&paths::db_path())
 }
 
-/// Ошибки запросов (БД ещё нет, занята) — в stderr; интерфейсу достаточно пустого результата.
-fn query<T: Default>(what: &str, f: impl FnOnce(&Db) -> anyhow::Result<T>) -> T {
-    open_db().and_then(|db| f(&db)).unwrap_or_else(|e| {
-        eprintln!("БД, {what}: {e:#}");
-        T::default()
-    })
+/// Ошибки запросов (БД занята сканером, повреждена) и паники — в stderr, результат — `None`:
+/// интерфейс отличает его от «фото нет» и оставляет прежние данные.
+fn query<T>(what: &str, f: impl FnOnce(&Db) -> anyhow::Result<T>) -> Option<T> {
+    let result = guarded(what, |text| Err(anyhow::anyhow!(text)), || open_db().and_then(|db| f(&db)));
+    result.map_err(|e| eprintln!("БД, {what}: {e:#}")).ok()
 }
 
+/// Число фото в БД; меньше нуля — БД прочитать не удалось.
 #[no_mangle]
 pub extern "C" fn gpl_db_count() -> i64 {
-    query("число фото", Db::count)
+    query("число фото", Db::count).unwrap_or(-1)
 }
 
 /// Число фото по дням, по возрастанию даты; `filter` — `GeoFilter::index` (0 — все,
 /// 1 — фото с координатами, 2 — без, 3 — видео). Освобождать `gpl_date_counts_free`.
+/// `NULL` — БД прочитать не удалось (пустой результат — не `NULL`, а `*len == 0`).
 #[no_mangle]
 pub unsafe extern "C" fn gpl_db_date_counts(filter: u32, len: *mut usize) -> *mut GplDateCount {
     let filter = GeoFilter::from_index(filter);
-    date_counts_out(query("даты", |db| db.date_counts(filter)), len)
+    match query("даты", |db| db.date_counts(filter)) {
+        Some(counts) => date_counts_out(counts, len),
+        None => {
+            *len = 0;
+            ptr::null_mut()
+        }
+    }
 }
 
 unsafe fn date_counts_out(counts: Vec<DateCount>, len: *mut usize) -> *mut GplDateCount {
@@ -591,23 +640,52 @@ pub extern "C" fn gpl_debug_geo_filter() -> u32 {
 }
 
 /// Фото за год, месяц (`day == 0`) или день (`month == 0` — весь год), по дате съёмки;
-/// `filter` — как в `gpl_db_date_counts`.
+/// `filter` — как в `gpl_db_date_counts`. `NULL` — БД прочитать не удалось.
 #[no_mangle]
 pub extern "C" fn gpl_db_photos_by_date(year: i32, month: u32, day: u32, filter: u32) -> *mut GplPhotos {
     let some = |v: u32| (v != 0).then_some(v);
     let filter = GeoFilter::from_index(filter);
-    let photos = query("фото по дате", |db| db.photos_by_date(year, some(month), some(day), filter));
-    Box::into_raw(Box::new(GplPhotos::new(photos)))
+    photos_out(query("фото по дате", |db| Ok(GplPhotos::new(db.photos_by_date(year, some(month), some(day), filter)?))))
+}
+
+fn photos_out(photos: Option<GplPhotos>) -> *mut GplPhotos {
+    photos.map_or(ptr::null_mut(), |p| Box::into_raw(Box::new(p)))
 }
 
 /// Фото с координатами за год, месяц (`day == 0`) или день (`month == 0` — весь год),
-/// `year == 0` — за всё время; по дате съёмки.
+/// `year == 0` — за всё время; по дате съёмки. `NULL` — БД прочитать не удалось.
 #[no_mangle]
 pub extern "C" fn gpl_db_geotagged(year: i32, month: u32, day: u32) -> *mut GplPhotos {
     let some = |v: u32| (v != 0).then_some(v);
     let year = (year != 0).then_some(year);
-    let photos = query("фото с координатами", |db| db.geotagged_by_date(year, some(month), some(day)));
-    Box::into_raw(Box::new(GplPhotos::new(photos)))
+    photos_out(query("фото с координатами", |db| Ok(GplPhotos::new(db.geotagged_by_date(year, some(month), some(day))?))))
+}
+
+/// Совпадают ли два списка фото поле в поле (`NULL` равен пустому списку): интерфейс
+/// сравнивает свежее чтение с показанным, не собирая для этого свои массивы.
+#[no_mangle]
+pub unsafe extern "C" fn gpl_photos_equal(a: *const GplPhotos, b: *const GplPhotos) -> bool {
+    let same_text = |x: *const c_char, y: *const c_char| match (x.is_null(), y.is_null()) {
+        (true, true) => true,
+        (false, false) => CStr::from_ptr(x) == CStr::from_ptr(y),
+        _ => false,
+    };
+    let same = |x: &GplPhoto, y: &GplPhoto| {
+        x.id == y.id
+            && x.lat == y.lat
+            && x.lon == y.lon
+            && x.has_coords == y.has_coords
+            && x.is_video == y.is_video
+            && x.duration == y.duration
+            && same_text(x.path, y.path)
+            && same_text(x.taken_at, y.taken_at)
+            && same_text(x.thumb_path, y.thumb_path)
+    };
+    match (a.as_ref(), b.as_ref()) {
+        (None, None) => true,
+        (Some(p), None) | (None, Some(p)) => p.rows.is_empty(),
+        (Some(a), Some(b)) => ptr::eq(a, b) || (a.rows.len() == b.rows.len() && a.rows.iter().zip(&b.rows).all(|(x, y)| same(x, y))),
+    }
 }
 
 /// Координата из поля ввода (точка или запятая); `false` — не число.
@@ -653,7 +731,8 @@ pub extern "C" fn gpl_valid_coords(lat: f64, lon: f64) -> bool {
 #[no_mangle]
 pub unsafe extern "C" fn gpl_exif_fields(paths: *const c_char) -> *mut c_char {
     let paths: Vec<PathBuf> = str_arg(paths).and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
-    let fields: Vec<serde_json::Value> = geotag::fields(&paths)
+    // Паника при разборе повреждённого файла — пустой список полей.
+    let fields: Vec<serde_json::Value> = guarded("gpl_exif_fields", |_| Vec::new(), || geotag::fields(&paths))
         .into_iter()
         .map(|f| serde_json::json!({ "key": f.key, "name": f.name, "value": f.value, "editable": f.editable }))
         .collect();
@@ -663,7 +742,8 @@ pub unsafe extern "C" fn gpl_exif_fields(paths: *const c_char) -> *mut c_char {
 /// Проверить текст поля тега: `NULL` — подходит, иначе пояснение (освобождать `gpl_string_free`).
 #[no_mangle]
 pub unsafe extern "C" fn gpl_exif_check(key: *const c_char, text: *const c_char) -> *mut c_char {
-    match geotag::check(str_arg(key).unwrap_or(""), str_arg(text).unwrap_or("")) {
+    let (key, text) = (str_arg(key).unwrap_or(""), str_arg(text).unwrap_or(""));
+    match guarded("gpl_exif_check", |t| Err(i18n::core_failure(&t)), || geotag::check(key, text)) {
         Ok(()) => ptr::null_mut(),
         Err(e) => out_string(e),
     }
@@ -680,7 +760,11 @@ pub unsafe extern "C" fn gpl_save_edit(path: *const c_char, has_coords: bool, la
         Err(e) => return out_string(format!("tags: {e}")),
     };
     let changes = geotag::Changes { coords: has_coords.then_some((lat, lon)), tags };
-    let result = geotag::apply(Path::new(path), &changes, &paths::thumbs_dir()).and_then(|p| open_db()?.update(&p));
+    let result = guarded(
+        "gpl_save_edit",
+        |text| Err(anyhow::anyhow!(i18n::core_failure(&text))),
+        || geotag::apply(Path::new(path), &changes, &paths::thumbs_dir()).and_then(|p| open_db()?.update(&p)),
+    );
     match result {
         Ok(()) => ptr::null_mut(),
         Err(e) => out_string(format!("{e:#}")),
@@ -690,7 +774,7 @@ pub unsafe extern "C" fn gpl_save_edit(path: *const c_char, has_coords: bool, la
 /// Убрать из БД фото, перемещённое в корзину, вместе с его миниатюрой.
 #[no_mangle]
 pub extern "C" fn gpl_db_remove(id: i64) {
-    if let Some(thumb) = query("удаление фото", |db| db.remove(id)) {
+    if let Some(Some(thumb)) = query("удаление фото", |db| db.remove(id)) {
         let _ = std::fs::remove_file(thumb);
     }
 }
@@ -699,11 +783,12 @@ pub extern "C" fn gpl_db_remove(id: i64) {
 /// `note` (пояснение, если EXIF нет) и `all` (`title` + `rows` всех тегов EXIF).
 /// Строка — `key`, `value` и, для даты съёмки, `date` (`YYYY-MM-DD HH:MM:SS`): её
 /// интерфейс форматирует по системной локали, а `value` (часовой пояс) дописывает в скобках.
-/// Читает файл — вызывать не из главного потока.
+/// Читает файл — вызывать не из главного потока. `NULL` — файл разобрать не удалось (паника).
 #[no_mangle]
 pub unsafe extern "C" fn gpl_photo_info(path: *const c_char, has_coords: bool, lat: f64, lon: f64) -> *mut c_char {
     let path = Path::new(str_arg(path).unwrap_or(""));
-    out_string(photo_info(path, has_coords.then_some((lat, lon))).to_string())
+    let info = guarded("gpl_photo_info", |_| None, || Some(photo_info(path, has_coords.then_some((lat, lon))).to_string()));
+    info.map_or(ptr::null_mut(), out_string)
 }
 
 fn photo_info(path: &Path, coords: Option<(f64, f64)>) -> serde_json::Value {
@@ -822,8 +907,12 @@ pub unsafe extern "C" fn gpl_map_view(
     height: f64,
     cell: f64,
 ) -> *mut GplMapView {
-    let mut out = GplMapView { clusters: Vec::new(), visible: Vec::new() };
-    if let Some(photos) = photos.as_ref() {
+    let Some(photos) = photos.as_ref() else {
+        return Box::into_raw(Box::new(GplMapView { clusters: Vec::new(), visible: Vec::new() }));
+    };
+    // Паника — пустой снимок: карта без маркеров, приложение живо.
+    let out = guarded("gpl_map_view", |_| GplMapView { clusters: Vec::new(), visible: Vec::new() }, || {
+        let mut out = GplMapView { clusters: Vec::new(), visible: Vec::new() };
         let _t = trace::span(format!("ffi.map_view (zoom {zoom:.1})"));
         let view = geo::View::new(lat, lon, zoom, width, height);
         let mut near = Vec::new();
@@ -846,7 +935,8 @@ pub unsafe extern "C" fn gpl_map_view(
                 id_sum: c.members.iter().map(|&m| photos.rows[near[m]].id).fold(0, i64::wrapping_add),
             })
             .collect();
-    }
+        out
+    });
     Box::into_raw(Box::new(out))
 }
 
@@ -866,9 +956,12 @@ pub unsafe extern "C" fn gpl_visible_date_counts(
         *len = 0;
         return ptr::null_mut();
     };
-    let view = geo::View::new(lat, lon, zoom, width, height);
-    let days = photos.points.iter().zip(&photos.days).filter_map(|(&(x, y), &d)| d.filter(|_| view.contains_world(x, y, 0.0)));
-    date_counts_out(DateCount::tally(days), len)
+    let counts = guarded("gpl_visible_date_counts", |_| Vec::new(), || {
+        let view = geo::View::new(lat, lon, zoom, width, height);
+        let days = photos.points.iter().zip(&photos.days).filter_map(|(&(x, y), &d)| d.filter(|_| view.contains_world(x, y, 0.0)));
+        DateCount::tally(days)
+    });
+    date_counts_out(counts, len)
 }
 
 #[no_mangle]
@@ -913,12 +1006,16 @@ pub unsafe extern "C" fn gpl_photos_fit(
     zoom: *mut f64,
 ) -> bool {
     let Some(photos) = photos.as_ref() else { return false };
-    let pts: Vec<(f64, f64)> = photos.rows.iter().map(|r| (r.lat, r.lon)).collect();
-    let Some((clat, clon)) = geo::center(&pts) else { return false };
+    let fit = guarded("gpl_photos_fit", |_| None, || {
+        let pts: Vec<(f64, f64)> = photos.rows.iter().map(|r| (r.lat, r.lon)).collect();
+        let center = geo::center(&pts)?;
+        // Одна точка даёт бесконечный зум — ограничиваем сверху.
+        Some((center, geo::fit_zoom(&pts, width, height, pad).min(max_zoom).max(1.0).floor()))
+    });
+    let Some(((clat, clon), z)) = fit else { return false };
     *lat = clat;
     *lon = clon;
-    // Одна точка даёт бесконечный зум — ограничиваем сверху.
-    *zoom = geo::fit_zoom(&pts, width, height, pad).min(max_zoom).max(1.0).floor();
+    *zoom = z;
     true
 }
 
@@ -1022,6 +1119,49 @@ mod tests {
         assert_eq!(c_string("a\0b").as_bytes(), b"a");
     }
 
+    /// Каждый ключ `Core.text("…")` из исходников Swift известен `gpl_text`: иначе на месте
+    /// строки интерфейс показывает сам ключ (так кнопка «Сохранить» читалась как «save»).
+    #[test]
+    fn swift_text_keys() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("macos/Sources/GeoPhotoLibrary");
+        // В архиве исходников без приложения macOS проверять нечего.
+        let Ok(files) = std::fs::read_dir(&dir) else { return };
+        let mut checked = 0;
+        for file in files.flatten().map(|f| f.path()).filter(|p| p.extension().is_some_and(|e| e == "swift")) {
+            let source = std::fs::read_to_string(&file).unwrap();
+            for (at, _) in source.match_indices("Core.text(") {
+                // Аргумент до парной скобки: в нём бывает выбор из двух ключей (`a ? "x" : "y"`).
+                let arg = &source[at + "Core.text(".len()..];
+                let mut depth = 1;
+                let end = arg.char_indices().find(|&(_, c)| {
+                    depth += match c {
+                        '(' => 1,
+                        ')' => -1,
+                        _ => 0,
+                    };
+                    depth == 0
+                });
+                let arg = &arg[..end.map_or(arg.len(), |(i, _)| i)];
+                // Нечётные куски между кавычками — строковые литералы.
+                for key in arg.split('"').skip(1).step_by(2) {
+                    let c_key = CString::new(key).unwrap();
+                    let text = unsafe { gpl_text(c_key.as_ptr()) };
+                    assert!(!text.is_null(), "{}: ключ «{key}» неизвестен gpl_text", file.display());
+                    unsafe { gpl_string_free(text) };
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 50, "ключи Core.text в исходниках Swift не найдены ({checked})");
+    }
+
+    #[test]
+    fn panic_is_caught() {
+        // Паника внутри ядра превращается в обычный результат ошибки, а не выходит наружу.
+        assert_eq!(guarded("тест", |text| text, || panic!("сбой {}", 7)), "сбой 7");
+        assert_eq!(guarded("тест", |_| 0, || 5), 5);
+    }
+
     #[test]
     fn coords() {
         unsafe {
@@ -1092,7 +1232,13 @@ mod tests {
             assert!(gpl_photos_fit(photos, 800.0, 600.0, 40.0, 17.0, &mut lat, &mut lon, &mut zoom));
             assert!((34.0..38.0).contains(&lat) && (23.0..33.0).contains(&lon));
             assert!((1.0..10.0).contains(&zoom) && zoom.fract() == 0.0);
+            // Сравнение списков: тот же состав — равны, другое поле — нет; NULL равен пустому.
+            let same = GplPhotos::new(vec![photo(1, 34.68, 32.96), photo(2, 34.6801, 32.9601), photo(3, 37.98, 23.73)]);
+            let moved = GplPhotos::new(vec![photo(1, 34.68, 32.96), photo(2, 34.7, 32.9601), photo(3, 37.98, 23.73)]);
+            assert!(gpl_photos_equal(photos, &same) && gpl_photos_equal(photos, photos));
+            assert!(!gpl_photos_equal(photos, &moved) && !gpl_photos_equal(photos, ptr::null()));
             let empty = GplPhotos::new(Vec::new());
+            assert!(gpl_photos_equal(&empty, ptr::null()) && gpl_photos_equal(ptr::null(), ptr::null()));
             assert!(!gpl_photos_fit(&empty, 800.0, 600.0, 40.0, 17.0, &mut lat, &mut lon, &mut zoom));
             assert_eq!(gpl_photos_len(ptr::null()), 0);
         }

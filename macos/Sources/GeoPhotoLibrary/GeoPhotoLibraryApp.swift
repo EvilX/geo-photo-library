@@ -38,28 +38,38 @@ struct GeoPhotoLibraryApp: App {
             CommandGroup(replacing: .pasteboard) {
                 let selected = model.selection
                 let photo = selected.single
+                // Под листом редактора EXIF команды над фото выключены: они действовали бы
+                // на фото под листом, пока пользователь занят другим.
+                let blocked = model.exifEdit != nil
                 Button(Core.text("copy")) { model.copy(selected.all) }
                     .keyboardShortcut("c")
-                    .disabled(selected.isEmpty)
+                    .disabled(selected.isEmpty || blocked)
                 Button(Core.text("delete")) { model.trash(selected.all) }
                     .keyboardShortcut(.delete)
-                    .disabled(selected.isEmpty)
+                    .disabled(selected.isEmpty || blocked)
                 Button(Core.text("select_all")) { model.selectAll() }
                     .keyboardShortcut("a")
+                    .disabled(blocked)
                 Divider()
                 Button(Core.text("view")) { photo.map(model.open) }
                     .keyboardShortcut("o")
-                    .disabled(photo == nil)
+                    .disabled(photo == nil || blocked)
                 Button(Core.text("edit")) { photo.map(model.edit) }
                     .keyboardShortcut("e")
-                    .disabled(photo == nil || photo?.isVideo == true)
+                    .disabled(photo == nil || photo?.isVideo == true || blocked)
                 Button(Core.text("show_in_finder")) { photo.map(model.showInFinder) }
-                    .disabled(photo == nil)
+                    .disabled(photo == nil || blocked)
                 Divider()
                 Button(Core.text("edit_exif")) { model.editExif(selected.all) }
-                    .disabled(selected.all.allSatisfy(\.isVideo))
+                    .disabled(selected.allVideo || blocked)
             }
             CommandGroup(after: .toolbar) {
+                // Вкладки: ⌘1 — карта, ⌘2 — даты.
+                ForEach(Array(AppTab.allCases.enumerated()), id: \.element) { index, tab in
+                    Button(tab.title) { model.tab = tab }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
+                }
+                Divider()
                 Button(Core.text("rescan")) { model.rescan() }
                     .keyboardShortcut("r")
                     .disabled(model.libraryPath == nil)
@@ -82,16 +92,32 @@ struct GeoPhotoLibraryApp: App {
 /// эти сочетания перехватываются до меню и отдаются ему.
 @MainActor
 enum TextEditKeys {
+    /// Коды клавиш (место на клавиатуре): X, C, V, A, Z и ⌫.
+    private static let keyCodes: [UInt16: Character] = [7: "x", 8: "c", 9: "v", 0: "a", 6: "z"]
+    private static let deleteKey: UInt16 = 51
+
     static func install() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard let text = NSApplication.shared.keyWindow?.firstResponder as? NSTextView, text.isEditable else {
-                return event
-            }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard let text = NSApplication.shared.keyWindow?.firstResponder as? NSTextView else { return event }
+            // Только ⌘ и ⇧: Caps Lock, цифровой блок и Fn — тоже флаги события, и строгое
+            // сравнение с ними отдавало ⌘V и ⌘⌫ командам над фото.
+            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
             let shift = flags == [.command, .shift]
             guard flags == .command || shift else { return event }
+            let key = letter(event)
+            if !text.isEditable {
+                // Выделенный текст, который нельзя править (значения панели «Информация»):
+                // ⌘C копирует его, а не файлы фото, ⌘A выделяет его целиком.
+                guard text.isSelectable, text.selectedRange().length > 0, !shift else { return event }
+                switch key {
+                case "c": NSApplication.shared.sendAction(#selector(NSText.copy(_:)), to: text, from: nil)
+                case "a": NSApplication.shared.sendAction(#selector(NSText.selectAll(_:)), to: text, from: nil)
+                default: return event
+                }
+                return nil
+            }
             let action: Selector
-            switch (event.charactersIgnoringModifiers?.lowercased(), shift) {
+            switch (key, shift) {
             case ("x", false): action = #selector(NSText.cut(_:))
             case ("c", false): action = #selector(NSText.copy(_:))
             case ("v", false): action = #selector(NSText.paste(_:))
@@ -100,7 +126,7 @@ enum TextEditKeys {
             case ("z", true): action = Selector(("redo:"))
             default:
                 // ⌘⌫ — удалить до начала строки, как обычно в поле ввода.
-                guard event.keyCode == 51, !shift else { return event }
+                guard event.keyCode == deleteKey, !shift else { return event }
                 text.doCommand(by: #selector(NSResponder.deleteToBeginningOfLine(_:)))
                 return nil
             }
@@ -108,16 +134,39 @@ enum TextEditKeys {
             return nil
         }
     }
+
+    /// Латинская буква сочетания. Сначала — что раскладка даёт вместе с ⌘ (кириллическая и
+    /// греческая с ⌘ дают латиницу; Dvorak и AZERTY — свою букву, а не букву QWERTY на этом
+    /// месте), затем без модификаторов; если буква не латинская — по месту клавиши.
+    private static func letter(_ event: NSEvent) -> Character? {
+        for text in [event.characters, event.charactersIgnoringModifiers] {
+            if let c = text?.lowercased().first, c.isASCII, c.isLetter {
+                return c
+            }
+        }
+        return keyCodes[event.keyCode]
+    }
 }
 
-/// Стандартное окно «О программе» с кратким описанием.
+/// Стандартное окно «О программе»: краткое описание, сайт, авторы и авторские права —
+/// то же, что в окне версии GTK (`src/ui/about.rs`); менять вместе с ним.
 @MainActor
 func showAbout() {
+    let style = NSMutableParagraphStyle()
+    style.alignment = .center
+    style.paragraphSpacing = 6
+    let plain: [NSAttributedString.Key: Any] = [
+        .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 11), .paragraphStyle: style,
+    ]
+    let site = "https://github.com/EvilX/geo-photo-library"
+    let credits = NSMutableAttributedString(string: Core.text("app_summary") + "\n", attributes: plain)
+    var link = plain
+    link[.link] = URL(string: site)
+    credits.append(NSAttributedString(string: site, attributes: link))
+    credits.append(NSAttributedString(string: "\n\(Core.text("authors")): Leonid Nasedkin, Claude", attributes: plain))
     NSApplication.shared.orderFrontStandardAboutPanel(options: [
-        .credits: NSAttributedString(
-            string: Core.text("app_summary"),
-            attributes: [.foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 11)]
-        ),
+        .credits: credits,
+        NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): "© 2026 Leonid Nasedkin",
     ])
     NSApplication.shared.activate()
 }
@@ -163,7 +212,10 @@ struct ContentView: View {
             }
             Divider()
             HStack(spacing: 10) {
-                Text(model.status).font(.callout).lineLimit(1)
+                // Ход записи или удаления файлов — впереди обычного состояния. Строка одна и
+                // обрезается: полный текст (длинная ошибка) — во всплывающей подсказке.
+                let status = model.fileStatus ?? model.status
+                Text(status).font(.callout).lineLimit(1).truncationMode(.middle).help(status)
                 Spacer()
                 if model.scanning {
                     ProgressView(value: model.progress).frame(width: 180)
@@ -265,6 +317,7 @@ struct UpdateBanner: View {
             }
             .buttonStyle(.borderless)
             .help(Core.text("close"))
+            .accessibilityLabel(Core.text("close"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -291,13 +344,13 @@ struct SettingsView: View {
                     }
                 }
             } footer: {
-                hint("folder_hint")
+                hint(Core.text("folder_hint"))
             }
             Section {
-                appPicker("photo_viewer", $model.viewerID)
-                appPicker("photo_editor", $model.editorID)
+                appPicker(Core.text("photo_viewer"), $model.viewerID)
+                appPicker(Core.text("photo_editor"), $model.editorID)
             } footer: {
-                hint("apps_hint")
+                hint(Core.text("apps_hint"))
             }
             Section {
                 Toggle(Core.text("check_updates"), isOn: $model.checkUpdates)
@@ -309,8 +362,8 @@ struct SettingsView: View {
         .onAppear { apps = Apps.imageApps() }
     }
 
-    private func hint(_ key: String) -> some View {
-        Text(Core.text(key))
+    private func hint(_ text: String) -> some View {
+        Text(text)
             .font(.callout)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.leading)
@@ -318,7 +371,7 @@ struct SettingsView: View {
     }
 
     private func appPicker(_ title: String, _ selection: Binding<String?>) -> some View {
-        Picker(Core.text(title), selection: selection) {
+        Picker(title, selection: selection) {
             Text(Core.text("automatic")).tag(String?.none)
             Divider()
             ForEach(apps) { app in
@@ -366,7 +419,7 @@ enum DebugHooks {
         // Первое фото открытой вкладки (список дат принадлежит самой вкладке — там берём
         // самое новое фото с координатами).
         let firstPhoto = { () -> Photo? in
-            model.tab == .map ? model.ordered(model.mapVisible).first : model.geotagged.photos.last
+            model.tab == .map ? model.mapList.first : model.geotagged.photos.last
         }
         if env["GEO_PHOTO_LIBRARY_INFO"] != nil {
             after(3) {
@@ -400,7 +453,7 @@ enum DebugHooks {
         }
         if let n = env["GEO_PHOTO_LIBRARY_SELECT"].flatMap(Int.init) {
             after(4) {
-                let photos = model.tab == .map ? model.ordered(model.mapVisible) : model.ordered(model.datePhotos)
+                let photos = model.tab == .map ? model.mapList : model.dateList
                 model.selection = PhotoSelection(photos.prefix(n))
             }
         }
@@ -431,7 +484,14 @@ enum DebugHooks {
         if let path = env["GEO_PHOTO_LIBRARY_SCREENSHOT"] {
             after(env["GEO_PHOTO_LIBRARY_DELAY"].flatMap(Double.init) ?? 6) {
                 screenshot(to: path)
+                // С открытым листом (редактор EXIF) приложение не завершается: `terminate`
+                // возвращается ни с чем. Лист закрыть и, если выход не случился, выйти самим.
+                model.exifEdit = nil
                 NSApplication.shared.terminate(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    NSApplication.shared.terminate(nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { exit(0) }
+                }
             }
         }
     }

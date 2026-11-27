@@ -60,8 +60,6 @@ struct GeoFilterPopUp: NSViewRepresentable {
 struct DatesTab: View {
     @Environment(AppModel.self) private var model
     @State private var selected: DateNode.ID?
-    /// Фото периода по дате съёмки.
-    @State private var photos: [Photo] = []
     /// Ширина дерева дат.
     @State private var treeWidth = 230.0
 
@@ -71,7 +69,7 @@ struct DatesTab: View {
             VStack(spacing: 0) {
                 PaneHeader(title: find(selected)?.title ?? "")
                 Divider()
-                PhotoGrid(photos: model.ordered(photos), selection: $model.dateSelection)
+                PhotoGrid(photos: model.dateList, selection: $model.dateSelection)
                 Divider()
                 ThumbScaleBar()
             }
@@ -119,20 +117,27 @@ struct DatesTab: View {
             selected = model.dates.first?.id
         }
         guard let node = find(selected) else {
-            photos = []
             model.datePhotos = []
             model.dateSelection = PhotoSelection()
             return
         }
         let filter = model.dateFilter
-        let loaded = await Task.detached(priority: .userInitiated) {
-            Core.photos(year: node.year, month: node.month, day: node.day, filter: filter)
-        }.value
-        // Пока грузили, могли выбрать другой период.
-        guard !Task.isCancelled, loaded != photos else { return }
-        photos = loaded
+        // БД занята сканером — прежний список остаётся; несколько попыток с паузой.
+        var loaded: [Photo]?
+        for attempt in 0..<4 where loaded == nil {
+            if attempt > 0 {
+                try? await Task.sleep(for: .seconds(1))
+            }
+            // Пока ждали, могли выбрать другой период.
+            guard !Task.isCancelled else { return }
+            loaded = await Task.detached(priority: .userInitiated) {
+                Core.photos(year: node.year, month: node.month, day: node.day, filter: filter)
+            }.value
+        }
+        guard !Task.isCancelled, let loaded, loaded != model.datePhotos else { return }
         model.datePhotos = loaded
-        // Фото другого периода (или удалённые) из выделения выпадают.
-        model.dateSelection.keep(only: loaded)
+        // Фото другого периода (или удалённые) из выделения выпадают; у оставшихся
+        // значения — из нового списка.
+        model.dateSelection.sync(with: loaded)
     }
 }

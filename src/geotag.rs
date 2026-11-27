@@ -90,6 +90,15 @@ pub fn write(path: &Path, changes: &Changes) -> Result<Stamp> {
     let Some(kind) = file_type(path) else {
         bail!(i18n::exif_format_unsupported());
     };
+    // Сканер ходит по символическим ссылкам: пишем в сам файл, иначе переименование
+    // заменило бы ссылку обычным файлом, а оригинал остался бы прежним.
+    let target;
+    let path = if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+        target = std::fs::canonicalize(path)?;
+        target.as_path()
+    } else {
+        path
+    };
     let original = std::fs::read(path)?;
     let data = with_changes(&original, kind, changes)?;
     replace_file(path, &data)?;
@@ -675,8 +684,11 @@ fn replace_file(path: &Path, data: &[u8]) -> Result<()> {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(data)?;
         f.sync_all()?;
+        let md = std::fs::metadata(path)?;
+        keep_created(&f, &md);
         drop(f);
-        std::fs::set_permissions(&tmp, std::fs::metadata(path)?.permissions())?;
+        std::fs::set_permissions(&tmp, md.permissions())?;
+        copy_attributes(path, &tmp);
         std::fs::rename(&tmp, path)
     })();
     if result.is_err() {
@@ -685,10 +697,45 @@ fn replace_file(path: &Path, data: &[u8]) -> Result<()> {
     Ok(result?)
 }
 
+/// Дата создания файла: новый файл заменяет старый, а «создан» в Finder и Проводнике
+/// должно остаться прежним. В Linux её задать нельзя.
+#[cfg(any(target_os = "macos", windows))]
+fn keep_created(f: &std::fs::File, original: &std::fs::Metadata) {
+    #[cfg(target_os = "macos")]
+    use std::os::macos::fs::FileTimesExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::FileTimesExt;
+    if let Ok(created) = original.created() {
+        let _ = f.set_times(std::fs::FileTimes::new().set_created(created));
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn keep_created(_f: &std::fs::File, _original: &std::fs::Metadata) {}
+
+/// Расширенные атрибуты и ACL прежнего файла (метки Finder, «откуда загружен») — на новый.
+/// Не получилось — не ошибка: сами данные записаны.
+#[cfg(target_os = "macos")]
+fn copy_attributes(from: &Path, to: &Path) {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let (Ok(from), Ok(to)) = (CString::new(from.as_os_str().as_bytes()), CString::new(to.as_os_str().as_bytes())) else { return };
+    // SAFETY: обе строки — завершённые нулём пути, состояние копирования не используется.
+    unsafe {
+        libc::copyfile(from.as_ptr(), to.as_ptr(), std::ptr::null_mut(), libc::COPYFILE_XATTR | libc::COPYFILE_ACL);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn copy_attributes(_from: &Path, _to: &Path) {}
+
+/// Временный файл рядом с оригиналом; имя своё у каждой записи — две записи одного файла
+/// (или две программы) не пишут в один и тот же.
 fn temp_path(path: &Path) -> PathBuf {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     // Скрытый файл (с точкой) сканер пропускает.
-    path.with_file_name(format!(".{name}.gpl-tmp"))
+    path.with_file_name(format!(".{name}.{}-{n}.gpl-tmp", std::process::id()))
 }
 
 #[cfg(test)]
@@ -711,6 +758,43 @@ mod tests {
         }
     }
 
+    /// Запись через символическую ссылку меняет сам файл, ссылка остаётся ссылкой.
+    #[cfg(unix)]
+    #[test]
+    fn write_through_symlink() {
+        let dir = std::env::temp_dir().join(format!("gpl-geotag-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        let (real, link) = (dir.join("real/a.jpg"), dir.join("link.jpg"));
+        std::fs::write(&real, jpeg()).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        write_coords(&link, 10.5, 20.5).unwrap();
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!((metadata::read(&real).lat.unwrap() - 10.5).abs() < 1e-6);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Замена файла сохраняет расширенные атрибуты и дату создания.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn attributes_survive() {
+        let dir = std::env::temp_dir().join(format!("gpl-geotag-attr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.jpg");
+        std::fs::write(&path, jpeg()).unwrap();
+        let xattr = |args: &[&str]| std::process::Command::new("xattr").args(args).arg(&path).output().unwrap();
+        assert!(xattr(&["-w", "user.gpl-test", "метка"]).status.success());
+        let created = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        {
+            use std::os::macos::fs::FileTimesExt;
+            let f = std::fs::File::options().write(true).open(&path).unwrap();
+            f.set_times(std::fs::FileTimes::new().set_created(created)).unwrap();
+        }
+        write_coords(&path, 10.5, 20.5).unwrap();
+        assert_eq!(String::from_utf8_lossy(&xattr(&["-p", "user.gpl-test"]).stdout).trim(), "метка");
+        assert_eq!(std::fs::metadata(&path).unwrap().created().unwrap(), created);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn write_jpeg_without_and_with_exif() {
         let dir = std::env::temp_dir().join(format!("gpl-geotag-{}", std::process::id()));
@@ -728,7 +812,7 @@ mod tests {
         write_coords(&path, 55.75, -37.62).unwrap();
         let m = metadata::read(&path);
         assert!((m.lat.unwrap() - 55.75).abs() < 1e-6 && (m.lon.unwrap() + 37.62).abs() < 1e-6);
-        assert!(!dir.join(".a.JPG.gpl-tmp").exists());
+        assert!(!std::fs::read_dir(&dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().ends_with(".gpl-tmp")));
         // Картинка по-прежнему читается.
         image::open(&path).unwrap();
 

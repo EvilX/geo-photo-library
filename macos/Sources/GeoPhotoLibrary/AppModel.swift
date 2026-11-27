@@ -111,8 +111,12 @@ struct PhotoSelection: Equatable {
     var single: Photo? { photos.count == 1 ? photos.first?.value : nil }
     /// Все выделенные — по пути к файлу, чтобы порядок не зависел от словаря.
     var all: [Photo] { photos.values.sorted { $0.path < $1.path } }
+    /// Среди выделенных нет фото — только видео (или пусто). Без сортировки: спрашивает меню
+    /// при каждой смене выделения.
+    var allVideo: Bool { photos.values.allSatisfy(\.isVideo) }
 
     func contains(_ photo: Photo) -> Bool { photos[photo.id] != nil }
+    func contains(id: Photo.ID) -> Bool { photos[id] != nil }
 
     /// Добавить фото или снять с него выделение; оно становится опорным.
     mutating func toggle(_ photo: Photo) {
@@ -125,11 +129,18 @@ struct PhotoSelection: Equatable {
         anchor = other.anchor ?? anchor
     }
 
-    /// Оставить только фото из `list` (остальные пропали из сетки).
-    mutating func keep(only list: [Photo]) {
+    /// Привести к списку сетки `list`: фото, которых в нём нет, из выделения выпадают, а у
+    /// оставшихся значения берутся из списка — после правки EXIF или пересканирования в
+    /// выделении иначе остались бы прежние координаты и дата.
+    mutating func sync(with list: [Photo]) {
         guard !photos.isEmpty else { return }
-        let ids = Set(list.map(\.id))
-        photos = photos.filter { ids.contains($0.key) }
+        var fresh: [Photo.ID: Photo] = [:]
+        for photo in list where photos[photo.id] != nil {
+            fresh[photo.id] = photo
+        }
+        if fresh != photos {
+            photos = fresh
+        }
     }
 
     mutating func remove(_ ids: Set<Photo.ID>) {
@@ -161,8 +172,10 @@ protocol MapController: PlaceTarget {
     func show(_ photo: Photo)
     /// Текущие центр и зум — с них открывается редактор координат фото без координат.
     var currentView: (lat: Double, lon: Double, zoom: Double)? { get }
-    /// Пересоздать все маркеры: у фото изменились координаты, а маркеры хранятся по составу кластера.
-    func resetMarkers()
+    /// Файлы миниатюр перезаписаны — маркеры перечитывают свои картинки.
+    func thumbnailsChanged()
+    /// Сменили папку библиотеки: прежнее положение карты не нужно, подогнать под новые фото.
+    func libraryChanged()
 }
 
 /// Карта, куда поиск местности и «Моё местоположение» переводят взгляд.
@@ -187,6 +200,9 @@ final class AppModel {
     var tab: AppTab = ProcessInfo.processInfo.environment["GEO_PHOTO_LIBRARY_TAB"] == "dates" ? .dates : .map
     private(set) var libraryPath: String?
     var status = ""
+    /// Ход записи изменений или перемещения в корзину («… 3 / 10»): пока он есть, строка
+    /// состояния показывает его, а не `status` (тот во время сканирования меняется постоянно).
+    private(set) var fileStatus: String?
     /// Доля обработанных файлов; `nil` — сканирование не идёт или ещё ищет файлы.
     private(set) var progress: Double?
     private(set) var scanning = false
@@ -195,8 +211,9 @@ final class AppModel {
     /// Фильтр вкладки дат по координатам: смена перечитывает дерево дат.
     var dateFilter = Core.debugGeoFilter {
         didSet {
+            // Фото карты от этого фильтра не зависят — перечитываются только даты.
             if dateFilter != oldValue {
-                reload(keepStatus: true)
+                reload(.dates, keepStatus: true)
             }
         }
     }
@@ -211,8 +228,15 @@ final class AppModel {
     /// не трогая её положение и масштаб.
     var mapPeriod: DatePeriod? {
         didSet {
-            if mapPeriod != oldValue {
-                reload(keepStatus: true)
+            guard mapPeriod != oldValue else { return }
+            if mapPeriod == nil {
+                // «Всё время» — список уже есть; чтение прежнего периода, если оно ещё идёт, не нужно.
+                generations[ReloadParts.period.rawValue, default: 0] += 1
+                if geotagged !== allGeotagged {
+                    geotagged = allGeotagged
+                }
+            } else {
+                reload(.period, keepStatus: true)
             }
         }
     }
@@ -223,6 +247,9 @@ final class AppModel {
     var mapExpanded: Set<String> = []
     /// Растёт при каждом изменении данных в БД — вкладки перечитывают по нему свои списки.
     private(set) var revision = 0
+    /// Растёт, когда изменены сами файлы (правка EXIF, пересканирование): миниатюры на диске
+    /// перезаписаны под прежними именами, данные панели «Информация» устарели.
+    private(set) var filesRevision = 0
     /// Перечитать список вкладки дат при следующем применении `reload` (фото изменены).
     @ObservationIgnored private var forceDateReload = false
 
@@ -231,6 +258,8 @@ final class AppModel {
         didSet {
             if newestFirst != oldValue {
                 Core.setNewestFirst(newestFirst)
+                mapList = ordered(mapVisible)
+                dateList = ordered(datePhotos)
             }
         }
     }
@@ -253,12 +282,20 @@ final class AppModel {
     var newVersion: String?
 
     /// Фото в видимой области карты по дате съёмки и подпись над списком.
-    var mapVisible: [Photo] = []
+    var mapVisible: [Photo] = [] {
+        didSet { mapList = ordered(mapVisible) }
+    }
     var mapInfo = ""
     var mapSelection = PhotoSelection()
     var dateSelection = PhotoSelection()
     /// Фото вкладки дат за выбранный период (по дате съёмки) — для «Выделить все».
-    var datePhotos: [Photo] = []
+    var datePhotos: [Photo] = [] {
+        didSet { dateList = ordered(datePhotos) }
+    }
+    /// Те же списки в порядке выбранной сортировки — их показывают сетки. Хранятся, а не
+    /// считаются при каждой отрисовке: разворот списка — копия всех фото.
+    private(set) var mapList: [Photo] = []
+    private(set) var dateList: [Photo] = []
     var infoOpen = false
     var alert: AlertMessage?
     /// Фото, удаление которых ждёт подтверждения в окне.
@@ -273,8 +310,20 @@ final class AppModel {
     private var reloadTimer: Timer?
     private var dateCounts: [DateCount] = []
     private var mapDateCounts: [DateCount] = []
-    /// Номер последнего запрошенного чтения БД.
-    private var reloadGeneration = 0
+    /// Номер последнего запрошенного чтения БД — свой у каждой части данных (`ReloadParts`):
+    /// чтение одних только дат не отменяет идущее чтение фото карты.
+    @ObservationIgnored private var generations: [Int: Int] = [:]
+    /// Сколько раз подряд БД не прочиталась (занята) — после нескольких попыток повтор прекращается.
+    @ObservationIgnored private var reloadFailures = 0
+
+    /// Запись в файлы и перемещение в корзину — по очереди, вне главного потока.
+    @ObservationIgnored private let fileQueue = DispatchQueue(label: "geo-photo-library.files", qos: .userInitiated)
+    /// Фото, в файлы которых сейчас пишутся изменения; фото, которые перемещаются в корзину;
+    /// фото, записанные, но ещё не перечитанные из БД (в списках — прежние координаты).
+    /// Над ними нельзя начинать новую правку или удаление.
+    @ObservationIgnored private var writing: Set<Photo.ID> = []
+    @ObservationIgnored private var trashing: Set<Photo.ID> = []
+    @ObservationIgnored private var awaitingRefresh: Set<Photo.ID> = []
 
     init() {
         libraryPath = Core.libraryPath
@@ -306,7 +355,7 @@ final class AppModel {
     }
 
     /// Список в порядке выбранной сортировки (на входе — по дате съёмки).
-    func ordered(_ photos: [Photo]) -> [Photo] {
+    private func ordered(_ photos: [Photo]) -> [Photo] {
         newestFirst ? photos.reversed() : photos
     }
 
@@ -360,6 +409,9 @@ final class AppModel {
             return
         }
         libraryPath = path
+        // Фильтр по датам и положение карты относились к прежней библиотеке.
+        mapPeriod = nil
+        map?.libraryChanged()
         rescan()
     }
 
@@ -402,77 +454,198 @@ final class AppModel {
         reloadTimer = nil
         if rescanPending {
             rescanPending = false
-            reload()
+            // Прерванное сканирование могло успеть обновить часть файлов.
+            filesChanged(nil)
+            reload(force: true)
             rescan()
             return
         }
+        // Сканер перезаписал миниатюры изменённых файлов под прежними именами. Сколько их
+        // обновило прерванное сканирование, неизвестно — считаем, что обновило.
+        var updated = true
         switch result {
-        case .finished(let stats): status = Core.scanSummary(stats)
+        case .finished(let stats):
+            status = Core.scanSummary(stats)
+            updated = stats.raw.updated > 0
         case .cancelled: status = ""
         case .failed(let e): status = Core.scanError(e)
         }
-        reload(keepStatus: true)
+        if updated {
+            filesChanged(nil)
+        }
+        reload(keepStatus: true, force: updated)
     }
 
-    /// Перечитать БД в фоне; данные заменяются, только если изменились. `force` — список
-    /// вкладки дат перечитывается, даже если даты и фото карты те же (изменены сами фото).
-    func reload(keepStatus: Bool = false, force: Bool = false) {
+    /// Файлы фото изменены: забыть миниатюры (`nil` — все) и сообщить тем, кто их показывает.
+    private func filesChanged(_ thumbs: [String]?) {
+        ThumbnailCache.shared.forget(thumbs)
+        filesRevision += 1
+        map?.thumbnailsChanged()
+    }
+
+    /// Части данных, которые читает `reload`.
+    struct ReloadParts: OptionSet, Sendable {
+        let rawValue: Int
+        /// Дерево вкладки дат и общее число фото.
+        static let dates = ReloadParts(rawValue: 1)
+        /// Все фото с координатами.
+        static let all = ReloadParts(rawValue: 2)
+        /// Фото карты за период фильтра (без фильтра это тот же список, что `all`).
+        static let period = ReloadParts(rawValue: 4)
+        static let everything: ReloadParts = [.dates, .all, .period]
+        static let each: [ReloadParts] = [.dates, .all, .period]
+    }
+
+    /// Перечитать БД в фоне — только части `parts`; данные заменяются, только если изменились.
+    /// `force` — список вкладки дат перечитывается, даже если даты и фото карты те же
+    /// (изменены сами фото).
+    func reload(_ parts: ReloadParts = .everything, keepStatus: Bool = false, force: Bool = false) {
         // Флаг живёт до применения: более позднее чтение заменит это, но список всё равно перечитается.
         forceDateReload = forceDateReload || force
-        reloadGeneration += 1
-        let generation = reloadGeneration
+        var stamps: [Int: Int] = [:]
+        for part in ReloadParts.each where parts.contains(part) {
+            generations[part.rawValue, default: 0] += 1
+            stamps[part.rawValue] = generations[part.rawValue]
+        }
         let period = mapPeriod
         let filter = dateFilter
+        let shown = (all: allGeotagged, geo: geotagged)
+        // Фото, записанные до этого запроса: после него в списках будут их новые значения.
+        let refreshed = parts.contains(.all) ? awaitingRefresh : []
         Task.detached(priority: .userInitiated) {
-            let counts = Core.dateCounts(filter)
-            let all = Core.geotagged(nil)
-            let geotagged = period == nil ? all : Core.geotagged(period)
-            let total = Core.count()
+            var loaded = Loaded(parts: parts, stamps: stamps, period: period, refreshed: refreshed)
+            if parts.contains(.dates) {
+                loaded.counts = Core.dateCounts(filter)
+                loaded.total = Core.count()
+                if loaded.counts == nil {
+                    loaded.failed.insert(.dates)
+                }
+            }
+            // Сравнение с показанным — здесь же, в фоне, и силами ядра: совпавший список
+            // остаётся прежним объектом, и массив фото для него не собирается.
+            if parts.contains(.all) {
+                if let list = Core.geotagged(nil) {
+                    loaded.all = list.same(as: shown.all) ? shown.all : list
+                } else {
+                    loaded.failed.insert(.all)
+                }
+            }
+            if parts.contains(.period), let period {
+                if let list = Core.geotagged(period) {
+                    loaded.geo = list.same(as: shown.geo) ? shown.geo : list
+                } else {
+                    loaded.failed.insert(.period)
+                }
+            }
+            // Список, который покажет карта, собрать заранее — не в главном потоке.
+            _ = (period == nil ? loaded.all : loaded.geo)?.photos
+            let result = loaded
             await MainActor.run {
-                self.apply(generation, Loaded(counts: counts, all: all, geo: geotagged, total: total), keepStatus)
+                self.apply(result, keepStatus)
             }
         }
     }
 
     private struct Loaded: Sendable {
-        let counts: [DateCount]
-        let all: PhotoList
-        let geo: PhotoList
-        let total: Int
+        let parts: ReloadParts
+        /// Номера запросов по частям (`ReloadParts.rawValue`).
+        let stamps: [Int: Int]
+        let period: DatePeriod?
+        let refreshed: Set<Photo.ID>
+        var counts: [DateCount]?
+        var total: Int?
+        var all: PhotoList?
+        var geo: PhotoList?
+        /// Части, которые прочитать не удалось (БД занята): прежние данные остаются.
+        var failed: ReloadParts = []
     }
 
-    /// Даты фото в видимой области карты — пересчитываются при каждом её обновлении.
-    /// Выбранный период остаётся, даже если его фото ушли из видимой области.
+    /// Даты фото в видимой области карты — пересчитываются при обновлении карты, пока открыта
+    /// панель фильтра. Выбранный период остаётся, даже если его фото ушли из видимой области.
     func setMapDateCounts(_ counts: [DateCount]) {
         guard counts != mapDateCounts else { return }
         mapDateCounts = counts
         mapDates = DateNode.tree(counts)
     }
 
-    private func apply(_ generation: Int, _ loaded: Loaded, _ keepStatus: Bool) {
+    private func apply(_ loaded: Loaded, _ keepStatus: Bool) {
         // Чтения идут параллельно и могут ждать сканер: результат более раннего, пришедший
         // после более позднего, затёр бы свежие данные (например, пустой БД до первого скана).
-        guard generation == reloadGeneration else { return }
-        var changed = forceDateReload
-        forceDateReload = false
-        if loaded.counts != dateCounts {
-            dateCounts = loaded.counts
-            dates = DateNode.tree(loaded.counts)
-            changed = true
+        // Поэтому каждая часть применяется, только если она от последнего запроса этой части.
+        let current = { (part: ReloadParts) in
+            loaded.parts.contains(part) && loaded.stamps[part.rawValue] == self.generations[part.rawValue]
         }
-        if loaded.all.photos != allGeotagged.photos {
-            allGeotagged = loaded.all
+        var changed = false
+        var retry: ReloadParts = []
+        if current(.dates) {
+            if let counts = loaded.counts {
+                if forceDateReload {
+                    forceDateReload = false
+                    changed = true
+                }
+                if counts != dateCounts {
+                    dateCounts = counts
+                    dates = DateNode.tree(counts)
+                    changed = true
+                }
+            } else {
+                retry.insert(.dates)
+            }
+            if let total = loaded.total, !scanning, !keepStatus {
+                status = Core.photos(total)
+            }
         }
-        if loaded.geo.photos != geotagged.photos {
-            geotagged = loaded.geo
-            changed = true
+        if current(.all) {
+            if let all = loaded.all {
+                awaitingRefresh.subtract(loaded.refreshed)
+                if all !== allGeotagged {
+                    allGeotagged = all
+                    // У фото могли измениться координаты — они есть и в списке вкладки дат.
+                    changed = true
+                }
+                if mapPeriod == nil, geotagged !== allGeotagged {
+                    geotagged = allGeotagged
+                }
+            } else {
+                retry.insert(.all)
+            }
+        }
+        if current(.period), loaded.period != nil, loaded.period == mapPeriod {
+            if let geo = loaded.geo {
+                if geo !== geotagged {
+                    geotagged = geo
+                }
+            } else {
+                retry.insert(.period)
+            }
         }
         if changed {
             revision += 1
         }
-        let total = loaded.total
-        if !scanning, !keepStatus {
-            status = Core.photos(total)
+        guard !retry.isEmpty else {
+            reloadFailures = 0
+            return
+        }
+        // БД занята. Во время сканирования её и так перечитывает таймер; иначе — повторить
+        // чуть позже, но не бесконечно.
+        reloadFailures += 1
+        if reloadFailures > 5 {
+            awaitingRefresh = []
+        } else if !scanning {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    // Части, которые с тех пор запросили заново, повторять не нужно.
+                    var parts: ReloadParts = []
+                    for part in ReloadParts.each where retry.contains(part)
+                        && loaded.stamps[part.rawValue] == self.generations[part.rawValue] {
+                        parts.insert(part)
+                    }
+                    if !parts.isEmpty {
+                        self.reload(parts, keepStatus: true)
+                    }
+                }
+            }
         }
     }
 
@@ -525,12 +698,35 @@ final class AppModel {
             return
         }
         tab = .map
+        // Фото вне периода фильтра карты: на карте его нет, и переход привёл бы на пустое
+        // место — фильтр сбрасывается.
+        if mapPeriod != nil, !geotagged.photos.contains(where: { $0.id == photo.id }) {
+            mapPeriod = nil
+        }
         map?.show(photo)
+    }
+
+    /// Есть ли среди фото те, чьи файлы сейчас изменяются; если да — сообщить об этом.
+    private func refuseBusy(_ photos: [Photo]) -> Bool {
+        let busy = photos.contains {
+            writing.contains($0.id) || trashing.contains($0.id) || awaitingRefresh.contains($0.id)
+        }
+        if busy {
+            alert = AlertMessage(title: Core.text("changes_in_progress"), detail: "")
+        }
+        return busy
+    }
+
+    /// Выполнить в главном потоке; вызовы из одного потока приходят в том же порядке.
+    private nonisolated func onMain(_ work: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated(work)
+        }
     }
 
     /// Удалить фото — после подтверждения в окне (`pendingTrash`).
     func trash(_ photos: [Photo]) {
-        if !photos.isEmpty {
+        if !photos.isEmpty, !refuseBusy(photos) {
             pendingTrash = photos
         }
     }
@@ -540,46 +736,83 @@ final class AppModel {
         Core.confirmTrash(photos.count == 1 ? photos[0].fileName : Core.photos(photos.count))
     }
 
-    /// Переместить файлы в корзину и убрать фото из БД и интерфейса. В строке состояния —
-    /// имя фото (или их число), при ошибке — первая из них.
+    /// Переместить файлы в корзину и убрать фото из БД и интерфейса — в фоне (сетевой диск
+    /// или сотни файлов заняли бы главный поток надолго). Пока идёт перемещение, в строке
+    /// состояния — его ход; по окончании — имя фото (или их число), при ошибке — первая из них.
+    /// Фото остаются в сетке и в выделении до конца, но новые действия над ними отклоняются.
     func confirmTrash(_ photos: [Photo]) {
         pendingTrash = nil
-        var moved: [Photo] = []
-        var failure: String?
-        for photo in photos {
-            do {
-                try FileManager.default.trashItem(at: photo.url, resultingItemURL: nil)
-                moved.append(photo)
-            } catch {
-                failure = failure ?? Core.trashFailed(photo.fileName, error.localizedDescription)
+        guard !photos.isEmpty, !refuseBusy(photos) else { return }
+        let ids = Set(photos.map(\.id))
+        trashing.formUnion(ids)
+        fileQueue.async { [self] in
+            var moved: [Photo] = []
+            var failure: String?
+            let progress = FileProgress(total: photos.count) { done, total in
+                self.onMain { self.fileStatus = Core.trashing(done, total) }
+            }
+            for photo in photos {
+                do {
+                    try FileManager.default.trashItem(at: photo.url, resultingItemURL: nil)
+                    Core.remove(id: photo.id)
+                    moved.append(photo)
+                } catch {
+                    failure = failure ?? Core.trashFailed(photo.fileName, error.localizedDescription)
+                }
+                progress.step()
+            }
+            onMain { [moved, failure] in
+                self.trashed(ids, moved: moved, failure: failure)
             }
         }
-        let ids = Set(moved.map(\.id))
-        mapSelection.remove(ids)
-        dateSelection.remove(ids)
-        status = failure ?? (moved.count == 1 ? Core.trashed(moved[0].fileName) : Core.trashed(Core.photos(moved.count)))
-        guard !moved.isEmpty else { return }
-        Task.detached(priority: .userInitiated) {
-            for id in ids {
-                Core.remove(id: id)
-            }
-            await MainActor.run { self.reload(keepStatus: true) }
+    }
+
+    private func trashed(_ ids: Set<Photo.ID>, moved: [Photo], failure: String?) {
+        trashing.subtract(ids)
+        fileStatus = nil
+        let gone = Set(moved.map(\.id))
+        mapSelection.remove(gone)
+        dateSelection.remove(gone)
+        if let failure {
+            status = failure
+        } else if !moved.isEmpty {
+            status = moved.count == 1 ? Core.trashed(moved[0].fileName) : Core.trashed(Core.photos(moved.count))
+        }
+        if !moved.isEmpty {
+            reload(keepStatus: true)
         }
     }
 
     /// Открыть редактор EXIF для фото; видео из списка отбрасываются.
     func editExif(_ photos: [Photo]) {
         let photos = photos.filter { !$0.isVideo }
-        guard !photos.isEmpty else { return }
-        exifEdit = ExifEdit(photos: photos, view: map?.currentView)
+        guard !photos.isEmpty, !refuseBusy(photos) else { return }
+        // Координаты — из списка всех фото с координатами, а не из выделения: оно могло
+        // остаться с прежними значениями, и редактор перезаписал бы только что записанные
+        // координаты без вопроса.
+        let ids = Set(photos.map(\.id))
+        var located: [Photo.ID: Photo] = [:]
+        for photo in allGeotagged.photos where ids.contains(photo.id) {
+            located[photo.id] = photo
+        }
+        let fresh = photos.map { located[$0.id] ?? ($0.hasCoords ? $0.withoutCoords : $0) }
+        exifEdit = ExifEdit(photos: fresh, view: map?.currentView)
     }
 
-    /// Записать изменения в файлы и в БД (в фоне), затем перечитать БД. В строке
-    /// состояния — имя фото (или их число), при ошибке — первая из них и окно с ней.
+    /// Записать изменения в файлы и в БД, затем перечитать БД. Записи идут в фоне по очереди
+    /// (одна очередь с корзиной): две записи одного файла одновременно невозможны, а фото,
+    /// которые ещё пишутся, для новой правки и удаления закрыты. В строке состояния — ход
+    /// записи, затем имя фото (или их число), при ошибке — первая из них и окно с ней.
     func saveEdit(_ changes: ExifChanges, photos: [Photo]) {
-        Task.detached(priority: .userInitiated) {
+        guard !photos.isEmpty, !refuseBusy(photos) else { return }
+        let ids = Set(photos.map(\.id))
+        writing.formUnion(ids)
+        fileQueue.async { [self] in
             var saved: [Photo] = []
             var failure: String?
+            let progress = FileProgress(total: photos.count) { done, total in
+                self.onMain { self.fileStatus = Core.savingProgress(done, total) }
+            }
             for photo in photos {
                 if let error = Core.saveEdit(photo, changes) {
                     FileHandle.standardError.write(Data("EXIF \(photo.path): \(error)\n".utf8))
@@ -587,27 +820,27 @@ final class AppModel {
                 } else {
                     saved.append(photo)
                 }
+                progress.step()
             }
-            await MainActor.run { [saved, failure] in
-                self.editSaved(saved, failure: failure)
+            onMain { [saved, failure] in
+                self.editSaved(ids, saved: saved, failure: failure)
             }
         }
     }
 
-    private func editSaved(_ saved: [Photo], failure: String?) {
+    private func editSaved(_ ids: Set<Photo.ID>, saved: [Photo], failure: String?) {
+        writing.subtract(ids)
+        fileStatus = nil
         status = failure ?? Core.changesSaved(saved.count == 1 ? saved[0].fileName : Core.photos(saved.count))
         if let failure {
             alert = AlertMessage(title: failure, detail: "")
         }
         guard !saved.isEmpty else { return }
-        // Миниатюры перезаписаны (могла смениться ориентация).
-        for photo in saved {
-            if let thumb = photo.thumbPath {
-                ThumbnailCache.shared.forget(thumb)
-            }
-        }
-        // Маркеры хранятся по составу кластера — с новыми координатами их нужно пересоздать.
-        map?.resetMarkers()
+        // До перечитывания БД в списках — прежние значения этих фото.
+        awaitingRefresh.formUnion(saved.map(\.id))
+        // Миниатюры перезаписаны (могла смениться ориентация), данные панели «Информация» устарели.
+        filesChanged(saved.compactMap(\.thumbPath))
+        // Маркеры с новыми координатами карта пересоздаст сама: она сверяет место маркера.
         reload(keepStatus: true, force: true)
     }
 
@@ -665,5 +898,29 @@ enum Apps {
             else { return nil }
             return id
         }.first
+    }
+}
+
+/// Ход работы с несколькими файлами для строки состояния: сообщает не чаще десяти раз в
+/// секунду (и о последнем файле), для одного файла молчит.
+private final class FileProgress {
+    private let total: Int
+    private let report: (Int, Int) -> Void
+    private var done = 0
+    private var reported = Date.distantPast
+
+    init(total: Int, report: @escaping (Int, Int) -> Void) {
+        self.total = total
+        self.report = report
+        if total > 1 {
+            report(0, total)
+        }
+    }
+
+    func step() {
+        done += 1
+        guard total > 1, done == total || Date().timeIntervalSince(reported) >= 0.1 else { return }
+        reported = Date()
+        report(done, total)
     }
 }

@@ -54,7 +54,14 @@ impl View {
     /// без тригонометрии — для проверки десятков тысяч фото на каждое движение карты.
     pub fn contains_world(&self, x0: f64, y0: f64, margin: f64) -> bool {
         let s = self.scale;
-        (x0 * s - self.cx).abs() <= self.half_w + margin && (y0 * s - self.cy).abs() <= self.half_h + margin
+        // Мир замкнут по долготе: у 180-го меридиана область продолжается с другого края.
+        let (world, mut dx) = (TILE * s, x0 * s - self.cx);
+        if dx > world / 2.0 {
+            dx -= world;
+        } else if dx < -world / 2.0 {
+            dx += world;
+        }
+        dx.abs() <= self.half_w + margin && (y0 * s - self.cy).abs() <= self.half_h + margin
     }
 }
 
@@ -182,6 +189,10 @@ mod tests {
         assert!(!v.contains(59.93, 30.31, 0.0)); // Петербург не виден на зуме 10 над Москвой
         let v = View::new(55.75, 37.62, 4.0, 800.0, 600.0);
         assert!(v.contains(59.93, 30.31, 0.0));
+        // У 180-го меридиана видны точки по обе его стороны.
+        let v = View::new(-17.0, 179.9, 8.0, 800.0, 600.0);
+        assert!(v.contains(-17.0, -179.9, 0.0) && v.contains(-17.0, 179.5, 0.0));
+        assert!(!v.contains(-17.0, 170.0, 0.0));
     }
 
     #[test]

@@ -4,6 +4,8 @@
 // Строки на входе — UTF-8 с завершающим нулём. Строки, которые вернула библиотека
 // (char *), освобождать gpl_string_free; списки и снимки карты — своей *_free.
 // Общего состояния нет: функции можно вызывать из любого потока.
+// Паника внутри ядра наружу не выходит: функции, которые делают настоящую работу, ловят её
+// и возвращают то же, что при обычной ошибке.
 #ifndef GPL_H
 #define GPL_H
 
@@ -22,6 +24,9 @@ void gpl_init(const char *lang);
 char *gpl_text(const char *key);
 char *gpl_text_photos(size_t n);
 char *gpl_text_processing(size_t done, size_t total);
+// Ход перемещения фото в корзину и записи изменений в файлы (строка состояния).
+char *gpl_text_trashing(size_t done, size_t total);
+char *gpl_text_saving_progress(size_t done, size_t total);
 char *gpl_text_scan_error(const char *e);
 char *gpl_text_in_map_area(size_t visible, size_t total);
 char *gpl_text_no_coordinates_detail(const char *name);
@@ -96,12 +101,16 @@ typedef void (*GplProgress)(void *ctx, size_t done, size_t total);
 enum { GPL_SCAN_OK = 0, GPL_SCAN_CANCELLED = 1, GPL_SCAN_ERROR = 2 };
 
 // Сканирует папку в БД приложения, блокируя поток; progress вызывается из него же.
-// Возвращает GPL_SCAN_*; при ошибке её текст — в err.
+// Возвращает GPL_SCAN_*; при ошибке (и при панике внутри) её текст — в err.
 int gpl_scan(const char *root, GplProgress progress, void *ctx, const GplCancel *cancel,
              GplScanStats *stats, char **err);
 
 // ---------- Запросы к БД ----------
 
+// Чтения БД сообщают о неудаче (БД занята сканером, повреждена) отдельно от «фото нет»:
+// интерфейс в этом случае оставляет прежние данные.
+
+// Число фото; меньше нуля — БД прочитать не удалось.
 int64_t gpl_db_count(void);
 
 typedef struct {
@@ -112,7 +121,8 @@ typedef struct {
 } GplDateCount;
 
 // Фильтр вкладки дат: 0 — все фото и видео, 1 — фото с координатами, 2 — фото без координат, 3 — видео.
-// Число фото по дням, по возрастанию даты.
+// Число фото по дням, по возрастанию даты. NULL — БД прочитать не удалось
+// (пустой результат — не NULL, а *len == 0).
 GplDateCount *gpl_db_date_counts(uint32_t filter, size_t *len);
 void gpl_date_counts_free(GplDateCount *counts, size_t len);
 
@@ -133,11 +143,13 @@ typedef struct GplPhotos GplPhotos;
 // Фильтр вкладки дат при запуске из GEO_PHOTO_LIBRARY_GEO_FILTER (отладка); 0 — все фото.
 uint32_t gpl_debug_geo_filter(void);
 // Фото за год, месяц (day == 0) или день; month == 0 — весь год. По дате съёмки;
-// filter — как в gpl_db_date_counts.
+// filter — как в gpl_db_date_counts. NULL — БД прочитать не удалось.
 GplPhotos *gpl_db_photos_by_date(int32_t year, uint32_t month, uint32_t day, uint32_t filter);
 // Фото с координатами за год, месяц (day == 0) или день (month == 0 — весь год);
-// year == 0 — за всё время. По дате съёмки.
+// year == 0 — за всё время. По дате съёмки. NULL — БД прочитать не удалось.
 GplPhotos *gpl_db_geotagged(int32_t year, uint32_t month, uint32_t day);
+// Совпадают ли два списка поле в поле (NULL равен пустому списку).
+bool gpl_photos_equal(const GplPhotos *a, const GplPhotos *b);
 // Координата из поля ввода (точка или запятая); false — не число.
 bool gpl_parse_coord(const char *text, double *out);
 // Пара «широта, долгота» одной строкой (вставка из карт); false — не пара координат.
@@ -158,6 +170,7 @@ char *gpl_save_edit(const char *path, bool has_coords, double lat, double lon, c
 // Убрать из БД фото, перемещённое в корзину, вместе с миниатюрой.
 void gpl_db_remove(int64_t id);
 // Данные панели «Информация» в JSON (формат — в src/ffi.rs). Читает файл.
+// NULL — файл разобрать не удалось.
 char *gpl_photo_info(const char *path, bool has_coords, double lat, double lon);
 size_t gpl_photos_len(const GplPhotos *photos);
 const GplPhoto *gpl_photos_data(const GplPhotos *photos);

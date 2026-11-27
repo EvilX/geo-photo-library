@@ -126,6 +126,22 @@ pub fn show(
         notebook.set_current_page(Some(1));
     }
 
+    // Записать EXIF можно не в каждый файл (PNG, DNG, TIFF — нет): такие фото пропускаются,
+    // и об этом сказано сразу, а не ошибкой после сохранения. Теги показываются по всем.
+    let all = photos.len();
+    let initial = match photos.as_slice() {
+        [p] => p.coords(),
+        _ => None,
+    };
+    let shown: Vec<PathBuf> = photos.iter().map(|p| PathBuf::from(&p.path)).collect();
+    let photos: Vec<Photo> = photos.into_iter().filter(|p| geotag::writable(std::path::Path::new(&p.path))).collect();
+    let skipped = all - photos.len();
+    let warning = gtk::Label::new(Some(&i18n::exif_not_writable(skipped, all)));
+    warning.add_css_class("warning");
+    warning.set_xalign(0.0);
+    warning.set_wrap(true);
+    warning.set_visible(skipped > 0);
+
     let cancel = gtk::Button::with_label(i18n::cancel());
     let save = gtk::Button::with_label(&i18n::save_count(photos.len()));
     save.add_css_class("suggested-action");
@@ -141,19 +157,17 @@ pub fn show(
     content.set_margin_start(12);
     content.set_margin_end(12);
     content.append(&notebook);
+    content.append(&warning);
     content.append(&buttons);
     dialog.set_child(Some(&content));
     dialog.set_default_widget(Some(&save));
 
-    let initial = match photos.as_slice() {
-        [p] => p.coords(),
-        _ => None,
-    };
     let state = Rc::new(State {
         map: map.clone(),
         lat: lat.clone(),
         lon: lon.clone(),
         save: save.clone(),
+        writable: !photos.is_empty(),
         initial,
         tags: RefCell::default(),
         syncing: Cell::new(false),
@@ -232,7 +246,7 @@ pub fn show(
     }
 
     // Теги EXIF — в фоне: у пачки фото читаются все файлы.
-    let paths: Vec<PathBuf> = photos.iter().map(|p| PathBuf::from(&p.path)).collect();
+    let paths = shown;
     let (s, list_w, stack_w) = (Rc::downgrade(&state), list.downgrade(), exif_stack.downgrade());
     glib::spawn_future_local(async move {
         let fields = gio::spawn_blocking(move || geotag::fields(&paths)).await.unwrap_or_default();
@@ -372,6 +386,8 @@ struct State {
     lat: gtk::Entry,
     lon: gtk::Entry,
     save: gtk::Button,
+    /// Есть ли среди фото хоть одно, в файл которого можно записать EXIF.
+    writable: bool,
     /// Координаты единственного фото при открытии.
     initial: Option<(f64, f64)>,
     tags: RefCell<Vec<TagRow>>,
@@ -389,6 +405,24 @@ impl State {
         self.lon.set_text(&geo::format_coord(lon));
         self.syncing.set(false);
         self.update_save();
+    }
+
+    /// Подсветить поле координаты, из-за которого нельзя сохранить (как неверное значение
+    /// тега): в нём не число, число вне диапазона или оно пустое при заполненном втором.
+    fn mark_coords(&self) {
+        let (lat, lon) = (self.lat.text(), self.lon.text());
+        let any = !lat.trim().is_empty() || !lon.trim().is_empty();
+        // Точка 0, 0 — «координат нет»: по отдельности ноль допустим, вместе — нет.
+        let null_island = any && self.value().is_none() && coord_ok(&lat, 90.0) && coord_ok(&lon, 180.0);
+        for (entry, text, limit) in [(&self.lat, &lat, 90.0), (&self.lon, &lon, 180.0)] {
+            if any && (null_island || !coord_ok(text, limit)) {
+                entry.add_css_class("error");
+                entry.set_tooltip_text(Some(i18n::invalid_coordinates()));
+            } else {
+                entry.remove_css_class("error");
+                entry.set_tooltip_text(None);
+            }
+        }
     }
 
     /// Центр карты сдвинулся: точка под меткой — в поля. Если центр уже совпадает с полями
@@ -445,7 +479,8 @@ impl State {
 
     /// «Сохранить» доступна, если что-то изменено и ошибок нет.
     fn update_save(&self) {
-        self.save.set_sensitive(self.changes().is_some_and(|c| !c.is_empty()));
+        self.mark_coords();
+        self.save.set_sensitive(self.writable && self.changes().is_some_and(|c| !c.is_empty()));
     }
 
     /// Заполнить список тегов.
@@ -572,6 +607,11 @@ fn page() -> gtk::Box {
     b.set_margin_start(10);
     b.set_margin_end(10);
     b
+}
+
+/// Число в поле координаты в пределах ±`limit` градусов.
+fn coord_ok(text: &str, limit: f64) -> bool {
+    geo::parse_coord(text).is_some_and(|v| v.abs() <= limit)
 }
 
 fn coord_entry() -> gtk::Entry {

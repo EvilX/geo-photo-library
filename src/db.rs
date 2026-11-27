@@ -27,10 +27,14 @@ CREATE TABLE IF NOT EXISTS photos (
 CREATE INDEX IF NOT EXISTS photos_ymd   ON photos(year, month, day);
 CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken_at);
 CREATE INDEX IF NOT EXISTS photos_geo   ON photos(lat, lon);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ";
 
 /// Версия формата данных (PRAGMA user_version).
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 const PHOTO_COLS: &str = "id, path, taken_at, lat, lon, thumb_path, video, duration";
 
@@ -211,26 +215,58 @@ impl Db {
         Self::init(Connection::open_in_memory()?)
     }
 
-    fn init(conn: Connection) -> Result<Self> {
-        conn.execute_batch(SCHEMA)?;
+    fn init(mut conn: Connection) -> Result<Self> {
+        // Обычный случай — база уже нужной версии: без записи, чтобы чтения интерфейса
+        // (на macOS каждое открывает базу заново) не ждали сканер.
         let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        // Сброс mtime заставляет сканер обработать файл заново.
-        if version < 2 {
-            // v2: миниатюры стали квадратными — пересоздать все.
-            conn.execute_batch("UPDATE photos SET mtime = -1")?;
-        } else if version < 3 {
-            // v3: появилась поддержка DNG — повторить файлы без миниатюр.
-            conn.execute_batch("UPDATE photos SET mtime = -1 WHERE thumb_path IS NULL")?;
+        if version >= SCHEMA_VERSION {
+            return Ok(Self { conn });
         }
-        // v4: видео — столбцы `video` и `duration` (в новой базе их уже создала схема).
-        let has_video: bool = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('photos') WHERE name = 'video'", [], |r| r.get(0))?;
-        if !has_video {
-            conn.execute_batch("ALTER TABLE photos ADD COLUMN video INTEGER NOT NULL DEFAULT 0; ALTER TABLE photos ADD COLUMN duration REAL;")?;
-        }
+        // Создание и миграция — одной транзакцией с блокировкой записи сразу: сканер и чтения
+        // открывают базу одновременно, и без неё оба увидели бы старую схему и оба добавили бы
+        // столбцы («duplicate column name»), а обрыв посередине оставил бы половину миграции.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // Пока ждали блокировку, миграцию могло выполнить другое соединение.
+        let version: i32 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version < SCHEMA_VERSION {
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+            tx.execute_batch(SCHEMA)?;
+            // Сброс mtime заставляет сканер обработать файл заново.
+            if version < 2 {
+                // v2: миниатюры стали квадратными — пересоздать все.
+                tx.execute_batch("UPDATE photos SET mtime = -1")?;
+            } else if version < 3 {
+                // v3: появилась поддержка DNG — повторить файлы без миниатюр.
+                tx.execute_batch("UPDATE photos SET mtime = -1 WHERE thumb_path IS NULL")?;
+            }
+            // v4: видео — столбцы `video` и `duration` (в новой базе их уже создала схема).
+            for (name, kind) in [("video", "INTEGER NOT NULL DEFAULT 0"), ("duration", "REAL")] {
+                let has: bool = tx.query_row("SELECT COUNT(*) FROM pragma_table_info('photos') WHERE name = ?1", [name], |r| r.get(0))?;
+                if !has {
+                    tx.execute_batch(&format!("ALTER TABLE photos ADD COLUMN {name} {kind}"))?;
+                }
+            }
+            // v5: таблица `meta` (её создала схема) — отметки сканера.
+            tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         }
+        tx.commit()?;
         Ok(Self { conn })
+    }
+
+    /// Отметка сканера (таблица `meta`).
+    pub fn meta(&self, key: &str) -> Result<Option<String>> {
+        Ok(self.conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, value])?;
+        Ok(())
+    }
+
+    /// Миниатюры записей: (путь фото, путь миниатюры) — сканер пересоздаёт пропавшие файлы.
+    pub fn thumb_paths(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT path, thumb_path FROM photos WHERE thumb_path IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// path → (size, mtime) для инкрементального сканирования.
@@ -521,6 +557,46 @@ mod tests {
         assert_eq!(p.len(), 1);
         assert!(!p[0].video);
         assert_eq!(db.known_files().unwrap()["/a.jpg"], (1, 1));
+        // v5: отметки сканера
+        assert_eq!(db.meta("x").unwrap(), None);
+        db.set_meta("x", "1").unwrap();
+        db.set_meta("x", "2").unwrap();
+        assert_eq!(db.meta("x").unwrap().as_deref(), Some("2"));
+        assert_eq!(db.thumb_paths().unwrap(), []);
+    }
+
+    /// Обрыв миграции v4 после первого столбца: второй добавляется при следующем открытии.
+    #[test]
+    fn migration_adds_each_missing_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&SCHEMA.replace(",\n    duration     REAL", "")).unwrap();
+        conn.execute_batch("PRAGMA user_version = 3").unwrap();
+        let db = Db::init(conn).unwrap();
+        assert!(db.photos_by_date(2023, None, None, GeoFilter::All).unwrap().is_empty());
+    }
+
+    /// База v3 открывается несколькими соединениями сразу — миграция проходит один раз.
+    #[test]
+    fn concurrent_migration() {
+        let dir = std::env::temp_dir().join(format!("gpl-db-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("library.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&SCHEMA.replace(",\n    video        INTEGER NOT NULL DEFAULT 0,\n    duration     REAL", "")).unwrap();
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA user_version = 3").unwrap();
+        }
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || Db::open(&path).and_then(|db| db.date_counts(GeoFilter::Video)).map(|c| c.len()).map_err(|e| e.to_string()))
+            })
+            .collect();
+        for t in threads {
+            assert_eq!(t.join().unwrap(), Ok(0));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

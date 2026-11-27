@@ -118,6 +118,8 @@ pub struct DateTree {
     rebuilding: Cell<bool>,
     /// Узел, выбранный пользователем: выделяется снова, когда опять появится в дереве.
     wanted: Cell<Option<NodeKey>>,
+    /// Обработчики смены выбора пользователем (`connect_changed`).
+    changed: RefCell<Vec<Rc<dyn Fn()>>>,
 }
 
 impl DateTree {
@@ -188,24 +190,88 @@ impl DateTree {
             tree,
             rebuilding: Cell::new(false),
             wanted: Cell::new(all_time.then_some((ALL_TIME, None, None))),
+            changed: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         this.selection.connect_selected_item_notify(move |_| {
-            if let Some(t) = weak.upgrade().filter(|t| !t.rebuilding.get()) {
-                t.wanted.set(t.selected().map(|n| n.key()));
+            if let Some(t) = weak.upgrade() {
+                t.selection_changed();
             }
         });
+        if all_time {
+            // Свёрнутый год развернули обратно: строка выбранного периода вернулась в дерево —
+            // выделить её снова. Из простоя: в самом сигнале модель ещё перестраивается.
+            let weak = Rc::downgrade(&this);
+            this.tree.connect_items_changed(move |_, _, _, added| {
+                let Some(t) = weak.upgrade() else { return };
+                if added == 0 || t.rebuilding.get() || t.selection.selected_item().is_some() {
+                    return;
+                }
+                let weak = weak.clone();
+                glib::idle_add_local_once(move || {
+                    if let Some(t) = weak.upgrade() {
+                        t.reselect_wanted();
+                    }
+                });
+            });
+        }
         this
     }
 
-    /// Вызывать `f` при смене выбора пользователем (не при перестройке дерева).
+    /// Вызывать `f` при смене выбора пользователем (не при перестройке дерева и не когда
+    /// выбранная строка скрылась под свёрнутым узлом).
     pub fn connect_changed(self: &Rc<Self>, f: impl Fn() + 'static) {
-        let weak = Rc::downgrade(self);
-        self.selection.connect_selected_item_notify(move |_| {
-            if weak.upgrade().is_some_and(|t| !t.rebuilding.get()) {
-                f();
+        self.changed.borrow_mut().push(Rc::new(f));
+    }
+
+    /// Выбор в списке изменился.
+    ///
+    /// В фильтре карты `GtkSingleSelection` снимает выделение в двух случаях, и различить их
+    /// можно только по дереву. Строки выбранного периода больше нет среди показанных — её
+    /// скрыло сворачивание года или месяца: период остаётся прежним, обработчики не зовутся.
+    /// Строка на месте — выделение сняли сами (Ctrl + щелчок): выбирается «Всё время», чтобы
+    /// не остаться без подсвеченной строки.
+    fn selection_changed(&self) {
+        if self.rebuilding.get() {
+            return;
+        }
+        match self.selected() {
+            Some(node) => self.wanted.set(Some(node.key())),
+            None if self.all_time => {
+                if self.wanted.get().is_some_and(|key| self.position(key).is_none()) {
+                    return;
+                }
+                if self.tree.n_items() > 0 {
+                    // Выбор «Всё время» придёт сюда же ещё раз — уже с выделенной строкой.
+                    self.selection.set_selected(0);
+                    return;
+                }
+                self.wanted.set(None);
             }
-        });
+            None => self.wanted.set(None),
+        }
+        let handlers = self.changed.borrow().clone();
+        for f in handlers {
+            f();
+        }
+    }
+
+    /// Снова выделить строку выбранного периода, если она есть в дереве, а выделения нет.
+    /// Период при этом не меняется — обработчики не зовутся.
+    fn reselect_wanted(&self) {
+        if self.rebuilding.get() || self.selection.selected_item().is_some() {
+            return;
+        }
+        if let Some(pos) = self.wanted.get().and_then(|key| self.position(key)) {
+            self.rebuilding.set(true);
+            self.selection.set_selected(pos);
+            self.rebuilding.set(false);
+        }
+    }
+
+    /// Номер строки узла среди показанных (под свёрнутым узлом строки нет).
+    fn position(&self, key: NodeKey) -> Option<u32> {
+        (0..self.tree.n_items()).find(|&i| self.tree.row(i).and_then(|r| DateNode::of_row(&r)).is_some_and(|n| n.key() == key))
     }
 
     /// Заменить счётчики: годы — от новых к старым. Раскрытые узлы и выбор сохраняются.
@@ -273,11 +339,16 @@ impl DateTree {
 
     /// Выбрать узел (отладочный хук); `false` — такого узла нет среди показанных строк.
     pub fn select(&self, key: NodeKey) -> bool {
-        let pos = (0..self.tree.n_items())
-            .find(|&i| self.tree.row(i).and_then(|r| DateNode::of_row(&r)).is_some_and(|n| n.key() == key));
+        let pos = self.position(key);
         if let Some(i) = pos {
             self.selection.set_selected(i);
         }
         pos.is_some()
+    }
+
+    /// Выбрать строку «Всё время» (фильтр карты), как это сделал бы пользователь;
+    /// `false` — строки ещё нет (дерево не заполнено).
+    pub fn select_all_time(&self) -> bool {
+        self.all_time && self.select((ALL_TIME, None, None))
     }
 }

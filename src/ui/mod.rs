@@ -12,6 +12,13 @@ pub mod textures;
 pub mod update_banner;
 pub mod window;
 
+/// Название виджета для программ экранного доступа: у кнопки с одним значком и у ячейки
+/// сетки своего текста нет, а подсказку они читают не всегда.
+pub fn a11y_label(widget: &impl gtk::prelude::IsA<gtk::Accessible>, text: &str) {
+    use gtk::prelude::AccessibleExtManual;
+    widget.update_property(&[gtk::accessible::Property::Label(text)]);
+}
+
 pub const CSS: &str = "
 .photo-thumb { border-radius: 6px; }
 .photo-caption { font-size: smaller; opacity: 0.8; }

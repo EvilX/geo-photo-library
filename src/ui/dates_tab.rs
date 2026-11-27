@@ -44,6 +44,7 @@ impl DatesTab {
         left.append(&tree.root);
 
         let grid = PhotoGrid::new(cache, 160, 12);
+        grid.set_empty_text(i18n::no_photos());
         let title = gtk::Label::new(None);
         let sort = photo_grid::sort_dropdown();
         let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -117,6 +118,10 @@ impl DatesTab {
         self.grid.set_scale(percent);
     }
 
+    /// Показать фото выбранного узла. Другой узел — список заменяется целиком и
+    /// прокручивается в начало. Тот же узел (подгрузка во время сканирования, удаление,
+    /// запись EXIF) — список только обновляется: выделение и прокрутка остаются на месте,
+    /// а при `force` ячейки привязываются заново — миниатюры могли быть перезаписаны.
     fn load_selected(&self, force: bool) {
         let Some(node) = self.tree.selected() else {
             self.shown.set(None);
@@ -124,13 +129,25 @@ impl DatesTab {
             self.grid.set_photos(&[]);
             return;
         };
-        if !force && self.shown.get() == Some((node.key(), node.count)) {
+        let shown = self.shown.get();
+        if !force && shown == Some((node.key(), node.count)) {
             return;
         }
+        let same_node = shown.is_some_and(|(key, _)| key == node.key());
         self.shown.set(Some((node.key(), node.count)));
         let _t = trace::span(format!("dates.load {}", node.title()));
-        let photos = self.db.photos_by_date(node.year, node.month, node.day, self.filter.get()).unwrap_or_default();
+        let photos = self.db.photos_by_date(node.year, node.month, node.day, self.filter.get()).unwrap_or_else(|e| {
+            eprintln!("БД: {e:#}");
+            Vec::new()
+        });
         self.title.set_text(&format!("{} — {}", node.title(), i18n::photos(photos.len())));
-        self.grid.set_photos(&photos);
+        if same_node {
+            self.grid.update_photos(&photos);
+            if force {
+                self.grid.rebind();
+            }
+        } else {
+            self.grid.set_photos(&photos);
+        }
     }
 }

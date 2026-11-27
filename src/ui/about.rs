@@ -12,7 +12,7 @@ pub fn show(parent: &gtk::ApplicationWindow) {
         .comments(i18n::app_summary())
         .website("https://github.com/EvilX/geo-photo-library")
         .authors(["Leonid Nasedkin", "Claude"])
-        .copyright("© 2026 Leonid Nasedkin & Claude")
+        .copyright("© 2026 Leonid Nasedkin")
         .build();
     dialog.present();
 }

@@ -2,7 +2,7 @@
 use super::textures::image_apps;
 use crate::{config::Config, i18n};
 use gtk::{gio, glib, prelude::*};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Выпадающий список программ: первый пункт — «Автоматически» (`None`).
 struct AppChoice {
@@ -34,6 +34,34 @@ impl AppChoice {
 
     fn selected(&self) -> Option<String> {
         self.ids.get(self.dropdown.selected() as usize).cloned().flatten()
+    }
+}
+
+/// «~» и «~/…» в начале пути — домашний каталог (и «~\…» на Windows).
+fn expand_home(text: &str, home: &Path) -> PathBuf {
+    match text.strip_prefix('~') {
+        Some("") => home.to_path_buf(),
+        Some(rest) if rest.starts_with(std::path::is_separator) => home.join(rest.trim_start_matches(std::path::is_separator)),
+        _ => PathBuf::from(text),
+    }
+}
+
+/// Папка библиотеки из введённого текста: существующий каталог, путь абсолютный и
+/// канонический. `None` — такой папки нет.
+fn library_dir(text: &str, home: &Path) -> Option<PathBuf> {
+    if text.is_empty() {
+        return None;
+    }
+    let path = expand_home(text, home);
+    if !path.is_dir() {
+        return None;
+    }
+    // На Windows `canonicalize` даёт `\\?\C:\…` — такой путь виден в настройках и не всеми
+    // программами понимается; там хватает абсолютного пути.
+    if cfg!(windows) {
+        std::path::absolute(&path).ok()
+    } else {
+        path.canonicalize().ok()
     }
 }
 
@@ -155,12 +183,13 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
     let d = dialog.downgrade();
     let config = config.clone();
     save.connect_clicked(move |_| {
-        let path = PathBuf::from(entry.text().trim());
-        if !path.is_dir() {
+        // В настройки — абсолютный канонический путь: относительный зависел бы от каталога,
+        // из которого запущена программа, а «~» раскрывает только оболочка.
+        let Some(path) = library_dir(entry.text().trim(), &glib::home_dir()) else {
             error.set_text(i18n::folder_missing());
             error.set_visible(true);
             return;
-        }
+        };
         on_save(Config {
             library_path: Some(path),
             viewer: viewer.selected(),
@@ -186,4 +215,28 @@ pub fn show(parent: &gtk::ApplicationWindow, config: &Config, on_save: impl Fn(C
     });
     dialog.add_controller(key);
     dialog.present();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_and_relative_paths() {
+        let home = Path::new("/home/user");
+        assert_eq!(expand_home("~", home), home);
+        assert_eq!(expand_home("~/Pictures", home), home.join("Pictures"));
+        assert_eq!(expand_home("~other/Pictures", home), Path::new("~other/Pictures"));
+        assert_eq!(expand_home("/data/~/x", home), Path::new("/data/~/x"));
+
+        let tmp = std::env::temp_dir().canonicalize().unwrap();
+        assert_eq!(library_dir("~", &tmp), Some(tmp.clone()));
+        assert_eq!(library_dir("", &tmp), None);
+        assert_eq!(library_dir("/no/such/folder/gpl", &tmp), None);
+        // Относительный путь становится абсолютным.
+        let dir = library_dir(".", &tmp).unwrap();
+        assert!(dir.is_absolute());
+        #[cfg(not(windows))]
+        assert_eq!(dir, std::env::current_dir().unwrap().canonicalize().unwrap());
+    }
 }

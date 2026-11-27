@@ -8,8 +8,9 @@ import SwiftUI
 /// Сторона миниатюры на маркере и ячейка кластеризации, в пунктах (как в версии GTK).
 private let markerSize: CGFloat = 56
 private let clusterCell = 72.0
-/// Пауза после движения карты, прежде чем пересчитывать маркеры и список.
-private let debounce: TimeInterval = 0.15
+/// Пока карта движется, маркеры пересчитываются с этим интервалом; список фото и дерево
+/// фильтра — через такую же паузу после остановки.
+private let refreshInterval: TimeInterval = 0.15
 /// Предел зума при подгонке под все фото и шаг приближения по щелчку на кластере.
 private let fitMaxZoom = 17.0
 private let clusterZoomStep = 2.0
@@ -32,7 +33,7 @@ struct MapTab: View {
     var body: some View {
         @Bindable var model = model
         SplitPane(side: .trailing, width: $listWidth, sideRange: 300...900, minMain: 380) {
-            PhotoMap(photos: model.geotagged)
+            PhotoMap(photos: model.geotagged, all: model.allGeotagged, filterOpen: model.mapFilterOpen)
                 // Фильтр по датам плавает над картой под строкой поиска: открытие
                 // не сдвигает и не сжимает карту.
                 .overlay(alignment: .topLeading) {
@@ -54,7 +55,7 @@ struct MapTab: View {
             VStack(spacing: 0) {
                 PaneHeader(title: model.mapInfo)
                 Divider()
-                PhotoGrid(photos: model.ordered(model.mapVisible), selection: $model.mapSelection) { photo in
+                PhotoGrid(photos: model.mapList, selection: $model.mapSelection) { photo in
                     // Выбор фото в списке — центрировать карту на нём.
                     model.map?.center(on: photo)
                 }
@@ -185,6 +186,8 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
     var message: String?
     var showResults = false
     private(set) var locating = false
+    /// Идёт запрос поиска местности — в поле вместо лупы индикатор.
+    private(set) var searching = false
 
     /// Ошибка «Моего местоположения» — окно показывает тот, кто пользуется поиском.
     var alert: AlertMessage?
@@ -210,6 +213,7 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = text
         request.resultTypes = [.address, .pointOfInterest]
+        searching = true
         Task {
             let result: Result<[Place], Error>
             do {
@@ -219,6 +223,7 @@ final class PlaceFinder: NSObject, CLLocationManagerDelegate {
                 result = .failure(error)
             }
             guard current == generation else { return }
+            searching = false
             switch result {
             case .success(let found) where found.count == 1:
                 showResults = false
@@ -339,6 +344,7 @@ struct MapSearchBar: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
             .help(Core.text("filter_by_date"))
+            .accessibilityLabel(Core.text("filter_by_date"))
 
             PlaceSearchField(finder: finder)
                 .frame(width: 260, height: 28)
@@ -359,7 +365,15 @@ struct PlaceSearchField: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            // Пока идёт запрос — индикатор на месте лупы (той же ширины, поле не прыгает).
+            ZStack {
+                if finder.searching {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 16)
             // Подсказка своя: системная на подложке-материале рисуется «живой»
             // (vibrancy) и выглядит размытой. Цвет из NSColor от фона не зависит.
             TextField("", text: $finder.query)
@@ -432,6 +446,7 @@ struct LocateButton: View {
         .buttonStyle(.plain)
         .disabled(finder.locating)
         .help(Core.text("my_location"))
+        .accessibilityLabel(Core.text("my_location"))
     }
 }
 
@@ -444,6 +459,13 @@ final class ClusterAnnotation: NSObject, MKAnnotation {
     init(_ cluster: Cluster) {
         self.cluster = cluster
         coordinate = CLLocationCoordinate2D(latitude: cluster.lat, longitude: cluster.lon)
+    }
+
+    /// Маркер стоит там же, где кластер `other` с тем же ключом (с точностью около 10 см;
+    /// долгота — с учётом перехода через 180°).
+    func shows(_ other: Cluster) -> Bool {
+        let dLon = abs(cluster.lon - other.lon).truncatingRemainder(dividingBy: 360)
+        return abs(cluster.lat - other.lat) < 1e-6 && min(dLon, 360 - dLon) < 1e-6
     }
 }
 
@@ -463,6 +485,7 @@ final class ClusterView: MKAnnotationView {
     private let thumb = NSImageView()
     private let badge = NSTextField(labelWithString: "")
     private var path: String?
+    private var loading: Task<Void, Never>?
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -505,16 +528,45 @@ final class ClusterView: MKAnnotationView {
         badge.frame = NSRect(x: markerSize - w + 6, y: markerSize - h + 6, width: w, height: h)
         badge.layer?.cornerRadius = h / 2
 
+        // Для VoiceOver маркер — кнопка: имя файла или число фото кластера.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(cluster.count == 1 ? cluster.cover.fileName : Core.photos(cluster.count))
+
         path = cluster.cover.thumbPath
-        thumb.image = path.flatMap(ThumbnailCache.shared.cached)
-        guard thumb.image == nil, let path else { return }
-        Task { @MainActor [weak self] in
+        load(keepImage: false)
+    }
+
+    /// Файл миниатюры перезаписан (правка EXIF, пересканирование) — прочитать его заново;
+    /// прежняя картинка остаётся до загрузки новой.
+    func reload() {
+        load(keepImage: true)
+    }
+
+    private func load(keepImage: Bool) {
+        loading?.cancel()
+        loading = nil
+        if let cached = path.flatMap(ThumbnailCache.shared.cached) {
+            thumb.image = cached
+            return
+        }
+        if !keepImage {
+            thumb.image = nil
+        }
+        guard let path else { return }
+        loading = Task { @MainActor [weak self] in
             let image = await ThumbnailCache.shared.image(path)
             // Маркер переиспользуется: ставим картинку, только если он показывает то же фото.
-            if self?.path == path {
+            if !Task.isCancelled, self?.path == path, let image {
                 self?.thumb.image = image
             }
         }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        loading?.cancel()
+        loading = nil
     }
 }
 
@@ -550,7 +602,11 @@ final class LocationView: MKAnnotationView {
 }
 
 struct PhotoMap: NSViewRepresentable {
+    /// Фото карты (за период фильтра) и все фото с координатами — по ним считаются дерево
+    /// фильтра и начальная подгонка; открыта ли панель фильтра.
     let photos: PhotoList
+    let all: PhotoList
+    let filterOpen: Bool
     @Environment(AppModel.self) private var model
 
     func makeCoordinator() -> Coordinator {
@@ -579,7 +635,7 @@ struct PhotoMap: NSViewRepresentable {
     }
 
     func updateNSView(_ map: MKMapView, context: Context) {
-        context.coordinator.set(photos)
+        context.coordinator.set(photos, all: all, filterOpen: filterOpen)
     }
 
     static func dismantleNSView(_ map: MKMapView, coordinator: Coordinator) {
@@ -604,17 +660,29 @@ struct PhotoMap: NSViewRepresentable {
         private let model: AppModel
         weak var map: MKMapView?
         private var photos = PhotoList.empty
+        private var all = PhotoList.empty
+        private var filterOpen = false
         private var markers: [Cluster.Key: ClusterAnnotation] = [:]
         private var visible: [Int]?
-        private var pending: Timer?
+        /// Обновление маркеров во время движения карты и полное — после её остановки.
+        private var throttle: Timer?
+        private var settle: Timer?
+        /// Карта движется (между `regionWillChange` и `regionDidChange`).
+        private var moving = false
         /// Начальное положение (сохранённое или подгонка под все фото) уже выставлено.
         private var positioned = false
-        /// Фото из «Найти на карте» — выделить, как только оно окажется в видимой области.
+        /// Сохранённого положения нет: пока идёт сканирование и пользователь не двигал карту,
+        /// она подгоняется под фото заново — иначе осталась бы на первой пачке первого скана.
+        private var autoFit = false
+        /// Куда карта встала после последней подгонки: другое положение — её сдвинул пользователь.
+        private var lastFit: (lat: Double, lon: Double, zoom: Double)?
+        /// Сохранённое положение относится к прежней библиотеке.
+        private var ignoreSaved = false
+        /// Фото из «Найти на карте» или с маркера за краем кадра — выделить, как только оно
+        /// окажется в видимой области. Живёт до остановки карты.
         private var pendingSelect: Int64?
         private var location: LocationAnnotation?
         private var quitObserver: NSObjectProtocol?
-        /// Координаты фото изменились: с новым списком пересоздать все маркеры.
-        private var staleMarkers = false
 
         init(_ model: AppModel) {
             self.model = model
@@ -632,21 +700,28 @@ struct PhotoMap: NSViewRepresentable {
             }
         }
 
-        func set(_ list: PhotoList) {
-            guard list !== photos else { return }
+        func set(_ list: PhotoList, all: PhotoList, filterOpen: Bool) {
+            let listChanged = list !== photos
+            // Дерево фильтра считается по всем фото и только пока панель открыта.
+            let datesChanged = all !== self.all || (filterOpen && !self.filterOpen)
             photos = list
-            if staleMarkers {
-                staleMarkers = false
-                map?.removeAnnotations(Array(markers.values))
-                markers = [:]
+            self.all = all
+            self.filterOpen = filterOpen
+            if listChanged {
+                // Индексы относятся к прежнему списку — список фото собрать заново.
+                visible = nil
+                position()
+                refresh(full: true)
+            } else if datesChanged, filterOpen {
+                updateDateCounts()
             }
-            // Индексы относятся к прежнему списку — список фото собрать заново.
-            visible = nil
-            position()
-            refresh()
         }
 
         func resized() {
+            // Смена размера меняет область карты — это не сдвиг пользователем.
+            if autoFit {
+                lastFit = nil
+            }
             position()
             schedule()
         }
@@ -665,18 +740,42 @@ struct PhotoMap: NSViewRepresentable {
             map?.move(lat: lat, lon: lon, zoom: zoom, animated: animated)
         }
 
-        /// Один раз, когда у карты появился размер: сохранённое положение, иначе все фото.
+        /// Когда у карты появился размер: сохранённое положение, иначе все фото. Подгонка
+        /// повторяется с каждым новым списком, пока идёт сканирование (и один раз после него),
+        /// если пользователь не сдвинул карту сам.
         private func position() {
-            guard !positioned, let map, hasSize else { return }
-            if let saved = Core.mapView {
-                move(lat: saved.lat, lon: saved.lon, zoom: saved.zoom, animated: false)
-            } else if let fit = photos.fit(size: map.bounds.size, pad: 60, maxZoom: fitMaxZoom) {
-                move(lat: fit.lat, lon: fit.lon, zoom: fit.zoom, animated: false)
-            } else {
+            guard let map, hasSize else { return }
+            if !positioned {
+                if !ignoreSaved, let saved = Core.mapView {
+                    move(lat: saved.lat, lon: saved.lon, zoom: saved.zoom, animated: false)
+                    positioned = true
+                    return
+                }
+                autoFit = true
+            }
+            guard autoFit else { return }
+            if let last = lastFit {
+                let center = map.centerCoordinate
+                let moved = abs(center.latitude - last.lat) > 1e-4 || abs(center.longitude - last.lon) > 1e-4
+                    || abs(zoom - last.zoom) > 0.01
+                if moved {
+                    autoFit = false
+                    return
+                }
+            }
+            // Фильтр по датам положение карты не меняет — под его список не подгоняем.
+            guard model.mapPeriod == nil,
+                  let fit = all.fit(size: map.bounds.size, pad: 60, maxZoom: fitMaxZoom)
+            else {
                 // Фото ещё нет (идёт первое сканирование) — подгоним, когда появятся.
                 return
             }
+            move(lat: fit.lat, lon: fit.lon, zoom: fit.zoom, animated: false)
             positioned = true
+            lastFit = (map.centerCoordinate.latitude, map.centerCoordinate.longitude, zoom)
+            if !model.scanning {
+                autoFit = false
+            }
         }
 
         /// Пока карта не показана, положение не сохраняется — иначе запомнилась бы нулевая точка.
@@ -690,6 +789,8 @@ struct PhotoMap: NSViewRepresentable {
 
         func center(on photo: Photo) {
             guard photo.hasCoords, let map else { return }
+            // Пользователь выбрал фото сам — отложенное выделение другого больше не нужно.
+            pendingSelect = nil
             map.setCenter(CLLocationCoordinate2D(latitude: photo.lat, longitude: photo.lon), animated: true)
         }
 
@@ -697,6 +798,7 @@ struct PhotoMap: NSViewRepresentable {
             guard photo.hasCoords else { return }
             // Сохранённое положение или автоподгонка больше не нужны.
             positioned = true
+            autoFit = false
             pendingSelect = photo.id
             move(lat: photo.lat, lon: photo.lon, zoom: photoZoom, animated: true)
             // Если карта уже здесь, область не изменится — обновить список явно.
@@ -706,6 +808,7 @@ struct PhotoMap: NSViewRepresentable {
         func go(lat: Double, lon: Double, radius: Double?, maxZoom: Double) {
             guard let map, hasSize else { return }
             positioned = true
+            autoFit = false
             map.go(lat: lat, lon: lon, radius: radius, maxZoom: maxZoom)
         }
 
@@ -718,50 +821,112 @@ struct PhotoMap: NSViewRepresentable {
             return (map.centerCoordinate.latitude, map.centerCoordinate.longitude, zoom)
         }
 
-        func resetMarkers() {
-            staleMarkers = true
+        func thumbnailsChanged() {
+            guard let map else { return }
+            for marker in markers.values {
+                (map.view(for: marker) as? ClusterView)?.reload()
+            }
+        }
+
+        func libraryChanged() {
+            positioned = false
+            ignoreSaved = true
+            autoFit = true
+            lastFit = nil
+            pendingSelect = nil
         }
 
         // MARK: Маркеры и список
 
+        /// Карта сдвинулась. Маркеры обновляются и во время движения — не реже чем раз в
+        /// `refreshInterval`; список фото и дерево фильтра — когда она остановится.
         private func schedule() {
-            pending?.invalidate()
-            pending = Timer.scheduledTimer(withTimeInterval: debounce, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+            if throttle == nil {
+                throttle = timer { $0.throttle = nil; $0.refresh(full: false) }
+            }
+            settle?.invalidate()
+            settle = timer {
+                $0.settle = nil
+                $0.throttle?.invalidate()
+                $0.throttle = nil
+                $0.refresh(full: true, settled: true)
             }
         }
 
-        private func refresh() {
+        /// Таймер во всех режимах цикла событий: перетаскивание карты мышью — тоже.
+        private func timer(_ action: @escaping @MainActor (Coordinator) -> Void) -> Timer {
+            let timer = Timer(timeInterval: refreshInterval, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    if let self {
+                        action(self)
+                    }
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            return timer
+        }
+
+        /// Пересчитать маркеры; `full` — ещё и список фото в видимой области, подпись над ним
+        /// и дерево фильтра; `settled` — вызов после остановки карты.
+        private func refresh(full: Bool, settled: Bool = false) {
             guard let map, hasSize else { return }
             let center = map.centerCoordinate
             let snapshot = photos.snapshot(
                 lat: center.latitude, lon: center.longitude, zoom: zoom, size: map.bounds.size, cell: clusterCell
             )
 
-            // Пересоздаются только изменившиеся кластеры.
-            let keep = Set(snapshot.clusters.map(\.key))
-            let gone = markers.filter { !keep.contains($0.key) }
-            map.removeAnnotations(Array(gone.values))
-            gone.keys.forEach { markers[$0] = nil }
+            // Пересоздаются только изменившиеся кластеры: другой состав (ключ) или другое
+            // место — у фото того же кластера изменили координаты.
+            var clusters: [Cluster.Key: Cluster] = [:]
+            for cluster in snapshot.clusters {
+                clusters[cluster.key] = cluster
+            }
+            let gone = markers.filter { key, marker in
+                clusters[key].map { !marker.shows($0) } ?? true
+            }
+            if !gone.isEmpty {
+                map.removeAnnotations(Array(gone.values))
+                gone.keys.forEach { markers[$0] = nil }
+            }
             let added = snapshot.clusters.filter { markers[$0.key] == nil }.map(ClusterAnnotation.init)
-            added.forEach { markers[$0.cluster.key] = $0 }
-            map.addAnnotations(added)
+            if !added.isEmpty {
+                added.forEach { markers[$0.cluster.key] = $0 }
+                map.addAnnotations(added)
+            }
+            guard full else { return }
 
-            model.setMapDateCounts(model.allGeotagged.visibleDateCounts(
-                lat: center.latitude, lon: center.longitude, zoom: zoom, size: map.bounds.size
-            ))
-            let total = photos.photos.count
+            if filterOpen {
+                updateDateCounts()
+            }
+            let total = photos.count
             model.mapInfo = total == 0 ? Core.text("no_geotagged") : Core.inMapArea(snapshot.visible.count, total)
             if snapshot.visible != visible {
                 visible = snapshot.visible
-                model.mapVisible = snapshot.visible.map { photos.photos[$0] }
-                // Выделенные фото, ушедшие из видимой области (или удалённые), из выделения выпадают.
-                model.mapSelection.keep(only: model.mapVisible)
+                let list = photos.photos
+                model.mapVisible = snapshot.visible.map { list[$0] }
+                // Выделенные фото, ушедшие из видимой области (или удалённые), из выделения
+                // выпадают; у оставшихся значения — из нового списка.
+                model.mapSelection.sync(with: model.mapVisible)
             }
-            if let id = pendingSelect, let photo = model.mapVisible.first(where: { $0.id == id }) {
-                model.mapSelection = PhotoSelection(photo)
-                pendingSelect = nil
+            if let id = pendingSelect {
+                if let photo = model.mapVisible.first(where: { $0.id == id }) {
+                    model.mapSelection = PhotoSelection(photo)
+                    pendingSelect = nil
+                } else if settled, !moving {
+                    // Карта остановилась, а фото в кадре нет (его нет в списке) — не ждать его
+                    // дальше: иначе оно выделилось бы много позже, при случайном сдвиге карты.
+                    pendingSelect = nil
+                }
             }
+        }
+
+        /// Даты фото в видимой области — дерево фильтра карты (по всем фото, без учёта фильтра).
+        private func updateDateCounts() {
+            guard let map, hasSize else { return }
+            let center = map.centerCoordinate
+            model.setMapDateCounts(all.visibleDateCounts(
+                lat: center.latitude, lon: center.longitude, zoom: zoom, size: map.bounds.size
+            ))
         }
 
         @objc func mapClicked() {
@@ -769,6 +934,15 @@ struct PhotoMap: NSViewRepresentable {
         }
 
         // MARK: MKMapViewDelegate
+
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            moving = true
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            moving = false
+            schedule()
+        }
 
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
             schedule()
@@ -791,10 +965,17 @@ struct PhotoMap: NSViewRepresentable {
             guard let annotation = view.annotation as? ClusterAnnotation else { return }
             mapView.deselectAnnotation(annotation, animated: false)
             let cluster = annotation.cluster
-            if cluster.count == 1 {
-                model.mapSelection = PhotoSelection(cluster.cover)
-            } else {
+            if cluster.count > 1 {
                 move(lat: cluster.lat, lon: cluster.lon, zoom: zoom + clusterZoomStep, animated: true)
+            } else if let photo = model.mapVisible.first(where: { $0.id == cluster.cover.id }) {
+                pendingSelect = nil
+                model.mapSelection = PhotoSelection(photo)
+            } else {
+                // Маркер в запасе за краем кадра: фото в списке нет. Сдвинуть карту к нему —
+                // оно выделится, когда появится в списке (как «Найти на карте»).
+                pendingSelect = cluster.cover.id
+                mapView.setCenter(annotation.coordinate, animated: true)
+                schedule()
             }
         }
     }

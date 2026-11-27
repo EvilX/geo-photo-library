@@ -36,6 +36,14 @@ struct Photo: Identifiable, Hashable {
 
     var fileName: String { (path as NSString).lastPathComponent }
     var url: URL { URL(fileURLWithPath: path) }
+
+    /// То же фото без координат.
+    var withoutCoords: Photo {
+        Photo(
+            id: id, path: path, takenAt: takenAt, thumbPath: thumbPath, lat: 0, lon: 0, hasCoords: false,
+            isVideo: isVideo, duration: duration
+        )
+    }
 }
 
 struct DateCount: Hashable {
@@ -96,16 +104,40 @@ enum ScanResult {
 }
 
 /// Список фото из БД. Указатель ядра нужен карте: в нём лежат готовые проекции точек.
+/// Массив `photos` собирается при первом обращении: список всех фото с координатами при
+/// включённом фильтре карты нужен только ядру (дерево дат), и собирать его незачем.
 final class PhotoList: @unchecked Sendable {
     static let empty = PhotoList(nil)
 
-    let photos: [Photo]
     private let raw: OpaquePointer?
+    private let lock = NSLock()
+    private var built: [Photo]?
 
     fileprivate init(_ raw: OpaquePointer?) {
         self.raw = raw
+    }
+
+    var count: Int { gpl_photos_len(raw) }
+
+    var photos: [Photo] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let built {
+            return built
+        }
+        let list = build()
+        built = list
+        return list
+    }
+
+    /// Те же фото с теми же полями: сравнивает ядро, массивы для этого не собираются.
+    func same(as other: PhotoList) -> Bool {
+        self === other || gpl_photos_equal(raw, other.raw)
+    }
+
+    private func build() -> [Photo] {
         let rows = UnsafeBufferPointer(start: gpl_photos_data(raw), count: gpl_photos_len(raw))
-        photos = rows.map { r in
+        return rows.map { r in
             Photo(
                 id: r.id,
                 path: String(cString: r.path),
@@ -128,6 +160,7 @@ final class PhotoList: @unchecked Sendable {
     func snapshot(lat: Double, lon: Double, zoom: Double, size: CGSize, cell: Double) -> MapSnapshot {
         let view = gpl_map_view(raw, lat, lon, zoom, size.width, size.height, cell)
         defer { gpl_map_view_free(view) }
+        let photos = photos
         var n = 0
         let clusters = UnsafeBufferPointer(start: gpl_map_view_clusters(view, &n), count: n).map { c in
             let cover = photos[Int(c.cover)]
@@ -143,13 +176,13 @@ final class PhotoList: @unchecked Sendable {
         return MapSnapshot(clusters: clusters, visible: visible)
     }
 
-    /// Центр и зум, при которых все фото помещаются в область; `nil` — список пуст.
     /// Число фото списка в видимой области карты по дням — дерево фильтра карты по датам.
     func visibleDateCounts(lat: Double, lon: Double, zoom: Double, size: CGSize) -> [DateCount] {
         var n = 0
         return Core.dateCounts(gpl_visible_date_counts(raw, lat, lon, zoom, size.width, size.height, &n), n)
     }
 
+    /// Центр и зум, при которых все фото помещаются в область; `nil` — список пуст.
     func fit(size: CGSize, pad: Double, maxZoom: Double) -> (lat: Double, lon: Double, zoom: Double)? {
         var (lat, lon, zoom) = (0.0, 0.0, 0.0)
         guard gpl_photos_fit(raw, size.width, size.height, pad, maxZoom, &lat, &lon, &zoom) else { return nil }
@@ -238,6 +271,15 @@ enum Core {
 
     static func trashFailed(_ name: String, _ e: String) -> String {
         take(gpl_text_trash_failed(name, e)) ?? e
+    }
+
+    /// Ход перемещения в корзину и записи изменений: «… 3 / 10».
+    static func trashing(_ done: Int, _ total: Int) -> String {
+        take(gpl_text_trashing(done, total)) ?? ""
+    }
+
+    static func savingProgress(_ done: Int, _ total: Int) -> String {
+        take(gpl_text_saving_progress(done, total)) ?? ""
     }
 
     // MARK: Координаты
@@ -417,8 +459,12 @@ enum Core {
         return try? JSONDecoder().decode(PhotoInfo.self, from: Data(json.utf8))
     }
 
-    static func count() -> Int {
-        Int(gpl_db_count())
+    // Чтения возвращают `nil`, если БД прочитать не удалось (занята сканером): это не «фото
+    // нет», и интерфейс оставляет прежние данные.
+
+    static func count() -> Int? {
+        let n = gpl_db_count()
+        return n < 0 ? nil : Int(n)
     }
 
     /// Фильтр вкладки дат при запуске: `GEO_PHOTO_LIBRARY_GEO_FILTER` (отладка) или «Все фото».
@@ -426,9 +472,10 @@ enum Core {
         GeoFilter(rawValue: gpl_debug_geo_filter()) ?? .all
     }
 
-    static func dateCounts(_ filter: GeoFilter) -> [DateCount] {
+    static func dateCounts(_ filter: GeoFilter) -> [DateCount]? {
         var n = 0
-        return dateCounts(gpl_db_date_counts(filter.rawValue, &n), n)
+        guard let raw = gpl_db_date_counts(filter.rawValue, &n) else { return nil }
+        return dateCounts(raw, n)
     }
 
     /// Счётчики из ядра; память освобождается здесь.
@@ -439,13 +486,13 @@ enum Core {
         }
     }
 
-    static func photos(year: Int32, month: UInt32, day: UInt32, filter: GeoFilter) -> [Photo] {
-        PhotoList(gpl_db_photos_by_date(year, month, day, filter.rawValue)).photos
+    static func photos(year: Int32, month: UInt32, day: UInt32, filter: GeoFilter) -> [Photo]? {
+        gpl_db_photos_by_date(year, month, day, filter.rawValue).map { PhotoList($0).photos }
     }
 
-    /// Фото с координатами за период узла дерева дат; `nil` — за всё время.
-    static func geotagged(_ period: DatePeriod?) -> PhotoList {
-        PhotoList(gpl_db_geotagged(period?.year ?? 0, period?.month ?? 0, period?.day ?? 0))
+    /// Фото с координатами за период узла дерева дат (`nil` — за всё время).
+    static func geotagged(_ period: DatePeriod?) -> PhotoList? {
+        gpl_db_geotagged(period?.year ?? 0, period?.month ?? 0, period?.day ?? 0).map { PhotoList($0) }
     }
 
     // MARK: Сканирование

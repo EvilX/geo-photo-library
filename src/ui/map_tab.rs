@@ -17,7 +17,7 @@ use std::{
     cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
     rc::Rc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MARKER_SIZE: i32 = 56;
@@ -35,8 +35,24 @@ struct Point {
     y: f64,
 }
 
-/// Ключ кластера: id первого фото, число фото и сумма их id (состав).
-type ClusterKey = (i64, usize, i64);
+/// Сколько ждать, пока фото из «Найти на карте» или со щелчка по маркеру окажется в
+/// видимой области (карта едет к нему с анимацией). Позже выделять его уже некстати:
+/// пользователь занят другим.
+const PENDING_SELECT_TTL: Duration = Duration::from_secs(8);
+
+/// Ключ кластера: id первого фото, число фото и хеш id всех его фото (состав).
+type ClusterKey = (i64, usize, u64);
+
+/// Хеш состава кластера: зависит от каждого id и от порядка (он у одного состава всегда
+/// один — по дате). Сумма id, что была раньше, совпадала у разных наборов (1+4 = 2+3),
+/// и маркер оставался со старыми фото. Умножение и сдвиг на фото — обновление карты идёт
+/// по всем фото на каждое движение.
+fn members_hash(ids: impl Iterator<Item = i64>) -> u64 {
+    ids.fold(0xcbf2_9ce4_8422_2325, |h, id| {
+        let h = (h ^ id as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        h ^ (h >> 29)
+    })
+}
 
 pub struct MapTab {
     pub root: gtk::Paned,
@@ -70,9 +86,10 @@ pub struct MapTab {
     /// Кнопка «Моё местоположение» и слой с отметкой найденной точки.
     locate: gtk::Button,
     location_layer: shumate::MarkerLayer,
-    /// Фото, которое выделить в списке, когда оно появится в видимой области
-    /// (после перехода «Найти на карте»).
-    pending_select: Cell<Option<i64>>,
+    /// Фото, которое выделить в списке, когда оно появится в видимой области (после перехода
+    /// «Найти на карте» или щелчка по маркеру у края карты), и время запроса: ожидание
+    /// снимается следующим действием пользователя или по `PENDING_SELECT_TTL`.
+    pending_select: Cell<Option<(i64, Instant)>>,
     /// Фильтр по датам: дерево в выдвижной панели слева, кнопка над картой с подписью
     /// выбранного периода и сам период (`None` — всё время).
     filter: Rc<DateTree>,
@@ -104,6 +121,7 @@ impl MapTab {
         simple_map.add_overlay_layer(&location_layer);
 
         let grid = PhotoGrid::new(cache.clone(), 100, 4);
+        grid.set_empty_text(i18n::no_geotagged());
         let info = gtk::Label::new(None);
         let sort = photo_grid::sort_dropdown();
         let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -140,6 +158,7 @@ impl MapTab {
         let filter_button = gtk::ToggleButton::new();
         filter_button.set_child(Some(&filter_content));
         filter_button.set_tooltip_text(Some(i18n::filter_by_date()));
+        super::a11y_label(&filter_button, i18n::filter_by_date());
         filter_button.add_css_class("map-search");
         filter_button.bind_property("active", &filter_panel, "reveal-child").sync_create().build();
         let locate = place_search::locate_button();
@@ -204,10 +223,8 @@ impl MapTab {
         let weak = Rc::downgrade(&this);
         this.filter.connect_changed(move || {
             let Some(t) = weak.upgrade() else { return };
-            if t.sync_period() {
-                t.set_photos(t.period_photos(), false);
-                t.schedule_refresh();
-            }
+            let node = t.filter.selected().filter(|n| !n.is_all_time());
+            t.set_period(node.map(|n| (n.key(), n.title())));
         });
 
         let weak = Rc::downgrade(&this);
@@ -234,6 +251,9 @@ impl MapTab {
         click.connect_released(move |_, _, _, _| {
             if let Some(t) = weak.upgrade() {
                 t.filter_button.set_active(false);
+                // Пользователь занялся картой сам — отложенное выделение больше не нужно
+                // (щелчок по маркеру назначит его заново: обработчик маркера идёт позже).
+                t.pending_select.set(None);
             }
         });
         this.simple_map.add_controller(click);
@@ -268,7 +288,10 @@ impl MapTab {
         // рамкой и из программы карту не двигает).
         let weak = Rc::downgrade(&this);
         this.grid.connect_picked(move |photo| {
-            if let (Some(t), Some((lat, lon))) = (weak.upgrade(), photo.coords()) {
+            let Some(t) = weak.upgrade() else { return };
+            // Явный выбор в списке отменяет отложенное выделение.
+            t.pending_select.set(None);
+            if let Some((lat, lon)) = photo.coords() {
                 t.map.go_to(lat, lon);
             }
         });
@@ -316,7 +339,17 @@ impl MapTab {
         let Some((lat, lon)) = photo.coords() else { return false };
         // Сохранённое положение или автоподгонка больше не нужны.
         self.fitted.set(true);
-        self.pending_select.set(Some(photo.id));
+        // Фото вне выбранного периода на карте нет — фильтр по датам сбрасывается на
+        // «Всё время» (и в дереве, и на кнопке), иначе карта приехала бы в пустое место.
+        if let Some((year, month, day)) = self.period.get() {
+            let inside = photo.day().is_some_and(|(y, m, d)| {
+                y == year && month.is_none_or(|x| x == m) && day.is_none_or(|x| x == d)
+            });
+            if !inside {
+                self.reset_period();
+            }
+        }
+        self.pending_select.set(Some((photo.id, Instant::now())));
         let max = self.viewport.max_zoom_level() as f64;
         self.map.go_to_full(lat, lon, PHOTO_ZOOM.min(max));
         // Если карта уже здесь, viewport не изменится — обновить список явно.
@@ -374,21 +407,29 @@ impl MapTab {
         self.schedule_refresh();
     }
 
-    /// Запомнить период, выбранный в дереве фильтра, и показать его на кнопке.
-    /// `true` — период изменился.
-    fn sync_period(&self) -> bool {
-        let node = self.filter.selected().filter(|n| !n.is_all_time());
-        self.filter_label.set_visible(node.is_some());
-        if let Some(n) = node {
-            self.filter_label.set_text(&n.title());
+    /// Сменить период фильтра (`None` — всё время; иначе узел и его подпись для кнопки):
+    /// показать его на кнопке и перечитать фото. Положение и масштаб карты не меняются.
+    fn set_period(self: &Rc<Self>, period: Option<(NodeKey, String)>) {
+        self.filter_label.set_visible(period.is_some());
+        if let Some((_, title)) = &period {
+            self.filter_label.set_text(title);
             self.filter_button.add_css_class("suggested-action");
         } else {
             self.filter_button.remove_css_class("suggested-action");
         }
-        let period = node.map(|n| n.key());
-        let changed = period != self.period.get();
-        self.period.set(period);
-        changed
+        let period = period.map(|(key, _)| key);
+        if period != self.period.replace(period) {
+            self.set_photos(self.period_photos(), false);
+            self.schedule_refresh();
+        }
+    }
+
+    /// Сбросить фильтр на «Всё время»: через строку дерева, чтобы выделение в нём совпадало
+    /// с периодом; если дерево ещё не заполнено — напрямую.
+    fn reset_period(self: &Rc<Self>) {
+        if !self.filter.select_all_time() || self.period.get().is_some() {
+            self.set_period(None);
+        }
     }
 
     /// Открыть фильтр по датам и выбрать год (отладочный хук).
@@ -493,7 +534,7 @@ impl MapTab {
             .iter()
             .map(|c| {
                 let ids = c.members.iter().map(|&m| points[near[m]].id);
-                (points[near[c.members[0]]].id, c.members.len(), ids.fold(0, i64::wrapping_add))
+                (points[near[c.members[0]]].id, c.members.len(), members_hash(ids))
             })
             .collect();
         {
@@ -541,10 +582,15 @@ impl MapTab {
         }
         drop(points);
         drop(photos);
-        // Фото из «Найти на карте» — выделить, как только оно в видимой области.
-        if let Some(id) = self.pending_select.get().filter(|id| self.visible_ids.borrow().contains(id)) {
-            self.grid.select_id(id);
-            self.pending_select.set(None);
+        // Фото из «Найти на карте» — выделить, как только оно в видимой области; не дождались
+        // (карту увели в сторону) — забыть, чтобы оно не выделилось когда-нибудь потом.
+        if let Some((id, since)) = self.pending_select.get() {
+            if self.visible_ids.borrow().contains(&id) {
+                self.grid.select_id(id);
+                self.pending_select.set(None);
+            } else if since.elapsed() > PENDING_SELECT_TTL {
+                self.pending_select.set(None);
+            }
         }
         // Дерево фильтра: даты всех фото с координатами в видимой области.
         let counts = DateCount::tally(
@@ -555,6 +601,7 @@ impl MapTab {
             self.filter.set_counts(counts);
         }
         let total = self.photos.borrow().len();
+        self.grid.set_empty_text(if total == 0 { i18n::no_geotagged() } else { i18n::no_photos_in_area() });
         self.info.set_text(&if total == 0 {
             i18n::no_geotagged().to_string()
         } else {
@@ -626,7 +673,28 @@ impl MapTab {
             }
             return;
         }
-        // Одиночное фото (или максимальный зум) — выделить в списке.
-        self.grid.select_id(ids[0]);
+        // Одиночное фото (или максимальный зум) — выделить в списке. Маркеры рисуются и
+        // чуть за краем карты: такого фото в списке ещё нет — карта едет к нему, и оно
+        // выделится, когда попадёт в видимую область.
+        if self.grid.select_id(ids[0]) {
+            self.pending_select.set(None);
+        } else if let Some(&(lat, lon)) = pts.first() {
+            self.pending_select.set(Some((ids[0], Instant::now())));
+            self.map.go_to(lat, lon);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cluster_hash() {
+        // У суммы id эти наборы совпадали.
+        assert_ne!(members_hash([1, 4].into_iter()), members_hash([2, 3].into_iter()));
+        assert_ne!(members_hash([1, 2, 6].into_iter()), members_hash([1, 3, 5].into_iter()));
+        assert_eq!(members_hash([7, 8, 9].into_iter()), members_hash([7, 8, 9].into_iter()));
+        assert_ne!(members_hash([7].into_iter()), members_hash([7, 0].into_iter()));
     }
 }

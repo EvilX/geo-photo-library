@@ -7,9 +7,12 @@ use crate::{
     video,
 };
 use gtk::{gio, glib, pango, prelude::*};
-use std::{cell::Cell, path::Path, rc::Rc};
+use std::{cell::Cell, path::Path, rc::Rc, time::Duration};
 
 const WIDTH: i32 = 320;
+/// Пауза перед чтением файла: при удержании стрелки в сетке выбор меняется десятки раз
+/// в секунду, и читать EXIF каждого промелькнувшего фото незачем.
+const READ_DELAY: Duration = Duration::from_millis(120);
 
 pub struct InfoPanel {
     pub root: gtk::Box,
@@ -38,6 +41,7 @@ impl InfoPanel {
         close.set_valign(gtk::Align::Center);
         close.set_margin_end(6);
         close.set_tooltip_text(Some(i18n::close()));
+        crate::ui::a11y_label(&close, i18n::close());
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header.append(&title);
         header.append(&close);
@@ -84,6 +88,12 @@ impl InfoPanel {
         self.generation.set(self.generation.get() + 1);
     }
 
+    /// Файл показанного фото изменён (запись EXIF): следующий `show_photo` прочитает его
+    /// заново, даже если выбрано то же фото.
+    pub fn invalidate(&self) {
+        self.shown.set(None);
+    }
+
     /// Показать данные фото (`None` — ничего не выбрано). EXIF читается в фоне.
     pub fn show_photo(self: &Rc<Self>, photo: Option<Photo>) {
         let id = photo.as_ref().map(|p| p.id);
@@ -99,6 +109,11 @@ impl InfoPanel {
         };
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
+            // Выбор успел смениться — это чтение уже не нужно.
+            glib::timeout_future(READ_DELAY).await;
+            if weak.upgrade().is_none_or(|t| t.generation.get() != generation) {
+                return;
+            }
             let path = photo.path.clone();
             let loaded = gio::spawn_blocking(move || {
                 let path = Path::new(&path);

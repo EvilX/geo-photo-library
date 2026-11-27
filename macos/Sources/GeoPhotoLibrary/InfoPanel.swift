@@ -6,7 +6,10 @@ struct InfoPanel: View {
     let photo: Photo?
     /// Выделено несколько фото — показывать нечего, даже подсказку.
     var multiple = false
+    @Environment(AppModel.self) private var model
     @State private var info: PhotoInfo?
+    /// Фото, данные которого показаны в `info`.
+    @State private var shown: Photo.ID?
     @State private var allTagsOpen = false
 
     var body: some View {
@@ -61,14 +64,25 @@ struct InfoPanel: View {
             }
         }
         // Панель следует за выбранным фото; результат устаревшего чтения отбрасывается.
-        .task(id: photo?.id) {
-            info = nil
+        // Ключ — само фото (после правки у него другие координаты) и номер изменения файлов:
+        // правка тегов EXIF полей фото не меняет, а данные панели — меняет.
+        .task(id: Source(photo: photo, revision: model.filesRevision)) {
+            // То же фото перечитывается без мигания: прежние данные видны до новых.
+            if shown != photo?.id {
+                info = nil
+                shown = photo?.id
+            }
             guard let photo else { return }
             let loaded = await Task.detached(priority: .userInitiated) { Core.info(photo) }.value
             if !Task.isCancelled {
                 info = loaded
             }
         }
+    }
+
+    private struct Source: Hashable {
+        let photo: Photo?
+        let revision: Int
     }
 
     /// Строки «подпись — значение»; значение можно выделить и скопировать.

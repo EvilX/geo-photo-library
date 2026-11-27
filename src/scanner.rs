@@ -15,6 +15,8 @@ use walkdir::{DirEntry, WalkDir};
 
 pub const EXTENSIONS: &[&str] = &["jpg", "jpeg", "heic", "heif", "png", "webp", "tif", "tiff", "dng"];
 const CHUNK: usize = 64;
+/// Отметка в БД: при прошлом сканировании кадры видео можно было получить («1»).
+const META_FRAMES: &str = "video_frames";
 
 /// Сканирование отменено (см. флаг `cancel` в [`scan`]).
 #[derive(Debug)]
@@ -76,24 +78,50 @@ pub fn scan(
     std::fs::create_dir_all(thumbs_dir)?;
     let mut db = Db::open(db_path)?;
     let known = db.known_files()?;
-    // Видео без миниатюры (не было ffmpeg) — повторить, если кадр теперь можно получить.
-    let retry = if video::frames_available() { db.videos_without_thumbs()? } else { HashSet::new() };
+    // Пустая папка, из которой в БД есть файлы, — скорее всего точка монтирования без диска
+    // (сетевой или внешний том не подключён): каталог существует, но записи удалять нельзя.
+    if std::fs::read_dir(root)?.next().is_none() && known.keys().any(|k| Path::new(k).starts_with(root)) {
+        bail!(i18n::folder_unavailable(root));
+    }
+    // Видео без миниатюры повторяются один раз — когда кадры стало можно получить (поставили
+    // ffmpeg). Видео, из которого кадр не выходит и с декодером, каждый раз заново не обрабатывается.
+    let frames = video::frames_available();
+    let frames_before = db.meta(META_FRAMES)?.as_deref() == Some("1");
+    let mut retry = if frames && !frames_before { db.videos_without_thumbs()? } else { HashSet::new() };
+    // Файлы миниатюр, которых больше нет (кэш очистили), — создать заново.
+    let thumbs: HashSet<std::ffi::OsString> =
+        std::fs::read_dir(thumbs_dir)?.filter_map(|e| e.ok().map(|e| e.file_name())).collect();
+    for (path, thumb) in db.thumb_paths()? {
+        if !Path::new(&thumb).file_name().is_some_and(|n| thumbs.contains(n)) {
+            retry.insert(path);
+        }
+    }
 
     let mut stats = ScanStats::default();
     let mut found = HashSet::new();
     let mut todo = Vec::new();
-    for entry in WalkDir::new(root)
-        .follow_links(true)
-        .into_iter()
-        .filter_entry(|e| !is_hidden(e))
-        .filter_map(Result::ok)
-    {
+    // Каталоги, которые не удалось прочитать (нет прав, сбой сети): их файлы не найдены,
+    // но не пропали — записи о них остаются.
+    let mut unreadable: Vec<PathBuf> = Vec::new();
+    for entry in WalkDir::new(root).follow_links(true).into_iter().filter_entry(|e| !is_hidden(e)) {
         check()?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("обход папки: {e}");
+                unreadable.push(e.path().unwrap_or(root).to_path_buf());
+                continue;
+            }
+        };
         if !entry.file_type().is_file() || !is_supported(entry.path()) {
             continue;
         }
         let Some(path_str) = entry.path().to_str() else { continue };
-        let Ok(md) = entry.metadata() else { continue };
+        let Ok(md) = entry.metadata() else {
+            // Файл есть, но сведения о нём не прочитались — запись не трогаем.
+            found.insert(path_str.to_owned());
+            continue;
+        };
         let size = md.len() as i64;
         let mtime = md
             .modified()
@@ -103,7 +131,7 @@ pub fn scan(
         found.insert(path_str.to_owned());
         match known.get(path_str) {
             Some(&(s, m)) if s == size && m == mtime && !retry.contains(path_str) => continue,
-            Some(&(s, m)) if s == size && m == mtime => {}
+            // Изменённый файл или повтор (нет миниатюры) — интерфейс перечитает его миниатюру.
             Some(_) => stats.updated += 1,
             None => stats.added += 1,
         }
@@ -111,7 +139,10 @@ pub fn scan(
     }
     stats.found = found.len();
 
-    let removed: Vec<String> = known.into_keys().filter(|k| !found.contains(k)).collect();
+    let removed: Vec<String> = known
+        .into_keys()
+        .filter(|k| !found.contains(k) && !unreadable.iter().any(|dir| Path::new(k).starts_with(dir)))
+        .collect();
     stats.removed = removed.len();
     for thumb in db.delete(&removed)? {
         let _ = std::fs::remove_file(thumb);
@@ -126,6 +157,9 @@ pub fn scan(
         db.upsert(&records)?;
         done += chunk.len();
         progress(done, total);
+    }
+    if frames != frames_before {
+        db.set_meta(META_FRAMES, if frames { "1" } else { "0" })?;
     }
     Ok(stats)
 }
@@ -270,6 +304,25 @@ mod tests {
         assert_eq!(std::fs::read_dir(&th).unwrap().count(), 1);
 
         assert!(scan(&db, &base.join("missing"), &th, &noop).is_err());
+
+        // Пропавшая миниатюра (кэш очистили) создаётся заново, хотя файл не менялся.
+        for f in std::fs::read_dir(&th).unwrap() {
+            std::fs::remove_file(f.unwrap().path()).unwrap();
+        }
+        let s = scan(&db, &lib, &th, &noop).unwrap();
+        assert_eq!((s.added, s.updated, s.removed), (0, 1, 0));
+        assert_eq!(std::fs::read_dir(&th).unwrap().count(), 1);
+
+        // Папка опустела целиком (точка монтирования без диска) — записи остаются.
+        let away = base.join("away");
+        std::fs::rename(&lib, &away).unwrap();
+        std::fs::create_dir_all(&lib).unwrap();
+        assert!(scan(&db, &lib, &th, &noop).is_err());
+        assert_eq!(Db::open(&db).unwrap().count().unwrap(), 1);
+        std::fs::remove_dir(&lib).unwrap();
+        std::fs::rename(&away, &lib).unwrap();
+        let s = scan(&db, &lib, &th, &noop).unwrap();
+        assert_eq!((s.found, s.added, s.removed), (1, 0, 0));
 
         let stop = AtomicBool::new(true);
         let err = super::scan(&db, &lib, &th, &noop, &stop).unwrap_err();

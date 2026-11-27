@@ -61,10 +61,21 @@ pub fn save(img: DynamicImage, out: &Path) -> Result<()> {
     write(&square(img), out)
 }
 
+/// Миниатюра пишется во временный файл и переименовывается: интерфейс читает кэш во время
+/// сканирования и не должен увидеть недописанный файл.
 fn write(thumb: &DynamicImage, out: &Path) -> Result<()> {
-    let file = BufWriter::new(File::create(out).with_context(|| format!("создание {}", out.display()))?);
-    JpegEncoder::new_with_quality(file, 85).encode_image(&thumb.to_rgb8())?;
-    Ok(())
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = out.with_extension(format!("{}-{n}.tmp", std::process::id()));
+    let result = (|| -> Result<()> {
+        let file = BufWriter::new(File::create(&tmp).with_context(|| format!("создание {}", tmp.display()))?);
+        JpegEncoder::new_with_quality(file, 85).encode_image(&thumb.to_rgb8())?;
+        std::fs::rename(&tmp, out).with_context(|| format!("создание {}", out.display()))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// Центральный квадрат, уменьшенный до THUMB_SIZE (без увеличения).

@@ -19,6 +19,7 @@ use crate::{
 use gtk::{gdk, gio, glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
+    collections::HashSet,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,6 +34,11 @@ const PARTIAL_RELOAD: Duration = Duration::from_secs(3);
 /// чтение БД идёт в главном потоке и растёт с библиотекой, а так на него уходит
 /// не больше 5% времени, какой бы большой она ни была.
 const PARTIAL_RELOAD_RATIO: u32 = 20;
+/// Пауза перед записью настроек после движения слайдера масштаба: он меняет значение
+/// на каждом шаге, а файл достаточно записать один раз, когда слайдер отпустили.
+const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(600);
+/// Шаг «бегающей» полосы, пока сканер обходит папки и общее число файлов ещё неизвестно.
+const WALK_PULSE: Duration = Duration::from_millis(150);
 
 enum ScanEvent {
     Progress(usize, usize),
@@ -61,6 +67,17 @@ struct App {
     last_partial_reload: Cell<Instant>,
     /// Пауза до следующей подгрузки во время сканирования (см. `PARTIAL_RELOAD_RATIO`).
     partial_reload_interval: Cell<Duration>,
+    /// Сканер ещё обходит папки (до первого сообщения о ходе обработки) — полоса «бегает».
+    walking: Cell<bool>,
+    /// Номер сканирования — таймер полосы прошлого сканирования останавливается сам.
+    scan_generation: Cell<u64>,
+    /// Текущее сканирование уже обработало файлы: их миниатюры и записи в БД изменились.
+    scan_dirty: Cell<bool>,
+    /// Пути фото, в файлы которых сейчас записывается EXIF: до конца записи их нельзя
+    /// ни редактировать снова, ни перемещать в корзину.
+    writing: RefCell<HashSet<String>>,
+    /// Отложенная запись настроек (см. `CONFIG_SAVE_DELAY`).
+    save_timer: RefCell<Option<glib::SourceId>>,
 }
 
 pub fn build(app: &gtk::Application) {
@@ -82,7 +99,7 @@ pub fn build(app: &gtk::Application) {
     let db = match Db::open(&paths::db_path()) {
         Ok(db) => Rc::new(db),
         Err(e) => {
-            eprintln!("Не удалось открыть БД {}: {e:#}", paths::db_path().display());
+            fatal_db_error(app, &e);
             return;
         }
     };
@@ -108,9 +125,12 @@ pub fn build(app: &gtk::Application) {
         .primary(true)
         .tooltip_text(i18n::main_menu())
         .build();
+    super::a11y_label(&menu_btn, i18n::main_menu());
     app.set_accels_for_action("win.settings", &["<Control>comma"]);
+    app.set_accels_for_action("win.rescan", &["F5"]);
     let rescan = gtk::Button::from_icon_name("view-refresh-symbolic");
-    rescan.set_tooltip_text(Some(i18n::rescan()));
+    rescan.set_tooltip_text(Some(&format!("{} (F5)", i18n::rescan())));
+    super::a11y_label(&rescan, i18n::rescan());
     let progress = gtk::ProgressBar::new();
     progress.set_valign(gtk::Align::Center);
     progress.set_size_request(120, -1);
@@ -128,6 +148,7 @@ pub fn build(app: &gtk::Application) {
     // «i» в круге; dialog-information в Adwaita — лампочка.
     info_btn.set_icon_name("help-about-symbolic");
     info_btn.set_tooltip_text(Some(i18n::info()));
+    super::a11y_label(&info_btn, i18n::info());
     header.pack_end(&menu_btn);
     header.pack_end(&info_btn);
     header.pack_end(&rescan);
@@ -173,6 +194,11 @@ pub fn build(app: &gtk::Application) {
         rescan_pending: Cell::new(false),
         last_partial_reload: Cell::new(Instant::now()),
         partial_reload_interval: Cell::new(PARTIAL_RELOAD),
+        walking: Cell::new(false),
+        scan_generation: Cell::new(0),
+        scan_dirty: Cell::new(false),
+        writing: RefCell::default(),
+        save_timer: RefCell::default(),
     });
 
     init_sort(&state);
@@ -186,7 +212,17 @@ pub fn build(app: &gtk::Application) {
                 photos_trashed(&s, results);
             }
         });
+        // В корзину — только фото, в файлы которых не идёт запись EXIF.
+        let s = Rc::downgrade(&state);
+        grid.connect_guard(move |photos| s.upgrade().is_none_or(|s| !being_written(&s, photos)));
     }
+    // Не открывшийся файл (нет программы, отказ портала) — в строку состояния.
+    let s = Rc::downgrade(&state);
+    textures::set_error_reporter(move |text| {
+        if let Some(s) = s.upgrade() {
+            set_status(&s, text);
+        }
+    });
 
     init_info_panel(&state, &info_btn);
     for grid in [state.dates.grid(), state.map.grid()] {
@@ -218,7 +254,16 @@ pub fn build(app: &gtk::Application) {
     let about_action = gio::ActionEntry::builder("about")
         .activate(|w: &gtk::ApplicationWindow, _, _| about::show(w))
         .build();
-    state.window.add_action_entries([settings_action, about_action]);
+    // F5 — то же, что кнопка в заголовке; пока сканирование идёт, она неактивна.
+    let s = Rc::downgrade(&state);
+    let rescan_action = gio::ActionEntry::builder("rescan")
+        .activate(move |_, _, _| {
+            if let Some(s) = s.upgrade().filter(|s| !s.scanning.get()) {
+                start_scan(&s);
+            }
+        })
+        .build();
+    state.window.add_action_entries([settings_action, about_action, rescan_action]);
     let s = Rc::downgrade(&state);
     rescan.connect_clicked(move |_| {
         if let Some(s) = s.upgrade() {
@@ -270,6 +315,44 @@ pub fn build(app: &gtk::Application) {
     debug_select(&state);
     debug_edit_exif(&state);
     debug_locate(&state, &stack);
+}
+
+/// БД не открылась: без неё показывать нечего. Сообщить окном (иначе программа, запущенная
+/// не из терминала, просто «не запускается») и выйти с ошибкой.
+fn fatal_db_error(app: &gtk::Application, error: &impl std::fmt::Display) {
+    let path = paths::db_path();
+    eprintln!("Не удалось открыть БД {}: {error:#}", path.display());
+    // Окон у приложения нет — без удержания оно завершилось бы раньше, чем покажется сообщение.
+    let hold = app.hold();
+    gtk::AlertDialog::builder()
+        .modal(true)
+        .message(i18n::db_open_failed())
+        .detail(format!("{}\n{error:#}", path.display()))
+        .buttons([i18n::ok()])
+        .build()
+        .choose(None::<&gtk::Window>, gio::Cancellable::NONE, move |_| {
+            drop(hold);
+            std::process::exit(1);
+        });
+}
+
+/// Текст в строке состояния. Она обрезается по ширине заголовка, поэтому полный текст
+/// (длинная ошибка) — ещё и в подсказке.
+fn set_status(state: &App, text: &str) {
+    state.status.set_text(text);
+    state.status.set_tooltip_text((!text.is_empty()).then_some(text));
+}
+
+/// Идёт ли запись EXIF в файлы этих фото; если да — сказать об этом в строке состояния.
+fn being_written(state: &App, photos: &[Photo]) -> bool {
+    let busy = {
+        let writing = state.writing.borrow();
+        !writing.is_empty() && photos.iter().any(|p| writing.contains(&p.path))
+    };
+    if busy {
+        set_status(state, i18n::changes_in_progress());
+    }
+    busy
 }
 
 /// Отладка: `GEO_PHOTO_LIBRARY_LOCATE=1` — через 2 с нажать «Моё местоположение».
@@ -354,7 +437,8 @@ fn show_on_map(state: &Rc<App>, photo: &Photo) {
 /// Редактор EXIF — только для фото: видео из списка отбрасываются.
 fn edit_exif(state: &Rc<App>, mut photos: Vec<Photo>) {
     photos.retain(|p| !p.video);
-    if photos.is_empty() {
+    // Вторая запись в тот же файл, пока идёт первая, испортила бы его.
+    if photos.is_empty() || being_written(state, &photos) {
         return;
     }
     let s = Rc::downgrade(state);
@@ -365,9 +449,25 @@ fn edit_exif(state: &Rc<App>, mut photos: Vec<Photo>) {
     });
 }
 
+/// Имя фото или, если их несколько, «5 фото» — для строки состояния.
+fn subject(photos: &[Photo]) -> String {
+    match photos {
+        [photo] => photo.file_name().to_string(),
+        many => i18n::photos(many.len()),
+    }
+}
+
 /// Записать изменения в файлы (в фоне, параллельно) и заново прочитать их, как сканер;
-/// затем обновить БД. Ошибку показать окном.
+/// затем обновить БД. Пока запись идёт, фото помечены в `App::writing`. Итог — в строке
+/// состояния; при ошибках — ещё и окном: сколько сохранено, сколько нет и первая причина.
 fn save_edit(state: &Rc<App>, changes: geotag::Changes, photos: Vec<Photo>) {
+    if photos.is_empty() {
+        return;
+    }
+    let paths: Vec<String> = photos.iter().map(|p| p.path.clone()).collect();
+    state.writing.borrow_mut().extend(paths.iter().cloned());
+    let everything = subject(&photos);
+    set_status(state, &i18n::saving_changes(&everything));
     let s = Rc::downgrade(state);
     glib::spawn_future_local(async move {
         let results = gio::spawn_blocking(move || {
@@ -382,11 +482,32 @@ fn save_edit(state: &Rc<App>, changes: geotag::Changes, photos: Vec<Photo>) {
                 })
                 .collect::<Vec<_>>()
         })
-        .await
-        .unwrap_or_default();
+        .await;
         let Some(s) = s.upgrade() else { return };
+        {
+            let mut writing = s.writing.borrow_mut();
+            for path in &paths {
+                writing.remove(path);
+            }
+        }
+        let results = match results {
+            Ok(results) => results,
+            Err(panic) => {
+                // Фоновая задача упала: что успело записаться — неизвестно. Изменённые файлы
+                // подберёт следующее сканирование (у них новое время изменения).
+                let reason = panic
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| panic.downcast_ref::<&str>().copied())
+                    .unwrap_or("причина неизвестна");
+                eprintln!("EXIF: сбой при записи ({everything}): {reason}");
+                report_save_error(&s, &i18n::changes_failed(&everything, i18n::internal_error()));
+                return;
+            }
+        };
         let mut saved = Vec::new();
-        let mut failed = None;
+        let mut failed = 0;
+        let mut first_failed = None;
         for (photo, res) in results {
             match res.and_then(|np| {
                 s.db.update(&np)?;
@@ -401,25 +522,36 @@ fn save_edit(state: &Rc<App>, changes: geotag::Changes, photos: Vec<Photo>) {
                 }
                 Err(e) => {
                     eprintln!("EXIF {}: {e:#}", photo.path);
-                    failed.get_or_insert((photo, e));
+                    failed += 1;
+                    first_failed.get_or_insert((photo, e));
                 }
             }
         }
         if !saved.is_empty() {
             // Маркеры карты хранятся по составу кластера — с новыми координатами их нужно пересоздать.
             reload(&s, true);
+            // Панель показывает то же фото, но файл уже другой.
+            s.info.invalidate();
             update_info(&s);
         }
-        let status = match (&failed, saved.as_slice()) {
-            (Some((photo, e)), _) => i18n::changes_failed(photo.file_name(), &format!("{e:#}")),
-            (None, [photo]) => i18n::changes_saved(photo.file_name()),
-            (None, many) => i18n::changes_saved(&i18n::photos(many.len())),
-        };
-        s.status.set_text(&status);
-        if failed.is_some() {
-            gtk::AlertDialog::builder().modal(true).message(status).buttons([i18n::ok()]).build().show(Some(&s.window));
+        match first_failed {
+            None => set_status(&s, &i18n::changes_saved(&subject(&saved))),
+            Some((photo, e)) => {
+                let reason = i18n::changes_failed(photo.file_name(), &format!("{e:#}"));
+                if saved.is_empty() && failed == 1 {
+                    report_save_error(&s, &reason);
+                } else {
+                    report_save_error(&s, &format!("{}. {reason}", i18n::changes_summary(saved.len(), failed)));
+                }
+            }
         }
     });
+}
+
+/// Ошибка записи EXIF: в строку состояния и окном.
+fn report_save_error(state: &App, text: &str) {
+    set_status(state, text);
+    gtk::AlertDialog::builder().modal(true).message(text).buttons([i18n::ok()]).build().show(Some(&state.window));
 }
 
 /// Сетка фото на открытой вкладке.
@@ -604,10 +736,42 @@ fn load_css() {
 fn reload(state: &Rc<App>, force: bool) {
     state.dates.reload(force);
     state.map.reload(force);
+    show_count(state);
+}
+
+/// Число фото библиотеки в строке состояния (во время сканирования там его ход).
+fn show_count(state: &App) {
     if !state.scanning.get() {
-        let n = state.db.count().unwrap_or(0);
-        state.status.set_text(&i18n::photos(n as usize));
+        let n = state.db.count().unwrap_or_else(|e| {
+            eprintln!("БД: {e:#}");
+            0
+        });
+        set_status(state, &i18n::photos(n as usize));
     }
+}
+
+/// Записать настройки в файл.
+fn save_config(state: &App) {
+    if let Err(e) = state.config.borrow().save() {
+        eprintln!("Не удалось сохранить настройки: {e:#}");
+    }
+}
+
+/// Записать настройки чуть позже, одним разом (значение меняется много раз подряд).
+/// При закрытии окна отложенная запись выполняется сразу.
+fn save_config_later(state: &Rc<App>) {
+    if let Some(id) = state.save_timer.borrow_mut().take() {
+        id.remove();
+    }
+    let s = Rc::downgrade(state);
+    let id = glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || {
+        if let Some(s) = s.upgrade() {
+            // Источник уже завершён — просто забываем его id.
+            s.save_timer.borrow_mut().take();
+            save_config(&s);
+        }
+    });
+    *state.save_timer.borrow_mut() = Some(id);
 }
 
 /// Сортировка фото: один выбор на обе вкладки, сохраняется в настройках.
@@ -632,9 +796,7 @@ fn init_sort(state: &Rc<App>) {
         s.map.set_order(order);
         if s.config.borrow().sort != order {
             s.config.borrow_mut().sort = order;
-            if let Err(e) = s.config.borrow().save() {
-                eprintln!("Не удалось сохранить настройки: {e:#}");
-            }
+            save_config(&s);
         }
     });
 }
@@ -649,21 +811,25 @@ fn init_map_view(state: &Rc<App>) {
     let s = Rc::downgrade(state);
     state.window.connect_close_request(move |_| {
         if let Some(s) = s.upgrade() {
-            save_map_view(&s);
+            // Отложенная запись настроек (масштаб миниатюр) — сейчас, вместе с положением карты.
+            let pending = s.save_timer.borrow_mut().take().map(|id| id.remove()).is_some();
+            if !save_map_view(&s) && pending {
+                save_config(&s);
+            }
         }
         glib::Propagation::Proceed
     });
 }
 
-fn save_map_view(state: &App) {
-    let Some(view) = state.map.view().map(Some) else { return };
+/// Запомнить положение карты; `true` — настройки записаны.
+fn save_map_view(state: &App) -> bool {
+    let Some(view) = state.map.view().map(Some) else { return false };
     if state.config.borrow().map_view == view {
-        return;
+        return false;
     }
     state.config.borrow_mut().map_view = view;
-    if let Err(e) = state.config.borrow().save() {
-        eprintln!("Не удалось сохранить настройки: {e:#}");
-    }
+    save_config(state);
+    true
 }
 
 fn init_thumb_scale(state: &Rc<App>) {
@@ -686,9 +852,7 @@ fn init_thumb_scale(state: &Rc<App>) {
         s.map.set_thumb_scale(percent);
         if s.config.borrow().thumb_scale != percent {
             s.config.borrow_mut().thumb_scale = percent;
-            if let Err(e) = s.config.borrow().save() {
-                eprintln!("Не удалось сохранить настройки: {e:#}");
-            }
+            save_config_later(&s);
         }
     });
 }
@@ -706,24 +870,39 @@ fn photos_trashed(state: &Rc<App>, results: super::photo_grid::TrashResults) {
             }
         }
     }
+    let mut db_failed = None;
     for photo in &moved {
         match state.db.remove(photo.id) {
             Ok(Some(thumb)) => {
                 let _ = std::fs::remove_file(thumb);
             }
             Ok(None) => {}
-            Err(e) => eprintln!("БД: {e:#}"),
+            Err(e) => {
+                eprintln!("БД: не удалось убрать запись о {}: {e:#}", photo.path);
+                db_failed.get_or_insert(format!("{e:#}"));
+            }
         }
     }
     if !moved.is_empty() {
         reload(state, false);
+    }
+    if let Some((photo, e)) = &failed {
+        eprintln!("корзина {}: {e}", photo.path);
     }
     let status = match (failed, moved.as_slice()) {
         (Some((photo, e)), _) => i18n::trash_failed(photo.file_name(), e.message()),
         (None, [photo]) => i18n::trashed(photo.file_name()),
         (None, many) => i18n::trashed(&i18n::photos(many.len())),
     };
-    state.status.set_text(&status);
+    set_status(state, &status);
+    if let Some(e) = db_failed {
+        // Файлы уже в корзине, а записи о них остались, и фото всё ещё в списках: говорим
+        // об ошибке, а не «перемещено», и пересканируем — сканер уберёт пропавшие файлы.
+        set_status(state, &i18n::db_error(&e));
+        if !state.scanning.get() {
+            start_scan(state);
+        }
+    }
 }
 
 fn open_settings(state: &Rc<App>) {
@@ -755,9 +934,7 @@ fn apply_preferred_apps(state: &App) {
 fn set_library(state: &Rc<App>, path: std::path::PathBuf) {
     let changed = state.config.borrow().library_path.as_ref() != Some(&path);
     state.config.borrow_mut().library_path = Some(path);
-    if let Err(e) = state.config.borrow().save() {
-        eprintln!("Не удалось сохранить настройки: {e:#}");
-    }
+    save_config(state);
     if changed {
         start_scan(state);
     }
@@ -771,7 +948,7 @@ fn start_scan(state: &Rc<App>) {
         if let Some(cancel) = state.cancel.borrow().as_ref() {
             cancel.store(true, Ordering::Relaxed);
         }
-        state.status.set_text(i18n::stopping_scan());
+        set_status(state, i18n::stopping_scan());
         return;
     }
     let Some(root) = state.config.borrow().library_path.clone() else {
@@ -782,8 +959,22 @@ fn start_scan(state: &Rc<App>) {
     state.rescan.set_sensitive(false);
     state.progress.set_fraction(0.0);
     state.progress.set_visible(true);
-    state.status.set_text(i18n::searching());
+    set_status(state, i18n::searching());
     state.last_partial_reload.set(Instant::now());
+    state.scan_dirty.set(false);
+    // Пока сканер обходит папки, числа файлов нет — полоса «бегает», чтобы было видно,
+    // что работа идёт. Таймер живёт только до первого сообщения о ходе обработки.
+    let generation = state.scan_generation.get() + 1;
+    state.scan_generation.set(generation);
+    state.walking.set(true);
+    let weak = Rc::downgrade(state);
+    glib::timeout_add_local(WALK_PULSE, move || match weak.upgrade() {
+        Some(s) if s.walking.get() && s.scan_generation.get() == generation => {
+            s.progress.pulse();
+            glib::ControlFlow::Continue
+        }
+        _ => glib::ControlFlow::Break,
+    });
     let cancel = Arc::new(AtomicBool::new(false));
     *state.cancel.borrow_mut() = Some(cancel.clone());
 
@@ -805,9 +996,13 @@ fn start_scan(state: &Rc<App>) {
         while let Ok(ev) = rx.recv().await {
             match ev {
                 ScanEvent::Progress(done, total) => {
+                    state.walking.set(false);
+                    if done > 0 {
+                        state.scan_dirty.set(true);
+                    }
                     if total > 0 && !state.rescan_pending.get() {
                         state.progress.set_fraction(done as f64 / total as f64);
-                        state.status.set_text(&i18n::processing(done, total));
+                        set_status(&state, &i18n::processing(done, total));
                     }
                     // Длинное сканирование: показываем уже обработанные фото.
                     if state.last_partial_reload.get().elapsed() >= state.partial_reload_interval.get() {
@@ -828,22 +1023,41 @@ fn start_scan(state: &Rc<App>) {
                         // Уже запущено новое сканирование (сменилась папка).
                         break;
                     }
+                    // Обработанные файлы — это новые записи и миниатюры, перезаписанные по
+                    // тем же путям (в счётчики попадают не все: видео без кадра и пропавшие
+                    // миниатюры пересоздаются без «изменено»).
+                    let rewritten = state.scan_dirty.get();
                     match res {
                         Ok(s) => {
-                            if s.added + s.updated > 0 {
-                                // Миниатюры обновлённых файлов перезаписаны по тем же путям.
+                            if rewritten || s.added + s.updated > 0 {
                                 state.cache.clear();
+                                reload(&state, true);
+                            } else {
+                                // Обычный запуск: ничего не изменилось — перерисовывать нечего
+                                // (данные уже показаны при открытии окна); только удаления —
+                                // убрать пропавшие, не трогая остальное.
+                                if s.removed > 0 {
+                                    reload(&state, false);
+                                } else {
+                                    show_count(&state);
+                                }
+                                // Нечитаемые миниатюры могли появиться снова — попробовать ещё раз.
+                                if state.cache.retry_failed() {
+                                    state.dates.grid().rebind();
+                                    state.map.grid().rebind();
+                                }
                             }
-                            reload(&state, true);
                             if s.added + s.updated + s.removed > 0 {
-                                state.status.set_text(&i18n::scan_summary(
-                                    s.found, s.added, s.updated, s.removed,
-                                ));
+                                set_status(&state, &i18n::scan_summary(s.found, s.added, s.updated, s.removed));
                             }
                         }
                         Err(e) => {
-                            reload(&state, true);
-                            state.status.set_text(&i18n::scan_error(&e));
+                            // Ошибка до обработки файлов (папка недоступна) БД не меняет.
+                            if rewritten {
+                                state.cache.clear();
+                            }
+                            reload(&state, rewritten);
+                            set_status(&state, &i18n::scan_error(&e));
                         }
                     }
                     break;
@@ -857,6 +1071,7 @@ fn start_scan(state: &Rc<App>) {
 fn finish_scan(state: &Rc<App>) {
     state.scanning.set(false);
     state.cancel.borrow_mut().take();
+    state.walking.set(false);
     state.rescan.set_sensitive(true);
     state.progress.set_visible(false);
     if state.rescan_pending.replace(false) {

@@ -183,6 +183,11 @@ pub fn best_preview(previews: &[Preview], target: u32) -> Option<Preview> {
 
 pub fn read_preview(path: &Path, p: &Preview) -> io::Result<Vec<u8>> {
     let mut f = File::open(path)?;
+    // Длина из битого файла может быть любой (до 4 ГБ) — память под неё не выделяем.
+    let size = f.metadata()?.len();
+    if p.offset.checked_add(p.len).is_none_or(|end| end > size) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "превью выходит за пределы файла"));
+    }
     f.seek(SeekFrom::Start(p.offset))?;
     let mut buf = vec![0; p.len as usize];
     f.read_exact(&mut buf)?;

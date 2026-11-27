@@ -3,38 +3,119 @@ import AppKit
 import ImageIO
 import SwiftUI
 
-/// Миниатюры в памяти: до 128 МБ, загрузка и декодирование — вне главного потока.
+/// Миниатюры в памяти, загрузка и декодирование — вне главного потока.
+/// Предел — 256 МБ, около 640 миниатюр 320×320: при масштабе 50% на большом экране в сетке
+/// видно несколько сотен ячеек, и кэш меньше экрана заставлял бы декодировать заново при
+/// каждой прокрутке на ряд назад (128 МБ — это 320 миниатюр).
 final class ThumbnailCache: @unchecked Sendable {
     static let shared = ThumbnailCache()
 
     private let cache = NSCache<NSString, NSImage>()
+    private let lock = NSLock()
+    /// Идущие загрузки по пути: ячейка и маркер с одним фото декодируют файл один раз.
+    private var loading: [String: Load] = [:]
+    /// Растёт при каждом `forget`: загрузка, начатая до него, в кэш не попадает.
+    private var generation = 0
+
+    private final class Load {
+        var task: Task<NSImage?, Never>?
+        var waiters = 1
+    }
 
     private init() {
-        cache.totalCostLimit = 128 << 20
+        cache.totalCostLimit = 256 << 20
     }
 
     func cached(_ path: String) -> NSImage? {
         cache.object(forKey: path as NSString)
     }
 
-    /// Убрать из кэша: файл миниатюры перезаписан (например, сменилась ориентация).
-    func forget(_ path: String) {
-        cache.removeObject(forKey: path as NSString)
+    /// Убрать из кэша: файлы миниатюр перезаписаны под прежними именами (сменилась
+    /// ориентация, фото пересканировано); `nil` — все. Показанные картинки обновляет
+    /// тот, кто их показывает (`AppModel.filesRevision`).
+    func forget(_ paths: [String]?) {
+        lock.lock()
+        generation += 1
+        // Идущие загрузки могли прочитать прежний файл: новые запросы начнут свои.
+        if let paths {
+            paths.forEach { loading[$0] = nil }
+        } else {
+            loading = [:]
+        }
+        lock.unlock()
+        if let paths {
+            paths.forEach { cache.removeObject(forKey: $0 as NSString) }
+        } else {
+            cache.removeAllObjects()
+        }
     }
 
+    /// Миниатюра из кэша или с диска. Отмена задачи вызвавшего (ячейка ушла с экрана при
+    /// быстрой прокрутке) отменяет и декодирование, если его больше никто не ждёт.
     func image(_ path: String) async -> NSImage? {
         if let image = cached(path) {
             return image
         }
-        return await Task.detached(priority: .utility) { [cache] () -> NSImage? in
-            let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
-            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-                  let cg = CGImageSourceCreateImageAtIndex(source, 0, options)
-            else { return nil }
-            let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-            cache.setObject(image, forKey: path as NSString, cost: cg.width * cg.height * 4)
+        if Task.isCancelled {
+            return nil
+        }
+        let load = join(path)
+        return await withTaskCancellationHandler {
+            await load.task?.value
+        } onCancel: {
+            leave(path, load)
+        }
+    }
+
+    private func join(_ path: String) -> Load {
+        lock.lock()
+        defer { lock.unlock() }
+        if let load = loading[path] {
+            load.waiters += 1
+            return load
+        }
+        let load = Load()
+        let started = generation
+        load.task = Task.detached(priority: .utility) { [self] in
+            let image = Task.isCancelled ? nil : Self.decode(path)
+            finish(path, load, started, image)
             return image
-        }.value
+        }
+        loading[path] = load
+        return load
+    }
+
+    /// Загрузка закончилась: убрать её из идущих; в кэш — только если файл с тех пор не забывали.
+    private func finish(_ path: String, _ load: Load, _ started: Int, _ image: NSImage?) {
+        lock.lock()
+        if loading[path] === load {
+            loading[path] = nil
+        }
+        let fresh = generation == started
+        lock.unlock()
+        if let image, fresh {
+            cache.setObject(image, forKey: path as NSString, cost: Int(image.size.width * image.size.height) * 4)
+        }
+    }
+
+    private func leave(_ path: String, _ load: Load) {
+        lock.lock()
+        defer { lock.unlock() }
+        load.waiters -= 1
+        if load.waiters <= 0 {
+            load.task?.cancel()
+            if loading[path] === load {
+                loading[path] = nil
+            }
+        }
+    }
+
+    private static func decode(_ path: String) -> NSImage? {
+        let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, options)
+        else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
 }
 
@@ -43,7 +124,17 @@ final class ThumbnailCache: @unchecked Sendable {
 struct Thumbnail: View {
     let path: String?
     var video: Photo? = nil
+    @Environment(AppModel.self) private var model
     @State private var image: NSImage?
+    /// Путь, для которого загружена `image`.
+    @State private var shown: String?
+
+    /// Что загружать: путь и номер изменения файлов. Файл миниатюры перезаписывается под тем
+    /// же именем (правка EXIF, пересканирование) — без номера ячейка осталась бы с прежней картинкой.
+    private struct Source: Hashable {
+        let path: String?
+        let revision: Int
+    }
 
     /// Длительность как в ядре (`video::format_duration`): `0:07`, `12:30`, `1:02:03`.
     static func duration(_ secs: Double) -> String {
@@ -76,10 +167,20 @@ struct Thumbnail: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
             // Ячейки переиспользуются: задача привязана к пути и отменяется при его смене.
-            .task(id: path) {
-                image = path.flatMap(ThumbnailCache.shared.cached)
-                if image == nil, let path {
-                    image = await ThumbnailCache.shared.image(path)
+            .task(id: Source(path: path, revision: model.filesRevision)) {
+                if let cached = path.flatMap(ThumbnailCache.shared.cached) {
+                    (image, shown) = (cached, path)
+                    return
+                }
+                // Другое фото — плашка; то же фото с перезаписанной миниатюрой — прежняя
+                // картинка до загрузки новой, без мигания.
+                if shown != path {
+                    (image, shown) = (nil, path)
+                }
+                guard let path else { return }
+                let loaded = await ThumbnailCache.shared.image(path)
+                if !Task.isCancelled {
+                    image = loaded
                 }
             }
     }
@@ -129,6 +230,8 @@ struct PhotoGrid: View {
     /// Выделение до начала рамки: с ⌘ или ⇧ рамка добавляет к нему.
     @State private var marqueeBase: PhotoSelection?
     /// Фото, от которого ходят стрелки (с ⇧ — конец диапазона от опорного); `nil` — опорное.
+    /// Действует, пока это фото выделено: выделение, изменённое не клавишами и не щелчком
+    /// в сетке (маркер карты, пустое место, удаление фото), возвращает стрелки к опорному.
     @State private var cursor: Photo.ID?
     @FocusState private var focused: Bool
 
@@ -187,6 +290,10 @@ struct PhotoGrid: View {
                     return .handled
                 }
                 .onChange(of: selection.anchor) { _, id in
+                    // Опорное фото сменили не отсюда — прежний конец диапазона больше ни при чём.
+                    if cursor != id {
+                        cursor = nil
+                    }
                     if let id, marquee == nil {
                         withAnimation { proxy.scrollTo(id) }
                     }
@@ -256,7 +363,13 @@ struct PhotoGrid: View {
     private func move(_ key: KeyEquivalent, columns: Int, pageRows: Int) -> Photo? {
         guard !photos.isEmpty else { return nil }
         let last = photos.count - 1
-        guard let id = cursor ?? selection.anchor, let index = photos.firstIndex(where: { $0.id == id }) else {
+        // Курсор — только пока его фото выделено и есть в сетке; иначе от опорного.
+        let start = [cursor.flatMap { selection.contains(id: $0) ? $0 : nil }, selection.anchor]
+            .compactMap { $0 }
+            .lazy
+            .compactMap { id in photos.firstIndex(where: { $0.id == id }) }
+            .first
+        guard let index = start else {
             return photos[key == .end ? last : 0]
         }
         let target = switch key {
@@ -324,16 +437,21 @@ struct PhotoGrid: View {
             }
         }
         .contentShape(Rectangle())
-        // Двойной щелчок — просмотр, с ⌘ — редактирование.
-        .onTapGesture(count: 2) {
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selection.contains(photo) ? [.isImage, .isSelected] : .isImage)
+        // Двойной щелчок — просмотр, с ⌘ — редактирование. Одиночный распознаётся
+        // одновременно с двойным, а не после него: иначе выделение ждало бы, не станет ли
+        // щелчок двойным (около трети секунды). Второй щелчок двойного выделяет фото ещё
+        // раз — итог тот же, двойной сам ставит выделение.
+        .gesture(TapGesture(count: 2).onEnded {
             selection = PhotoSelection(photo)
             if NSEvent.modifierFlags.contains(.command) {
                 model.edit(photo)
             } else {
                 model.open(photo)
             }
-        }
-        .onTapGesture { click(photo) }
+        })
+        .simultaneousGesture(TapGesture().onEnded { click(photo) })
         .contextMenu {
             // Правый щелчок по одному из нескольких выделенных — действия над всеми ними.
             if selection.count > 1, selection.contains(photo) {

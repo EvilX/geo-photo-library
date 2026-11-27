@@ -2,18 +2,34 @@
 //!
 //! Миниатюры уже квадратные (см. `thumbs`), поэтому здесь только декодирование JPEG
 //! 320×320 в фоновом потоке; текстура создаётся в главном потоке.
-use crate::trace;
+use crate::{i18n, trace};
 use gtk::{gdk, gio, glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     rc::Rc,
 };
 
-/// Предел памяти под текстуры (несжатые RGB).
-const MAX_BYTES: usize = 128 << 20;
+/// Сколько текстур держать в кэше. Сетки хранят ячейки примерно для 30 рядов: до 16 колонок
+/// на вкладке дат и до 8 в списке карты — около 700 миниатюр, плюс маркеры карты и запас на
+/// прокрутку назад. При меньшем пределе (было 128 МБ, ~430 текстур) кэш вытеснял то, что ещё
+/// на экране: память это не освобождало (текстуру держит ячейка), а возврат к фото
+/// декодировал его заново.
+const MAX_TEXTURES: usize = 1024;
+/// Предел памяти под текстуры: миниатюры — несжатые RGB 320×320 (см. `thumbs`), ~300 МБ.
+const MAX_BYTES: usize = MAX_TEXTURES * 320 * 320 * 3;
 
-type Callback = Box<dyn FnOnce(&gdk::Texture)>;
+/// Получатель результата загрузки: текстура или `None`, если миниатюра не прочиталась.
+type Done = Box<dyn FnOnce(Option<&gdk::Texture>)>;
+/// Получатель сообщений об ошибках открытия файлов.
+type Reporter = Box<dyn Fn(&str)>;
+
+/// Ожидающий загрузки: `wanted` проверяется в главном потоке перед декодированием,
+/// `done` получает текстуру или `None`, если файл миниатюры не прочитался.
+struct Waiter {
+    wanted: Box<dyn Fn() -> bool>,
+    done: Done,
+}
 
 struct Entry {
     texture: gdk::Texture,
@@ -21,13 +37,40 @@ struct Entry {
     last_used: u64,
 }
 
-#[derive(Default)]
 pub struct TextureCache {
     entries: RefCell<HashMap<String, Entry>>,
     total_bytes: Cell<usize>,
     clock: Cell<u64>,
-    /// Загрузки в процессе: путь → ожидающие колбэки.
-    pending: RefCell<HashMap<String, Vec<Callback>>>,
+    /// Загрузки в очереди и в процессе: путь → ожидающие.
+    pending: RefCell<HashMap<String, Vec<Waiter>>>,
+    /// Пути, ждущие декодирования; берётся последний — он запрошен позже всех, то есть
+    /// нужен тому, что сейчас на экране.
+    queue: RefCell<Vec<String>>,
+    /// Сколько декодирований идёт сейчас и сколько их может идти сразу.
+    active: Cell<usize>,
+    parallel: usize,
+    /// Миниатюры, которые не удалось прочитать: повторно не декодируются, пока кэш
+    /// не сброшен (`clear`, `forget`, `retry_failed`).
+    failed: RefCell<HashSet<String>>,
+    /// Растёт при сбросе кэша: результат декодирования, начатого до сброса, отбрасывается
+    /// (файл миниатюры мог быть перезаписан), и файл читается заново.
+    epoch: Cell<u64>,
+}
+
+impl Default for TextureCache {
+    fn default() -> Self {
+        Self {
+            entries: RefCell::default(),
+            total_bytes: Cell::new(0),
+            clock: Cell::new(0),
+            pending: RefCell::default(),
+            queue: RefCell::default(),
+            active: Cell::new(0),
+            parallel: std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 8),
+            failed: RefCell::default(),
+            epoch: Cell::new(0),
+        }
+    }
 }
 
 /// Декодированный RGB-буфер (создаётся в рабочем потоке).
@@ -65,46 +108,93 @@ impl TextureCache {
         Some(e.texture.clone())
     }
 
-    /// Загрузить текстуру в фоне и вызвать `done` в главном потоке.
-    /// Если текстура уже в кэше — `done` вызывается сразу.
-    pub fn load(self: &Rc<Self>, path: &str, done: impl FnOnce(&gdk::Texture) + 'static) {
+    /// Загрузить текстуру в фоне и вызвать `done` в главном потоке: с текстурой или с `None`,
+    /// если миниатюра не читается. Если текстура уже в кэше — `done` вызывается сразу.
+    ///
+    /// `wanted` спрашивается перед самым декодированием: при быстрой прокрутке ячейка к этому
+    /// времени уже показывает другое фото, и файл, который никому не нужен, не декодируется
+    /// (`done` тогда не вызывается — ячейка запросит миниатюру снова, когда вернётся к фото).
+    pub fn load(
+        self: &Rc<Self>,
+        path: &str,
+        wanted: impl Fn() -> bool + 'static,
+        done: impl FnOnce(Option<&gdk::Texture>) + 'static,
+    ) {
         if let Some(t) = self.get(path) {
-            done(&t);
+            done(Some(&t));
             return;
         }
+        if self.failed.borrow().contains(path) {
+            done(None);
+            return;
+        }
+        let waiter = Waiter { wanted: Box::new(wanted), done: Box::new(done) };
         let mut pending = self.pending.borrow_mut();
         if let Some(waiting) = pending.get_mut(path) {
-            waiting.push(Box::new(done));
+            waiting.push(waiter);
             return;
         }
-        pending.insert(path.to_owned(), vec![Box::new(done)]);
+        pending.insert(path.to_owned(), vec![waiter]);
         drop(pending);
+        self.queue.borrow_mut().push(path.to_owned());
+        self.pump();
+    }
 
-        let weak = Rc::downgrade(self);
-        let path = path.to_owned();
-        glib::spawn_future_local(async move {
-            let p = path.clone();
-            let pixels = gio::spawn_blocking(move || {
-                let _t = trace::span("    декод. текстуры (фон)");
-                decode(&p)
-            })
-            .await
-            .ok()
-            .flatten();
-            let Some(this) = weak.upgrade() else { return };
-            let callbacks = this.pending.borrow_mut().remove(&path).unwrap_or_default();
-            let Some(px) = pixels else {
-                eprintln!("не удалось загрузить миниатюру {path}");
-                return;
-            };
-            let size = px.bytes.len();
-            let texture = gdk::MemoryTexture::new(px.width, px.height, gdk::MemoryFormat::R8g8b8, &px.bytes, px.stride)
-                .upcast::<gdk::Texture>();
-            this.insert(path, texture.clone(), size);
-            for cb in callbacks {
-                cb(&texture);
+    /// Запустить декодирование из очереди, пока есть свободные места.
+    fn pump(self: &Rc<Self>) {
+        while self.active.get() < self.parallel {
+            let Some(path) = self.queue.borrow_mut().pop() else { break };
+            // Ожидающих вынимаем на время проверки: `wanted` — чужой код.
+            let Some(mut waiters) = self.pending.borrow_mut().remove(&path) else { continue };
+            waiters.retain(|w| (w.wanted)());
+            if waiters.is_empty() {
+                continue;
             }
+            self.pending.borrow_mut().insert(path.clone(), waiters);
+            self.active.set(self.active.get() + 1);
+            let (weak, epoch) = (Rc::downgrade(self), self.epoch.get());
+            glib::spawn_future_local(async move {
+                let p = path.clone();
+                // Паника декодера (`Err`) — та же неудача, что и нечитаемый файл.
+                let pixels = gio::spawn_blocking(move || {
+                    let _t = trace::span("    декод. текстуры (фон)");
+                    decode(&p)
+                })
+                .await
+                .ok()
+                .flatten();
+                let Some(this) = weak.upgrade() else { return };
+                this.active.set(this.active.get() - 1);
+                this.finish(path, pixels, epoch);
+                this.pump();
+            });
+        }
+    }
+
+    /// Декодирование закончено: положить текстуру в кэш и сообщить ожидающим.
+    fn finish(&self, path: String, pixels: Option<Pixels>, epoch: u64) {
+        if epoch != self.epoch.get() {
+            // Кэш сброшен, пока файл декодировался, — прочитать его заново.
+            if self.pending.borrow().contains_key(&path) {
+                self.queue.borrow_mut().push(path);
+            }
+            return;
+        }
+        let waiters = self.pending.borrow_mut().remove(&path).unwrap_or_default();
+        let texture = pixels.map(|px| {
+            gdk::MemoryTexture::new(px.width, px.height, gdk::MemoryFormat::R8g8b8, &px.bytes, px.stride)
+                .upcast::<gdk::Texture>()
         });
+        match &texture {
+            Some(t) => self.insert(path, t.clone(), t.width() as usize * t.height() as usize * 3),
+            None => {
+                eprintln!("не удалось загрузить миниатюру {path}");
+                self.failed.borrow_mut().insert(path);
+            }
+        }
+        for w in waiters {
+            (w.done)(texture.as_ref());
+        }
     }
 
     fn insert(&self, path: String, texture: gdk::Texture, bytes: usize) {
@@ -134,25 +224,40 @@ impl TextureCache {
         if let Some(e) = self.entries.borrow_mut().remove(path) {
             self.total_bytes.set(self.total_bytes.get().saturating_sub(e.bytes));
         }
+        self.failed.borrow_mut().remove(path);
+        self.epoch.set(self.epoch.get() + 1);
     }
 
     pub fn clear(&self) {
         self.entries.borrow_mut().clear();
         self.total_bytes.set(0);
+        self.failed.borrow_mut().clear();
+        self.epoch.set(self.epoch.get() + 1);
+    }
+
+    /// Забыть нечитаемые миниатюры (сканер мог их пересоздать). `true` — такие были:
+    /// ячейки с заглушками стоит привязать заново.
+    pub fn retry_failed(&self) -> bool {
+        let mut failed = self.failed.borrow_mut();
+        let had = !failed.is_empty();
+        failed.clear();
+        had
     }
 }
 
-/// Показать миниатюру в `image`: сразу из кэша, иначе после фоновой загрузки.
-/// `still_valid` проверяется перед установкой — виджет мог быть переиспользован.
 /// Значок фото без миниатюры.
 pub const PHOTO_ICON: &str = "image-x-generic-symbolic";
+/// Значок видео без миниатюры (нет `ffmpeg`).
+pub const VIDEO_ICON: &str = "video-x-generic-symbolic";
 
-/// Без миниатюры — значок `icon` (фото или видео).
+/// Показать миниатюру в `image`: сразу из кэша, иначе после фоновой загрузки.
+/// `still_valid` проверяется перед декодированием и перед установкой — виджет мог быть
+/// переиспользован. Без миниатюры или если её файл не читается — значок `icon` (фото или видео).
 pub fn set_thumbnail(
     cache: &Rc<TextureCache>,
     image: &gtk::Image,
     thumb: Option<&str>,
-    icon: &str,
+    icon: &'static str,
     still_valid: impl Fn() -> bool + 'static,
 ) {
     let Some(path) = thumb else {
@@ -165,11 +270,43 @@ pub fn set_thumbnail(
     }
     image.clear();
     let weak = image.downgrade();
-    cache.load(path, move |t| {
-        if let Some(image) = weak.upgrade() {
-            if still_valid() {
-                image.set_paintable(Some(t));
+    let valid = Rc::new(move || weak.upgrade().filter(|_| still_valid()));
+    let wanted = valid.clone();
+    cache.load(
+        path,
+        move || wanted().is_some(),
+        move |t| {
+            let Some(image) = valid() else { return };
+            match t {
+                Some(t) => image.set_paintable(Some(t)),
+                None => image.set_icon_name(Some(icon)),
             }
+        },
+    );
+}
+
+thread_local! {
+    /// Куда сообщать об ошибках запуска программ — строка состояния окна.
+    static REPORT: RefCell<Option<Reporter>> = RefCell::default();
+}
+
+/// Задать получателя сообщений о том, что файл не удалось открыть.
+pub fn set_error_reporter(f: impl Fn(&str) + 'static) {
+    REPORT.with(|r| *r.borrow_mut() = Some(Box::new(f)));
+}
+
+/// Файл не открылся (нет программы, отказ портала): в stderr и в строку состояния.
+/// Закрытое пользователем окно выбора программы — не ошибка.
+fn report_open_error(path: &str, e: &glib::Error) {
+    if e.matches(gtk::DialogError::Dismissed) || e.matches(gio::IOErrorEnum::Cancelled) {
+        return;
+    }
+    eprintln!("не удалось открыть {path}: {e}");
+    let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned());
+    let text = i18n::open_failed(name.as_deref().unwrap_or(path), e.message());
+    REPORT.with(|r| {
+        if let Some(f) = r.borrow().as_ref() {
+            f(&text);
         }
     });
 }
@@ -251,9 +388,10 @@ pub fn open_in_editor(widget: &impl IsA<gtk::Widget>, path: &str) {
 pub fn show_in_folder(widget: &impl IsA<gtk::Widget>, path: &str) {
     let parent = widget.root().and_downcast::<gtk::Window>();
     let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(path)));
-    launcher.open_containing_folder(parent.as_ref(), gio::Cancellable::NONE, |res| {
+    let path = path.to_owned();
+    launcher.open_containing_folder(parent.as_ref(), gio::Cancellable::NONE, move |res| {
         if let Err(e) = res {
-            eprintln!("не удалось показать файл в папке: {e}");
+            report_open_error(&path, &e);
         }
     });
 }
@@ -279,9 +417,10 @@ fn launch_with_portal(widget: &impl IsA<gtk::Widget>, path: &str, always_ask: bo
     let parent = widget.root().and_downcast::<gtk::Window>();
     let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(path)));
     launcher.set_always_ask(always_ask);
-    launcher.launch(parent.as_ref(), gio::Cancellable::NONE, |res| {
+    let path = path.to_owned();
+    launcher.launch(parent.as_ref(), gio::Cancellable::NONE, move |res| {
         if let Err(e) = res {
-            eprintln!("не удалось открыть файл: {e}");
+            report_open_error(&path, &e);
         }
     });
 }

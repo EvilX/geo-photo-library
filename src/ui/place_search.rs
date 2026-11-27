@@ -133,6 +133,8 @@ impl PlaceSearch {
             if t.generation.get() != generation {
                 return;
             }
+            // Запрос идёт секунды — в списке под строкой видно, что поиск начат.
+            t.show(Vec::new(), Some((i18n::searching_place(), true)));
             LAST_REQUEST.set(Some(Instant::now()));
             let session = t.session.clone();
             drop(t);
@@ -149,28 +151,36 @@ impl PlaceSearch {
                     t.popover.popdown();
                     t.picked(&places[0]);
                 }
-                Ok(places) if places.is_empty() => t.show(places, Some(i18n::place_not_found())),
+                Ok(places) if places.is_empty() => t.show(places, Some((i18n::place_not_found(), false))),
                 Ok(places) => t.show(places, None),
                 Err(e) => {
                     eprintln!("Поиск местности: {e:#}");
-                    t.show(Vec::new(), Some(i18n::place_search_failed()));
+                    t.show(Vec::new(), Some((i18n::place_search_failed(), false)));
                 }
             }
         });
     }
 
-    /// Показать в списке найденные места либо (без мест) сообщение.
-    fn show(&self, places: Vec<Place>, message: Option<&str>) {
+    /// Показать в списке найденные места либо (без мест) сообщение; `true` при нём —
+    /// с индикатором: запрос ещё идёт.
+    fn show(&self, places: Vec<Place>, message: Option<(&str, bool)>) {
         self.list.remove_all();
-        if let Some(text) = message {
+        if let Some((text, busy)) = message {
             let label = gtk::Label::new(Some(text));
             label.add_css_class("dim-label");
-            label.set_margin_top(8);
-            label.set_margin_bottom(8);
-            label.set_margin_start(8);
-            label.set_margin_end(8);
+            let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            line.set_margin_top(8);
+            line.set_margin_bottom(8);
+            line.set_margin_start(8);
+            line.set_margin_end(8);
+            if busy {
+                let spinner = gtk::Spinner::new();
+                spinner.start();
+                line.append(&spinner);
+            }
+            line.append(&label);
             let row = gtk::ListBoxRow::new();
-            row.set_child(Some(&label));
+            row.set_child(Some(&line));
             row.set_activatable(false);
             self.list.append(&row);
         }
@@ -224,6 +234,7 @@ pub fn go_to_location(map: &shumate::SimpleMap, fix: &location::Fix) {
 pub fn locate_button() -> gtk::Button {
     let button = gtk::Button::from_icon_name("find-location-symbolic");
     button.set_tooltip_text(Some(i18n::my_location()));
+    super::a11y_label(&button, i18n::my_location());
     button.add_css_class("map-search");
     button.set_visible(cfg!(not(windows)));
     button
