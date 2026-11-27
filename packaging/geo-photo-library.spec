@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.3.9
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -64,6 +64,12 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Fri Nov 27 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.4.0-1
+- Videos (MP4, MOV, M4V, 3GP, MKV, WebM, AVI, MTS) in the library: shown by date with a frame
+  thumbnail and duration; they have no coordinates and open in the default player
+- The filter above the date tree gets a "Videos" item; "With/Without coordinates" show photos only
+- Video thumbnails are made with ffmpeg (recommended dependency)
+
 * Thu Nov 26 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.3.9-1
 - EXIF editing works with files where a tag has a signed instead of an unsigned type
   (for example ExifImageWidth in some older cameras)
