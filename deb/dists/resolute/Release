@@ -1,0 +1,31 @@
+Architectures: amd64 arm64
+Codename: resolute
+Components: main
+Date: Fri, 27 Nov 2026 14:47:58 +0000
+Label: geo-photo-library
+Origin: geo-photo-library
+Suite: resolute
+MD5Sum:
+ 9d6c0936ea2de3639ccfbe7f4f325c4b              168 Release
+ 00a0c0a848bc02fe9c4450cbb11e85ec             3583 main/binary-amd64/Packages
+ e4756e0f5d58b45b1086b3af16583150             1195 main/binary-amd64/Packages.gz
+ 2407d3552174def559c03015734fe9b3             3859 main/binary-arm64/Packages
+ 8bae641eaaa809b17795e76b08e1a2ee             1231 main/binary-arm64/Packages.gz
+SHA1:
+ b648cdd7d2c2d36fe175f0f799b889ca3f472008              168 Release
+ 4b0cf382442f8a816bbc2f7b052f4f64b47ca788             3583 main/binary-amd64/Packages
+ 1549a677934c6dba5ccdec16b4e2783f8865791b             1195 main/binary-amd64/Packages.gz
+ 872622c757fe28d47af33886da512e9b939a335b             3859 main/binary-arm64/Packages
+ d46e240bcc2e9f03364cea0a500f4642242c00fe             1231 main/binary-arm64/Packages.gz
+SHA256:
+ e1fed8a9bd961f3d6e4c0b90033e70c71100c43620139ee5b7e7f35fa3c9b2d2              168 Release
+ c1c8cf308702e80a93c784887fd8d5a0c08e17fff7538a0c2920379fbe34cd3e             3583 main/binary-amd64/Packages
+ 5bdcd816990c4ee92b5d59ea4d57681ea2bf2a2fc7644addd956067caf65c597             1195 main/binary-amd64/Packages.gz
+ bc2580593332cb86595d9c21038d23ae1cd3f5ae741caa158110f752577d537b             3859 main/binary-arm64/Packages
+ 337285d12379680350145dbb6df80d51980815e672108917e19de9d6be347f81             1231 main/binary-arm64/Packages.gz
+SHA512:
+ 190d6b96f13d9bebae8b1360b9c6e3ef1e5d4fe06ab99de1835c2a3501146f4d5f5310fcd5d4dd6dca63826e1906e10d4d6568652228f3019ddd58faeb0a78df              168 Release
+ 7fd26adba0a63cc0edb5462b4c78eb551eddefd7b60284a2d2f87b97791f3528a1b9d940f48a0aa1fbdb4d4b0ec869691b944c17ccb31c142a56e14cc7e5513a             3583 main/binary-amd64/Packages
+ ec619a1aed8ed01d2e1951dbe2f9347c65a76432aa245374463f96231a09e5fd73f7f6157f3b3e4253de91d9be17ced8ed6e292b93888d8448bad2026a077a5e             1195 main/binary-amd64/Packages.gz
+ a91ce706a57f512827f46df89d00455927d5c4cd666d173279cd2bf855193de4187db34339e5ad57cc3e29c70561f72680f4e0cff2841fea339511f68c97b152             3859 main/binary-arm64/Packages
+ a8ec220e8796f12c86c40b218bef49b1ed4679a5ac23a3658f4615dae5199e3b402d37faf80aa14ad9139bf961d71fe3d8dbd1d39c5d61037ed74fc4c866b795             1231 main/binary-arm64/Packages.gz

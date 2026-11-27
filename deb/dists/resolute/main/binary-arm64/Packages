@@ -1,0 +1,63 @@
+Package: geo-photo-library
+Architecture: arm64
+Version: 1.3.9-1~ubuntu26.04
+Priority: optional
+Section: graphics
+Maintainer: Leonid Nasedkin <leonidnasedkin@gmail.com>
+Installed-Size: 6316
+Depends: libc6 (>= 2.35), libcairo-gobject2 (>= 1.10.0), libcairo2 (>= 1.2.4), libgcc-s1 (>= 4.2), libgdk-pixbuf-2.0-0 (>= 2.22.0), libglib2.0-0t64 (>= 2.54.0), libgraphene-1.0-0 (>= 1.5.4), libgtk-4-1 (>= 4.12.0), libheif1 (>= 1.13.0), libpango-1.0-0 (>= 1.14.0), libshumate-1.0-1 (>= 1.0.0~alpha.1+20220818), libsoup-3.0-0 (>= 3.0.3), hicolor-icon-theme
+Recommends: libheif-plugin-libde265
+Filename: pool/resolute/geo-photo-library_1.3.9-1~ubuntu26.04_arm64.deb
+Size: 2480490
+MD5sum: 552dca8a61b2b639094bd5153a6f7885
+SHA1: 8bc5b16ba6a2130223a449bb36508d0f85635822
+SHA256: 2854ba9a679c9e17f7456556946239f631848ac95c3e60fbe00626cc5030e132
+SHA512: 92acd06210d27b823b86f737d7c381a2cef622bd1a7bbb1344bda9aa0c35a4f2409ffafa7a0b80616a74dd86a3c85b6219202b51347ab1a9618957a74f9e7d0c
+Homepage: https://github.com/EvilX/geo-photo-library
+Description: Photo catalog with map search by EXIF GPS coordinates
+ GeoPhotoLibrary indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),
+ shows them in a year/month/day tree and places them on an OpenStreetMap map
+ using GPS coordinates from EXIF metadata.
+
+Package: geo-photo-library
+Architecture: arm64
+Version: 1.4.0-1~ubuntu26.04
+Priority: optional
+Section: graphics
+Maintainer: Leonid Nasedkin <leonidnasedkin@gmail.com>
+Installed-Size: 6572
+Depends: libc6 (>= 2.39), libcairo-gobject2 (>= 1.10.0), libcairo2 (>= 1.2.4), libgcc-s1 (>= 4.2), libgdk-pixbuf-2.0-0 (>= 2.22.0), libglib2.0-0t64 (>= 2.54.0), libgraphene-1.0-0 (>= 1.5.4), libgtk-4-1 (>= 4.12.0), libheif1 (>= 1.13.0), libpango-1.0-0 (>= 1.14.0), libshumate-1.0-1 (>= 1.0.0~alpha.1+20220818), libsoup-3.0-0 (>= 3.0.3), hicolor-icon-theme
+Recommends: libheif-plugin-libde265, ffmpeg
+Filename: pool/resolute/geo-photo-library_1.4.0-1~ubuntu26.04_arm64.deb
+Size: 2558680
+MD5sum: ce8f64595e85eae19efebb43fe641e6a
+SHA1: f92d1f61a001e6e8f4a6fa64baba3cce91ed2431
+SHA256: 7fe14cd6b3e6c9aa29ad9f80eeb663a2c4d46ff435853c6bc3289f2b169749c2
+SHA512: a710ea528934a445fac393cb4898d80ace5dda3123c7ac06fb08b8fb63dd3a0f4ce375fea6f7abaa003eedb2d2b64dbc5e4a2a9532b2bb68576574de162379f4
+Homepage: https://github.com/EvilX/geo-photo-library
+Description: Photo catalog with map search by EXIF GPS coordinates
+ GeoPhotoLibrary indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),
+ shows them in a year/month/day tree and places them on an OpenStreetMap map
+ using GPS coordinates from EXIF metadata.
+
+Package: geo-photo-library
+Architecture: arm64
+Version: 1.4.1-1~ubuntu26.04
+Priority: optional
+Section: graphics
+Maintainer: Leonid Nasedkin <leonidnasedkin@gmail.com>
+Installed-Size: 6700
+Depends: libc6 (>= 2.39), libcairo-gobject2 (>= 1.10.0), libcairo2 (>= 1.2.4), libgcc-s1 (>= 4.2), libgdk-pixbuf-2.0-0 (>= 2.22.0), libglib2.0-0t64 (>= 2.54.0), libgraphene-1.0-0 (>= 1.5.4), libgtk-4-1 (>= 4.12.0), libheif1 (>= 1.13.0), libpango-1.0-0 (>= 1.14.0), libshumate-1.0-1 (>= 1.0.0~alpha.1+20220818), libsoup-3.0-0 (>= 3.0.3), hicolor-icon-theme
+Recommends: libheif-plugin-libde265, ffmpeg
+Filename: pool/resolute/geo-photo-library_1.4.1-1~ubuntu26.04_arm64.deb
+Size: 2595788
+MD5sum: d7ffbd868b78715875a851ddbaaa5245
+SHA1: 0ae8b054df07b7c524d7aeb27e7bc1cd20ccc2b9
+SHA256: 9d08f504e1e22df47318acc455ac1b5352549a11f03c994ad60017b62f87e55a
+SHA512: 9455ba280e56fde8d1de763362d890dec8b0b087f40a14de96865fe1265a82d015f807a6d12b60a77f87ae3828c05b622395bcc7a14e876a749164403de278fd
+Homepage: https://github.com/EvilX/geo-photo-library
+Description: Photo catalog with map search by EXIF GPS coordinates
+ GeoPhotoLibrary indexes a folder of photos (JPEG, HEIC, PNG, WebP, TIFF),
+ shows them in a year/month/day tree and places them on an OpenStreetMap map
+ using GPS coordinates from EXIF metadata.
+

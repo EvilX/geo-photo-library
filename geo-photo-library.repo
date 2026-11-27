@@ -1,0 +1,7 @@
+[geo-photo-library]
+name=GeoPhotoLibrary
+baseurl=https://evilx.github.io/geo-photo-library/rpm/fedora/$releasever/$basearch/
+enabled=1
+repo_gpgcheck=1
+gpgcheck=1
+gpgkey=https://evilx.github.io/geo-photo-library/key.asc

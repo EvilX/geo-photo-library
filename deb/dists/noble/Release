@@ -1,0 +1,31 @@
+Architectures: amd64 arm64
+Codename: noble
+Components: main
+Date: Fri, 27 Nov 2026 14:47:57 +0000
+Label: geo-photo-library
+Origin: geo-photo-library
+Suite: noble
+MD5Sum:
+ 6cb67ac123edfc7953042681fdcc04c6              162 Release
+ 691af0a325c8f5bb46a97eeadd62ced0             3574 main/binary-amd64/Packages
+ eaf71b3bb571f260a3b7dc0742ce4e51             1194 main/binary-amd64/Packages.gz
+ a806e28c0f6ba28a468ed104361d3a57             3850 main/binary-arm64/Packages
+ bfcdd1af47fda54feea61616b3f896f1             1233 main/binary-arm64/Packages.gz
+SHA1:
+ 303e8582a782f94b6d08da6e277eea8f6f52b4f8              162 Release
+ a99ac280a1d3d383faee9718ec4724962fb1c49d             3574 main/binary-amd64/Packages
+ 69f779421694227b4bb10df99c8ce1fa4c930ec7             1194 main/binary-amd64/Packages.gz
+ 1af3fc7f49653eb59274f901d495be2d26c0038c             3850 main/binary-arm64/Packages
+ 9bfc9ce0f6be03d103ce0594a6583031aca24d06             1233 main/binary-arm64/Packages.gz
+SHA256:
+ 673523026deac70767c9615f696418d1597fb7370ddb90d97b1e9145cfc10ea8              162 Release
+ e25805065bfcddab22a3b8c6b579f84a87be062857860796c5da53f8cbde038c             3574 main/binary-amd64/Packages
+ fecf48ceb94a827e398a876b8f5810fa5171ff66618d0719a80aa2f340e3b969             1194 main/binary-amd64/Packages.gz
+ eadc3539ec6d4a6e735a23a8120bae79b167fa0c7e38a7043945e30ccbe06865             3850 main/binary-arm64/Packages
+ 4bebc3d24ffed2661dda9410d5bddff082df0feeda6a4fa871310ee413c09e55             1233 main/binary-arm64/Packages.gz
+SHA512:
+ 1c4dadde2751d7fa2be3feec02a02787218645707aaed302e2ed4f320e32041f14c00371f7052405860c83db049126999f693e32ec1fa7e7c4be5f717639dd46              162 Release
+ 35f4bacf06e871b5a2b46367e8dee6777bfa0b8be591a3b485a997d453c06a4e180e932f82755c2b3a9231bbf4441e639abf6921b683ba666c5659f5d17e544e             3574 main/binary-amd64/Packages
+ dda4301f1f9374e6553f23abb13d4dbabbc921596fccd01214d3940d3b40aade0764089506dc7cbbc676a6be47ef0b7d549f357d16a6b3966c3fab3c075fd59d             1194 main/binary-amd64/Packages.gz
+ 224abcfe39990ce87981c0c8dc6cb71f6c9c017b0fdff7187682e8f3d6c1adb9ed783c07acd7f593e98d004ab1cebb68f621e15a960ee9dc27fdf6279d0b671b             3850 main/binary-arm64/Packages
+ 0f50bc6b6d0a901947925badb11d4c835454d06af9b300a0da0982875a86f2f0ac159add8e190eba08274640c44099aae9e9ddf065b9dcdd99d4c1573868ab26             1233 main/binary-arm64/Packages.gz
