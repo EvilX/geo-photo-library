@@ -3,7 +3,7 @@
 %global app_id io.github.EvilX.GeoPhotoLibrary
 
 Name:           geo-photo-library
-Version:        1.4.0
+Version:        1.4.1
 Release:        1%{?dist}
 Summary:        Photo catalog with map search by EXIF GPS coordinates
 License:        Apache-2.0
@@ -64,6 +64,18 @@ cargo test --release --offline --locked
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Fri Nov 27 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.4.1-1
+- The scanner no longer drops records when a folder cannot be read or the library mount point
+  is empty; missing thumbnails are recreated
+- EXIF writes: progress, no concurrent writes to the same files, symlinks are followed,
+  failures are reported as "saved N, failed M"
+- The date tab keeps the selection and scroll position on reload; collapsing a year in the map
+  date filter keeps the period; "Show on map" resets the filter when the photo is outside it
+- Keyboard in the photo grid: Delete, Ctrl+C, Menu/Shift+F10, F5
+- The EXIF editor highlights an invalid coordinate and warns about files it cannot write
+- Thumbnails that are no longer needed are not decoded while scrolling; nothing is reloaded
+  after a scan that changed nothing
+
 * Fri Nov 27 2026 Leonid Nasedkin <leonidnasedkin@gmail.com> - 1.4.0-1
 - Videos (MP4, MOV, M4V, 3GP, MKV, WebM, AVI, MTS) in the library: shown by date with a frame
   thumbnail and duration; they have no coordinates and open in the default player
